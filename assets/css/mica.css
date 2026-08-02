@@ -1,0 +1,1032 @@
+/* =====================================================================
+   MICA (Medical Intelligent Clinic Assistant) - Voice UI Styles
+   Design: Glassmorphism | Pulse Animations | Waveform
+   ===================================================================== */
+
+/* ------------------------------------------------------------------ */
+/* CSS Variables                                                      */
+/* ------------------------------------------------------------------ */
+:root {
+  --mica-primary: #0B6B3A;
+  --mica-primary-dark: #08522C;
+  --mica-primary-light: rgba(11, 107, 58, 0.15);
+  --mica-accent: #22C55E;
+  --mica-accent-light: rgba(34, 197, 94, 0.2);
+  --mica-glow: rgba(34, 197, 94, 0.4);
+  --mica-bg: rgba(255, 255, 255, 0.92);
+  --mica-bg-dark: rgba(30, 36, 51, 0.92);
+  --mica-border: rgba(255, 255, 255, 0.25);
+  --mica-border-dark: rgba(42, 48, 64, 0.6);
+  --mica-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --mica-text: #1A1F2B;
+  --mica-text-secondary: #5A6573;
+  --mica-radius: 16px;
+  --mica-avatar-size: 80px;
+}
+
+[data-theme="dark"] {
+  --mica-bg: var(--mica-bg-dark);
+  --mica-border: var(--mica-border-dark);
+  --mica-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --mica-text: #E8ECF1;
+  --mica-text-secondary: #9CA3B0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Floating MICA Button                                               */
+/* ------------------------------------------------------------------ */
+.mica-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483000 !important;
+  height: 48px;
+  border-radius: 50px;
+  border: none;
+  background: linear-gradient(135deg, var(--mica-primary) 0%, var(--mica-accent) 100%);
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(11, 107, 58, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 16px;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: micaFabAppear 0.5s ease-out;
+  overflow: hidden;
+}
+
+.mica-fab-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mica-fab-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.3s;
+}
+
+.mica-fab:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 30px rgba(11, 107, 58, 0.45);
+}
+
+.mica-fab:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Pulse ring around the FAB */
+.mica-fab::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50px;
+  border: 2px solid var(--mica-accent);
+  animation: micaPulseRing 2s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes micaPulseRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes micaFabAppear {
+  from {
+    opacity: 0;
+    transform: scale(0) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* FAB state: listening */
+.mica-fab.listening {
+  background: linear-gradient(135deg, #DC3545 0%, #EF4444 100%);
+  animation: micaFabPulse 1s ease-in-out infinite;
+}
+.mica-fab.listening::before {
+  border-color: #EF4444;
+}
+
+@keyframes micaFabPulse {
+  0%, 100% {
+    box-shadow: 0 4px 20px rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow: 0 4px 30px rgba(239, 68, 68, 0.55);
+  }
+}
+
+/* FAB state: speaking */
+.mica-fab.speaking {
+  background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%);
+}
+.mica-fab.speaking::before {
+  border-color: #3B82F6;
+}
+
+/* FAB state: thinking */
+.mica-fab.thinking {
+  pointer-events: none;
+}
+.mica-fab.thinking .mica-fab-icon {
+  animation: micaSpin 1s linear infinite;
+}
+
+@keyframes micaSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ------------------------------------------------------------------ */
+/* MICA Voice Widget Panel                                            */
+/* ------------------------------------------------------------------ */
+.mica-widget {
+  position: fixed;
+  bottom: 96px;
+  right: 24px;
+  z-index: 2147482990 !important;
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  max-height: 560px;
+  background: var(--mica-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--mica-border);
+  border-radius: var(--mica-radius);
+  box-shadow: var(--mica-shadow);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  transform-origin: bottom right;
+  animation: micaWidgetIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.mica-widget.open {
+  display: flex;
+}
+
+@keyframes micaWidgetIn {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Widget Header */
+.mica-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--mica-border);
+  flex-shrink: 0;
+}
+
+.mica-widget-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mica-widget-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--mica-text);
+}
+
+.mica-widget-subtitle {
+  font-size: 0.7rem;
+  color: var(--mica-text-secondary);
+}
+
+.mica-widget-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--mica-text-secondary);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.mica-widget-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--mica-text);
+}
+
+[data-theme="dark"] .mica-widget-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Widget Body */
+.mica-widget-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scroll-behavior: smooth;
+}
+
+.mica-widget-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.mica-widget-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+
+[data-theme="dark"] .mica-widget-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ------------------------------------------------------------------ */
+/* MICA Avatar                                                        */
+/* ------------------------------------------------------------------ */
+.mica-avatar-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0 8px;
+}
+
+.mica-avatar {
+  position: relative;
+  width: var(--mica-avatar-size);
+  height: var(--mica-avatar-size);
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--mica-primary) 0%, var(--mica-accent) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(11, 107, 58, 0.25);
+  transition: all 0.3s;
+}
+
+/* Glow ring around avatar */
+.mica-avatar::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--mica-accent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+/* Avatar state: idle - soft pulse */
+.mica-state-idle .mica-avatar::after {
+  opacity: 0.4;
+  animation: micaGlowPulse 3s ease-in-out infinite;
+}
+
+@keyframes micaGlowPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.6;
+  }
+}
+
+/* Avatar state: listening - red glow pulse */
+.mica-state-listening .mica-avatar {
+  background: linear-gradient(135deg, #DC3545 0%, #EF4444 100%);
+  box-shadow: 0 4px 24px rgba(239, 68, 68, 0.35);
+}
+.mica-state-listening .mica-avatar::after {
+  opacity: 0.7;
+  border-color: #EF4444;
+  animation: micaListeningPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes micaListeningPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.8;
+  }
+}
+
+/* Avatar state: speaking - blue glow */
+.mica-state-speaking .mica-avatar {
+  background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%);
+  box-shadow: 0 4px 24px rgba(59, 130, 246, 0.35);
+}
+.mica-state-speaking .mica-avatar::after {
+  opacity: 0.7;
+  border-color: #3B82F6;
+  animation: micaSpeakingPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes micaSpeakingPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+/* Avatar state: thinking - spinner */
+.mica-state-thinking .mica-avatar {
+  animation: micaThinkBounce 1.2s ease-in-out infinite;
+}
+.mica-state-thinking .mica-avatar-icon {
+  animation: micaSpin 1s linear infinite;
+}
+
+@keyframes micaThinkBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* Avatar status text */
+.mica-status-text {
+  font-size: 0.72rem;
+  color: var(--mica-text-secondary);
+  margin-top: 10px;
+  font-weight: 500;
+}
+
+.mica-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.mica-status-dot.idle { background: var(--mica-accent); }
+.mica-status-dot.listening { background: #EF4444; animation: micaBlink 0.5s ease-in-out infinite; }
+.mica-status-dot.speaking { background: #3B82F6; }
+.mica-status-dot.thinking { background: var(--mica-accent); }
+
+@keyframes micaBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Waveform Animation                                                 */
+/* ------------------------------------------------------------------ */
+.mica-waveform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 32px;
+  margin-top: 4px;
+}
+
+.mica-waveform-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--mica-accent);
+  transition: height 0.15s ease;
+}
+
+/* Waveform idle - minimal */
+.mica-state-idle .mica-waveform-bar {
+  height: 4px;
+  animation: none;
+}
+
+/* Waveform listening - animated red */
+.mica-state-listening .mica-waveform-bar {
+  background: #EF4444;
+  animation: micaWaveformActive 0.5s ease-in-out infinite alternate;
+}
+
+.mica-state-listening .mica-waveform-bar:nth-child(1) { animation-delay: 0s; }
+.mica-state-listening .mica-waveform-bar:nth-child(2) { animation-delay: 0.05s; }
+.mica-state-listening .mica-waveform-bar:nth-child(3) { animation-delay: 0.1s; }
+.mica-state-listening .mica-waveform-bar:nth-child(4) { animation-delay: 0.15s; }
+.mica-state-listening .mica-waveform-bar:nth-child(5) { animation-delay: 0.2s; }
+.mica-state-listening .mica-waveform-bar:nth-child(6) { animation-delay: 0.25s; }
+.mica-state-listening .mica-waveform-bar:nth-child(7) { animation-delay: 0.3s; }
+.mica-state-listening .mica-waveform-bar:nth-child(8) { animation-delay: 0.35s; }
+.mica-state-listening .mica-waveform-bar:nth-child(9) { animation-delay: 0.4s; }
+.mica-state-listening .mica-waveform-bar:nth-child(10) { animation-delay: 0.45s; }
+.mica-state-listening .mica-waveform-bar:nth-child(11) { animation-delay: 0.5s; }
+.mica-state-listening .mica-waveform-bar:nth-child(12) { animation-delay: 0.55s; }
+
+/* Waveform speaking - animated blue */
+.mica-state-speaking .mica-waveform-bar {
+  background: #3B82F6;
+  animation: micaWaveformActive 0.8s ease-in-out infinite alternate;
+}
+
+.mica-state-speaking .mica-waveform-bar:nth-child(1) { animation-delay: 0s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(2) { animation-delay: 0.07s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(3) { animation-delay: 0.14s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(4) { animation-delay: 0.21s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(5) { animation-delay: 0.28s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(6) { animation-delay: 0.35s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(7) { animation-delay: 0.42s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(8) { animation-delay: 0.49s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(9) { animation-delay: 0.56s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(10) { animation-delay: 0.63s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(11) { animation-delay: 0.7s; }
+.mica-state-speaking .mica-waveform-bar:nth-child(12) { animation-delay: 0.77s; }
+
+@keyframes micaWaveformActive {
+  0% {
+    height: 4px;
+  }
+  50% {
+    height: 24px;
+  }
+  100% {
+    height: 6px;
+  }
+}
+
+/* Waveform thinking - subtle green */
+.mica-state-thinking .mica-waveform-bar {
+  height: 4px;
+  animation: micaWaveformThinking 1s ease-in-out infinite;
+}
+
+@keyframes micaWaveformThinking {
+  0%, 100% { height: 4px; }
+  50% { height: 14px; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Chat Messages in Widget                                            */
+/* ------------------------------------------------------------------ */
+.mica-message {
+  display: flex;
+  gap: 8px;
+  animation: micaMsgIn 0.3s ease-out;
+}
+
+@keyframes micaMsgIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mica-message.mica-user {
+  justify-content: flex-end;
+}
+
+.mica-message.mica-ai {
+  justify-content: flex-start;
+}
+
+.mica-bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  word-wrap: break-word;
+}
+
+.mica-user .mica-bubble {
+  background: var(--mica-primary);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.mica-ai .mica-bubble {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--mica-text);
+  border-bottom-left-radius: 4px;
+}
+
+[data-theme="dark"] .mica-ai .mica-bubble {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mica-bubble p {
+  margin-bottom: 4px;
+}
+
+.mica-bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.mica-bubble strong {
+  font-weight: 600;
+}
+
+.mica-bubble-time {
+  font-size: 0.6rem;
+  color: var(--mica-text-secondary);
+  opacity: 0.7;
+  margin-top: 4px;
+  text-align: right;
+}
+
+/* Speaking indicator on AI bubbles */
+.mica-speaking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.mica-speaking-indicator span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--mica-accent);
+  animation: micaSpeakingDot 0.8s ease-in-out infinite;
+}
+
+.mica-speaking-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.mica-speaking-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes micaSpeakingDot {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Widget Input Area                                                  */
+/* ------------------------------------------------------------------ */
+.mica-widget-footer {
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--mica-border);
+  flex-shrink: 0;
+}
+
+.mica-input-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mica-input {
+  flex: 1;
+  border: 1.5px solid transparent;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 24px;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  color: var(--mica-text);
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+}
+
+[data-theme="dark"] .mica-input {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mica-input:focus {
+  border-color: var(--mica-primary);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="dark"] .mica-input:focus {
+  background: rgba(42, 48, 64, 0.6);
+}
+
+.mica-input::placeholder {
+  color: var(--mica-text-secondary);
+  opacity: 0.6;
+}
+
+.mica-mic-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--mica-primary);
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.mica-mic-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(11, 107, 58, 0.3);
+}
+
+.mica-mic-btn:active {
+  transform: scale(0.95);
+}
+
+/* Mic button state: listening */
+.mica-mic-btn.listening {
+  background: #DC3545;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  animation: micaFabPulse 1s ease-in-out infinite;
+}
+
+.mica-send-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--mica-primary);
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.mica-send-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(11, 107, 58, 0.3);
+}
+
+.mica-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Quick action chips                                                 */
+/* ------------------------------------------------------------------ */
+.mica-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 18px 2px;
+  flex-shrink: 0;
+}
+
+.mica-chip {
+  font-size: 0.7rem;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--mica-border);
+  background: transparent;
+  color: var(--mica-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.mica-chip:hover {
+  border-color: var(--mica-primary);
+  color: var(--mica-primary);
+  background: var(--mica-primary-light);
+}
+
+/* ------------------------------------------------------------------ */
+/* Typing Indicator in Widget                                         */
+/* ------------------------------------------------------------------ */
+.mica-typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.mica-typing-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.mica-typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mica-text-secondary);
+  animation: micaTypingDot 1.2s ease-in-out infinite;
+}
+
+.mica-typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.mica-typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes micaTypingDot {
+  0%, 100% {
+    transform: scale(0.8);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive                                                         */
+/* ------------------------------------------------------------------ */
+@media (max-width: 480px) {
+  .mica-fab {
+    bottom: 16px;
+    right: 16px;
+    height: 44px;
+    font-size: 1.2rem;
+    padding: 0 14px;
+    gap: 4px;
+  }
+
+  .mica-fab-text {
+    font-size: 0.75rem;
+  }
+
+  .mica-widget {
+    bottom: 78px;
+    right: 12px;
+    width: calc(100vw - 24px);
+    max-height: 480px;
+  }
+
+  .mica-avatar {
+    width: 64px;
+    height: 64px;
+    font-size: 1.8rem;
+  }
+
+  .mica-widget-body {
+    padding: 12px 14px;
+  }
+}
+
+/* When sidebar is open on mobile, adjust */
+@media (max-width: 1199.98px) {
+  .mica-fab {
+    bottom: 20px;
+    right: 20px;
+  }
+   .mica-widget {
+     bottom: 88px;
+     right: 20px;
+   }
+ }
+
+/* ------------------------------------------------------------------ */
+/* Notification Badge                                                 */
+/* ------------------------------------------------------------------ */
+.mica-notif-badge {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: #EF4444;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: micaBadgePulse 2s ease-in-out infinite;
+}
+
+@keyframes micaBadgePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+/* ------------------------------------------------------------------ */
+/* Header Action Buttons                                              */
+/* ------------------------------------------------------------------ */
+.mica-header-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--mica-text-secondary);
+  font-size: 1.05rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.mica-header-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--mica-text);
+}
+
+[data-theme="dark"] .mica-header-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ------------------------------------------------------------------ */
+/* Quick Action Buttons                                               */
+/* ------------------------------------------------------------------ */
+.mica-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px 4px;
+  flex-shrink: 0;
+}
+
+.mica-qa-btn {
+  flex: 1 0 calc(50% - 6px);
+  min-width: 0;
+  padding: 10px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--mica-border);
+  background: transparent;
+  color: var(--mica-text);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.2s;
+}
+
+.mica-qa-btn:hover {
+  background: var(--mica-primary-light);
+  color: var(--mica-primary);
+  transform: translateY(-1px);
+}
+
+.mica-qa-btn-danger {
+  color: #DC3545;
+  border-color: #FECACA;
+}
+
+.mica-qa-btn-danger:hover {
+  background: rgba(220, 53, 69, 0.1);
+  color: #DC3545;
+}
+
+/* Hide quick actions when widget is open and messages exist */
+.mica-widget.open .mica-quick-actions {
+  border-top: 1px solid var(--mica-border);
+  border-bottom: 1px solid var(--mica-border);
+}
+
+/* ------------------------------------------------------------------ */
+/* Continuous Mode Indicator                                          */
+/* ------------------------------------------------------------------ */
+.mica-continuous-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  font-size: 0.72rem;
+  color: var(--mica-text-secondary);
+  background: var(--mica-primary-light);
+  flex-shrink: 0;
+}
+
+.mica-continuous-indicator i {
+  font-size: 0.9rem;
+  color: var(--mica-primary);
+}
+
+/* ------------------------------------------------------------------ */
+/* Status text in header context                                      */
+/* ------------------------------------------------------------------ */
+.mica-widget-header .mica-status-text {
+  margin-top: 0;
+  font-size: 0.7rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* NEW: MICA header avatar (small, beside title)                      */
+/* ------------------------------------------------------------------ */
+.mica-header-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--mica-primary) 0%, var(--mica-accent) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(11, 107, 58, 0.25);
+}
+
+/* ------------------------------------------------------------------ */
+/* NEW: MICA widget minimized / transition                            */
+/* ------------------------------------------------------------------ */
+.mica-widget.open {
+  animation: micaWidgetIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ------------------------------------------------------------------ */
+/* NEW: MICA code block + inline code (markdown support)              */
+/* ------------------------------------------------------------------ */
+.mica-code {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  margin: 6px 0;
+  font-family: 'Courier New', monospace;
+}
+
+[data-theme="dark"] .mica-code {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mica-bubble code {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.78rem;
+  font-family: 'Courier New', monospace;
+}
+
+[data-theme="dark"] .mica-bubble code {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ------------------------------------------------------------------ */
+/* NEW: Header button emphasized (close/minimize hover)               */
+/* ------------------------------------------------------------------ */
+.mica-header-btn.primary-hover:hover {
+  color: var(--mica-primary);
+}
+
+/* ------------------------------------------------------------------ */
+/* NEW: FAB dragging state                                            */
+/* ------------------------------------------------------------------ */
+.mica-fab.dragging {
+  transition: none;
+  cursor: grabbing;
+  opacity: 0.9;
+  transform: scale(1.05);
+}
+
+/* ------------------------------------------------------------------ */
+/* NEW: Widget body scrollbar (webkit) refined                        */
+/* ------------------------------------------------------------------ */
+.mica-widget-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
