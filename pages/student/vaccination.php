@@ -13,7 +13,7 @@ $pageTitle = 'Vaccination Record';
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area">
       <div class="card p-3">
-            <h6 class="section-title mb-3"><i class="bi bi-syringe text-success me-1"></i> My Vaccination Record</h6>
+            <h6 class="section-title mb-3"><i class="bi bi-shield-check text-success me-1"></i> My Vaccination Record</h6>
         <div class="table-responsive">
           <table class="table table-hover align-middle" id="vacTable" style="width:100%">
             <thead><tr><th>Vaccine</th><th>Dose No.</th><th>Date Administered</th><th>Administered By</th><th>Next Dose</th></tr></thead>

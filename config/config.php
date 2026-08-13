@@ -3,22 +3,12 @@
  * Global application configuration
  */
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path'     => '/',
-        'httponly' => true,
-        'samesite' => 'Lax',
-    ]);
-    session_start();
-}
-
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
-define('APP_NAME', 'AI-Powered School Clinic Management System with Health Monitoring and Appointment Assistance');
-define('APP_URL', 'http://localhost/bpc_clinic_system');
 define('BASE_PATH', dirname(__DIR__));
+define('APP_NAME', 'AI-Powered School Clinic Management System with Health Monitoring and Appointment Assistance');
+define('APP_KEY', getenv('APP_KEY') ?: 'bpc_qr_ph1');
 
 // Theme colors (per client brief)
 define('THEME_PRIMARY', '#0E7A3E');
@@ -51,6 +41,34 @@ if (is_file($__envFile)) {
     }
 }
 
+// Resolve the public base URL dynamically so the application works from
+// XAMPP, local dev servers, and subdirectory deployments without hard-coding
+// a single hostname/path.
+$__appUrlFromEnv = getenv('APP_URL');
+if (empty($__appUrlFromEnv)) {
+    $scheme = 'http';
+    if ((!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')) {
+        $scheme = 'https';
+    }
+
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $docRoot = realpath($_SERVER['DOCUMENT_ROOT'] ?? '');
+    $appRoot = realpath(BASE_PATH);
+    $webBase = '';
+
+    if ($docRoot !== false && $appRoot !== false && str_starts_with($appRoot, $docRoot)) {
+        $relativeRoot = str_replace('\\', '/', substr($appRoot, strlen($docRoot)));
+        $relativeRoot = trim($relativeRoot, '/');
+        if ($relativeRoot !== '') {
+            $webBase = '/' . $relativeRoot;
+        }
+    }
+
+    $__appUrlFromEnv = $scheme . '://' . $host . $webBase;
+}
+
+define('APP_URL', trim($__appUrlFromEnv, '/'));
+
 // ============================================================
 // Load AI Configuration (must be loaded early so AI constants
 // are available throughout the system, especially for OpenRouter)
@@ -60,7 +78,18 @@ require_once __DIR__ . '/ai_config.php';
 require_once BASE_PATH . '/config/database.php';
 require_once BASE_PATH . '/includes/functions.php';
 require_once BASE_PATH . '/includes/csrf.php';
+require_once BASE_PATH . '/includes/security.php';
 require_once BASE_PATH . '/includes/auth.php';
+
+// Initialize session after security functions are loaded
+if (session_status() === PHP_SESSION_NONE) {
+    configure_secure_session();
+}
+
+// Send security headers on every request
+if (function_exists('send_security_headers')) {
+    send_security_headers();
+}
 
 set_error_handler('handle_error');
 set_exception_handler('handle_exception');

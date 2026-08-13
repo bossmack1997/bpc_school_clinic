@@ -19,18 +19,29 @@ $pageTitle = 'Reports';
             <form id="reportForm">
               <div class="mb-3">
                 <label class="form-label small fw-semibold">Report Type</label>
-                <select class="form-select" name="type" required>
+<select class="form-select" name="type" required>
                   <option value="appointments">Appointments Report</option>
                   <option value="consultations">Consultations Report</option>
                   <option value="inventory">Inventory Report</option>
                   <option value="health">Health Monitoring Report</option>
+                  <option value="qr_scan_logs">QR Scan Logs Report</option>
+                  <option value="daily_checkins">Daily Check-ins Report</option>
+                  <option value="walkin_stats">Walk-in Statistics Report</option>
+                  <option value="queue_reports">Queue Report</option>
+                  <option value="appointment_attendance">Appointment Attendance Report</option>
                 </select>
               </div>
               <div class="row g-2 mb-3">
                 <div class="col-6"><label class="form-label small">From</label><input type="date" class="form-control" name="from_date" value="<?= date('Y-m-01') ?>" required></div>
                 <div class="col-6"><label class="form-label small">To</label><input type="date" class="form-control" name="to_date" value="<?= date('Y-m-d') ?>" required></div>
               </div>
-<button class="btn btn-primary w-100" type="submit"><i class="bi bi-download me-1"></i> Generate</button>
+              <div class="d-grid gap-2">
+                <button class="btn btn-primary w-100" type="submit"><i class="bi bi-download me-1"></i> Generate</button>
+                <div class="btn-group w-100" role="group">
+                  <button class="btn btn-outline-success btn-sm" type="button" id="exportCsvBtn"><i class="bi bi-filetype-csv me-1"></i> Export CSV</button>
+                  <button class="btn btn-outline-success btn-sm" type="button" id="exportExcelBtn"><i class="bi bi-file-earmark-excel me-1"></i> Export Excel</button>
+                </div>
+              </div>
             </form>
           </div>
         </div>
@@ -62,6 +73,8 @@ $pageTitle = 'Reports';
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
+let currentReportData = [];
+let currentReportTitle = 'Report';
 
 $('#reportForm').on('submit', function (e) {
   e.preventDefault();
@@ -70,7 +83,9 @@ $('#reportForm').on('submit', function (e) {
     if (!res.success) { toastError(res.message); return; }
     $('#reportResult').show();
     $('#reportTitle').text(res.title + ' (' + res.from + ' to ' + res.to + ')');
-    const d = res.data;
+    currentReportTitle = res.title || 'Report';
+    currentReportData = res.data || [];
+    const d = currentReportData;
     if (d.length === 0) { $('#resultTable').find('thead, tbody').empty(); return; }
     const headers = Object.keys(d[0]);
     let thead = '<tr>' + headers.map(h => '<th>' + h.replace(/_/g,' ').replace(/\b\w/g, l => l.toUpperCase()) + '</th>').join('') + '</tr>';
@@ -78,6 +93,40 @@ $('#reportForm').on('submit', function (e) {
     $('#resultTable thead').html(thead);
     $('#resultTable tbody').html(tbody);
   }, 'json');
+});
+
+// ============================================================
+// Export current report as CSV (client-side)
+// ============================================================
+$('#exportCsvBtn').on('click', function () {
+  if (!currentReportData.length) { toastError('Generate a report first.'); return; }
+  const rows = currentReportData;
+  const headers = Object.keys(rows[0]);
+  const esc = v => String(v ?? '').replace(/"/g, '""');
+  let csv = headers.map(h => '"' + esc(h) + '"').join(',') + '\n';
+  rows.forEach(function (r) {
+    csv += headers.map(h => '"' + esc(r[h]) + '"').join(',') + '\n';
+  });
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = currentReportTitle.replace(/[^a-z0-9]+/gi, '_').toLowerCase() + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+});
+
+// ============================================================
+// Export current report as Excel (client-side SheetJS)
+// ============================================================
+$('#exportExcelBtn').on('click', function () {
+  if (!currentReportData.length) { toastError('Generate a report first.'); return; }
+  if (!window.XLSX) { toastError('Excel library not loaded.'); return; }
+  const ws = XLSX.utils.json_to_sheet(currentReportData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Report');
+  XLSX.writeFile(wb, currentReportTitle.replace(/[^a-z0-9]+/gi, '_').toLowerCase() + '.xlsx');
 });
 
 $.get(APP_URL + '/api/reports.php', { action: 'history' }, function (res) {

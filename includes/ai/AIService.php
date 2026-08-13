@@ -190,7 +190,7 @@ class AIService
         $lower = mb_strtolower($message);
 
         return match ($intent) {
-            'greeting' => "Hi there! 👋 I'm your BPC Clinic AI Health Assistant. I can help you with:\n\n• 🏥 **Wellness tips and health information**\n• 📅 **Appointment booking guidance**\n• 📋 **Clinic procedures info**\n• 💊 **Medicine and vaccination info**\n\nWhat would you like to know about?",
+             'greeting' => "Hi there! 👋 I'm MICA, your Medical Intelligent Clinic Assistant from BPC School Clinic.\n\nHow can I help you today? I can check your medical records, appointment status, BMI, vaccination history, medicine availability, and more. Just ask!",
 
             'medical_record' => "**Medical Records** 📄\n\nYour medical records include all your consultation history, diagnoses, treatments, and any uploaded documents.\n\n• **To view your records:** Go to the **Medical Record** section in your dashboard\n• You can see past consultations, doctor's notes, and treatments\n• Records are kept confidential and secure\n\nWould you like me to help you find something specific in your records?",
 

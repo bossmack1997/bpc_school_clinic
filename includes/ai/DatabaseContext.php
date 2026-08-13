@@ -391,6 +391,176 @@ class DatabaseContext
     }
 
     // ================================================================
+    // QR SCAN LOGS
+    // ================================================================
+
+    /**
+     * Get recent QR scan logs for the current context.
+     * Nurses see all recent scans; students see only their own.
+     *
+     * @return array
+     */
+    public function getRecentScanLogs(): array
+    {
+        $role = $this->getRole();
+
+        if ($role === 'student') {
+            $studentId = $this->getStudentId();
+            if (!$studentId) return [];
+            $stmt = $this->db->prepare("
+                SELECT purpose, scan_time, status, scan_location
+                FROM qr_scan_logs
+                WHERE student_id = ?
+                ORDER BY scan_time DESC
+                LIMIT 10
+            ");
+            $stmt->execute([$studentId]);
+            return $stmt->fetchAll();
+        }
+
+        if ($role === 'nurse') {
+            $stmt = $this->db->query("
+                SELECT qsl.purpose, qsl.scan_time, qsl.status, qsl.scan_location,
+                       u.first_name, u.last_name, s.student_number
+                FROM qr_scan_logs qsl
+                LEFT JOIN students s ON s.id = qsl.student_id
+                LEFT JOIN users u ON u.id = s.user_id
+                ORDER BY qsl.scan_time DESC
+                LIMIT 20
+            ");
+            return $stmt->fetchAll();
+        }
+
+        // Admin — analytics
+        $stmt = $this->db->query("
+            SELECT purpose, COUNT(*) AS cnt,
+                   SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful,
+                   SUM(CASE WHEN status = 'duplicate' THEN 1 ELSE 0 END) AS duplicates
+            FROM qr_scan_logs
+            GROUP BY purpose
+            ORDER BY cnt DESC
+        ");
+        return $stmt->fetchAll();
+    }
+
+    // ================================================================
+    // QUEUE NUMBERS
+    // ================================================================
+
+    /**
+     * Get current active queue numbers (nurse/admin only).
+     *
+     * @return array
+     */
+    public function getCurrentQueue(): array
+    {
+        $role = $this->getRole();
+        if ($role === 'student') return [];
+
+        $stmt = $this->db->query("
+            SELECT qn.queue_number, qn.visit_type, qn.status, qn.created_at,
+                   u.first_name, u.last_name, s.student_number
+            FROM queue_numbers qn
+            LEFT JOIN students s ON s.id = qn.student_id
+            LEFT JOIN users u ON u.id = s.user_id
+            WHERE qn.status IN ('waiting', 'serving')
+            ORDER BY qn.created_at ASC
+        ");
+        return $stmt->fetchAll();
+    }
+
+    // ================================================================
+    // STUDENT VISIT SUMMARY — For MICA AI context after QR scan
+    // ================================================================
+
+    /**
+     * Get a summary of the logged-in student's visit context for MICA.
+     * Returns queue_number, appointment status, last scan, recent vitals.
+     */
+    public function getStudentVisitSummary(): array
+    {
+        $role = $this->getRole();
+        if ($role !== 'student') return [];
+
+        $studentId = $this->getStudentId();
+        if (!$studentId) return [];
+
+        $summary = [];
+
+        // Active queue number
+        $stmt = $this->db->prepare("
+            SELECT queue_number, visit_type, status, created_at, estimated_wait_minutes
+            FROM queue_numbers
+            WHERE student_id = ? AND status IN ('waiting','serving')
+            ORDER BY created_at DESC LIMIT 1
+        ");
+        $stmt->execute([$studentId]);
+        $queue = $stmt->fetch();
+        if ($queue) {
+            $summary['active_queue'] = $queue;
+        }
+
+        // Today's appointment
+        $today = date('Y-m-d');
+        $stmt = $this->db->prepare("
+            SELECT appointment_time, reason, status
+            FROM appointments
+            WHERE student_id = ? AND appointment_date = ?
+            ORDER BY appointment_time ASC LIMIT 1
+        ");
+        $stmt->execute([$studentId, $today]);
+        $appt = $stmt->fetch();
+        if ($appt) {
+            $summary['today_appointment'] = $appt;
+        }
+
+        // Last QR scan
+        $stmt = $this->db->prepare("
+            SELECT purpose, scan_time, status, scan_location
+            FROM qr_scan_logs
+            WHERE student_id = ?
+            ORDER BY scan_time DESC LIMIT 1
+        ");
+        $stmt->execute([$studentId]);
+        $lastScan = $stmt->fetch();
+        if ($lastScan) {
+            $summary['last_scan'] = $lastScan;
+        }
+
+        // Latest BMI
+        $stmt = $this->db->prepare("
+            SELECT bmi, bmi_status, recorded_at
+            FROM health_monitoring
+            WHERE student_id = ? AND bmi IS NOT NULL
+            ORDER BY recorded_at DESC LIMIT 1
+        ");
+        $stmt->execute([$studentId]);
+        $bmi = $stmt->fetch();
+        if ($bmi) {
+            $summary['latest_bmi'] = $bmi;
+        }
+
+        return $summary;
+    }
+
+    // ================================================================
+    // QR SETTINGS
+    // ================================================================
+
+    /**
+     * Get all QR settings as a flat key => value map.
+     */
+    public function getQrSettings(): array
+    {
+        $stmt = $this->db->query("SELECT setting_key, setting_value FROM qr_settings");
+        $settings = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $settings[$row['setting_key']] = $row['setting_value'];
+        }
+        return $settings;
+    }
+
+    // ================================================================
     // GET ALL — Returns an array with all data types
     // ================================================================
 
@@ -404,7 +574,7 @@ class DatabaseContext
     {
         $result = [];
 
-        foreach (['medical_records', 'appointments', 'bmi_records', 'vaccinations', 'medicines', 'announcements'] as $key) {
+        foreach (['medical_records', 'appointments', 'bmi_records', 'vaccinations', 'medicines', 'announcements', 'scan_logs', 'current_queue', 'qr_settings'] as $key) {
             try {
                 $result[$key] = match ($key) {
                     'medical_records' => $this->getMedicalRecords(),
@@ -413,11 +583,21 @@ class DatabaseContext
                     'vaccinations'    => $this->getVaccinations(),
                     'medicines'       => $this->getMedicines(),
                     'announcements'   => $this->getAnnouncements(),
+                    'scan_logs'       => $this->getRecentScanLogs(),
+                    'current_queue'   => $this->getCurrentQueue(),
+                    'qr_settings'     => $this->getQrSettings(),
                 };
             } catch (PDOException $e) {
                 error_log('[MICA DB Error] Failed to fetch ' . $key . ': ' . $e->getMessage());
                 $result[$key] = [];
             }
+        }
+
+        try {
+            $result['student_visit'] = $this->getStudentVisitSummary();
+        } catch (PDOException $e) {
+            error_log('[MICA DB Error] Failed to fetch student_visit: ' . $e->getMessage());
+            $result['student_visit'] = [];
         }
 
         try {
@@ -516,6 +696,40 @@ class DatabaseContext
         if (!empty($schedule)) {
             $name = $schedule['clinic_name'] ?? 'BPC Clinic';
             $parts[] = "Clinic: {$name}";
+        }
+
+        // QR Scan Logs
+        $logs = $data['scan_logs'];
+        if (!empty($logs)) {
+            if ($role === 'admin') {
+                $parts[] = "QR Scans by Purpose: " . implode(', ', array_map(
+                    fn($l) => "{$l['purpose']}({$l['cnt']})", $logs
+                ));
+            } else {
+                $parts[] = "Recent QR Scans: " . count($logs);
+            }
+        }
+
+        // Current Queue
+        $queue = $data['current_queue'];
+        if (!empty($queue) && $role !== 'student') {
+            $parts[] = "Active Queue: " . count($queue) . " patients waiting/serving";
+        }
+
+        // Student Visit Summary (for MICA AI integration after QR scan)
+        $visit = $data['student_visit'] ?? [];
+        if (!empty($visit) && $role === 'student') {
+            if (isset($visit['active_queue'])) {
+                $parts[] = "Your Queue: " . $visit['active_queue']['queue_number'] .
+                           " (" . $visit['active_queue']['status'] . ")";
+            }
+            if (isset($visit['today_appointment'])) {
+                $parts[] = "Today's Appointment: " . $visit['today_appointment']['status'];
+            }
+            if (isset($visit['last_scan'])) {
+                $parts[] = "Last QR Scan: " . $visit['last_scan']['purpose'] .
+                           " at " . date('g:i A', strtotime($visit['last_scan']['scan_time']));
+            }
         }
 
         return implode("\n", $parts);

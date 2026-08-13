@@ -31,26 +31,30 @@ $sbNav = [
                 ['file-earmark-medical-fill', 'Medical Records', 'medical_records.php'],
                 ['calendar-check-fill', 'Appointments', 'appointments.php'],
             ],
-            'Clinic Services' => [
-                ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
-                ['file-earmark-bar-graph-fill', 'Reports', 'reports.php'],
-                ['graph-up-arrow', 'Health Analytics', 'analytics.php'],
-            ],
-            'Communication' => [
-                ['megaphone-fill', 'Announcements', 'announcements.php'],
-            ],
-            'Administration' => [
-                ['person-badge-fill', 'User Management', 'users.php'],
-                ['hourglass-split', 'Pending Accounts', 'pending_accounts.php'],
-                ['clock-history', 'Audit Logs', 'activity_logs.php'],
-                ['gear-fill', 'System Settings', 'settings.php'],
-            ],
-            'Account' => [
-                ['person-circle', 'Profile', 'profile.php'],
-                ['box-arrow-right', 'Logout', null, 'logout'],
-            ],
-        ],
-        'brand' => 'Management System',
+             'Clinic Services' => [
+               ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
+               ['file-earmark-bar-graph-fill', 'Reports', 'reports.php'],
+               ['graph-up', 'Health Analytics', 'analytics.php'],
+             ],
+             'Communication' => [
+                 ['bell-fill', 'Notifications', 'notifications.php'],
+                 ['megaphone-fill', 'Announcements', 'announcements.php'],
+             ],
+             'Administration' => [
+                 ['person-badge-fill', 'User Management', 'users.php'],
+                 ['hourglass-split', 'Pending Accounts', 'pending_accounts.php'],
+                 ['clock-history', 'Audit Logs', 'activity_logs.php'],
+                 ['gear-fill', 'System Settings', 'settings.php'],
+             ],
+              'QR System' => [
+                  ['qr-code', 'QR Management', 'qr_management.php'],
+              ],
+             'Account' => [
+                 ['person-circle', 'Profile', 'profile.php'],
+                 ['box-arrow-right', 'Logout', null, 'logout'],
+             ],
+         ],
+         'brand' => 'Management System',
     ],
 
     'nurse' => [
@@ -64,11 +68,16 @@ $sbNav = [
                 ['calendar-check-fill', 'Appointments', 'appointments.php'],
                 ['clock-history', 'Patient History', 'patient_history.php'],
             ],
-            'Health Services' => [
+            'Clinic Services' => [
                 ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
                 ['file-earmark-medical-fill', 'Medical Records', 'medical_records.php'],
-                ['prescription2', 'Medicine Dispensing', 'dispensing.php'],
+                // 'prescription2' is not available in all Bootstrap Icon versions — use 'capsule' for consistency
+                ['capsule', 'Medicine Dispensing', 'dispensing.php'],
                 ['file-medical-fill', 'Medical Certificates', 'certificates.php'],
+            ],
+            'QR' => [
+              ['qr-code-scan', 'QR Scanner', 'qr_scanner.php'],
+              ['qr-code', 'QR Management', 'qr_management.php'],
             ],
             'Inventory & Reports' => [
                 ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
@@ -90,11 +99,11 @@ $sbNav = [
             'Dashboard' => [
                 ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
             ],
-            'My Profile' => [
-                ['person-vcard-fill', 'Personal Information', 'personal_info.php'],
-                ['file-earmark-medical-fill', 'Medical Record', 'medical_record.php'],
-                ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
-                ['syringe', 'Vaccination Record', 'vaccination.php'],
+            'My Health' => [
+              ['qr-code', 'My QR Code', 'my_qr.php'],
+              ['file-earmark-medical-fill', 'Medical Record', 'medical_record.php'],
+              ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
+              ['shield-check', 'Vaccination Record', 'vaccination.php'],
             ],
             'Clinic Services' => [
                 ['calendar-check-fill', 'Appointment Booking', 'appointments.php'],
@@ -105,7 +114,7 @@ $sbNav = [
                 ['bell-fill', 'Notifications', 'notifications.php'],
             ],
             'Account' => [
-                ['person-gear', 'Profile Settings', 'profile.php'],
+                ['person-circle', 'Profile', 'profile.php'],
                 ['box-arrow-right', 'Logout', null, 'logout'],
             ],
         ],
@@ -128,17 +137,17 @@ $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
     </div>
   </div>
 
-  <!-- Collapse Toggle (Desktop) -->
+  <!-- Collapse Toggle (Desktop) 
   <button class="sidebar-toggle-collapse" title="Toggle Sidebar">
     <i class="bi bi-chevron-left"></i>
   </button>
-
+-->
   <!-- Navigation -->
   <nav class="sidebar-nav">
     <?php foreach ($sbMenus['sections'] as $sbSection => $sbItems): ?>
       <div class="nav-section-label"><?= e($sbSection) ?></div>
       <?php foreach ($sbItems as $sbItem): ?>
-        <?php
+<?php
         $sbIcon   = $sbItem[0];
         $sbLabel  = $sbItem[1];
         $sbFile   = $sbItem[2];
@@ -165,7 +174,7 @@ $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
     </div>
     <div class="info-item">
       <i class="bi bi-telephone-fill"></i>
-      <span>(044) 123-4567</span>
+      <span>09639958414</span>
     </div>
     <div class="info-item">
       <i class="bi bi-envelope-fill"></i>

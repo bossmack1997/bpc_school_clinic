@@ -143,7 +143,7 @@ $pageTitle = 'Nurse Dashboard';
           <div class="qa-sub-lg">Monitor student health</div>
         </a>
         <a href="dispensing.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-prescription2"></i></div>
+          <div class="qa-icon-lg"><i class="bi bi-capsule"></i></div>
           <div class="qa-title-lg">Dispense Medicine</div>
           <div class="qa-sub-lg">Issue medications</div>
         </a>

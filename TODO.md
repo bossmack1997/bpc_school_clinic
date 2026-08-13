@@ -1,28 +1,11 @@
-# BPC Clinic System — Reconstruction Task List
+# Smart Single QR System — Implementation TODO
 
-## Phase A — Remove MICA from sidebar & consolidate AI pages
-
-- [ ] A1: Remove 3 MICA nav entries from `components/sidebar.php`
-- [ ] A2: Create consolidated `pages/ai_assistant.php` (role-aware)
-- [ ] A3: Delete `pages/student/ai_assistant.php` + `pages/nurse/ai_assistant.php`
-
-## Phase B — Hybrid AI Voice State Machine
-
-- [ ] B1: `assets/js/mica.js` — `continuousMode:false`, `lastInputMode`, text never speaks, voice speaks then returns to idle, no auto-listen on open, female voice detection
-
-## Phase C — Notification system upgrade
-
-- [ ] C1: `api/notifications.php` — add `delete`, `unread_count`, SOS type
-- [ ] C2: `components/navbar.php` — dropdown with mark-read/delete, unread badge (CRLF → PHP patch)
-- [ ] C3: `assets/js/main.js` — polling every 20s, notification sound, SOS toast
-
-## Phase D — SOS workflow
-
-- [ ] D1: `api/ai_assistant.php` — `sos_list`, `sos_respond`, `sos_resolve`
-- [ ] D2: SOS inbox UI (nurse notifications + admin dashboard) with Google Maps link, student info, accept/resolve
-
-## Phase E — Cleanup
-
-- [ ] E1: Delete temp scripts (`_*.php`, `_clean_output.txt`)
-- [ ] E2: Update `config/ai_config.php` doc comment
-- [ ] E3: Update this TODO.md with final status
+1. [x] Database migration (`database/migration_smart_qr.sql`)
+2. [x] Add QR helper functions in `includes/functions.php` (smart scan, export, MICA greeting)
+3. [x] Add API actions in `api/qr_codes.php` (smart_scan, mark_arrived, qr_export, scan_intent helpers)
+4. [x] Update Nurse Scanner UI (`includes/qr_scanner_ui.php`) — Smart QR Workflow panel
+5. [x] Update QR Management UI (`includes/qr_management_ui.php`) — Export Logs + new status filters + analytics strip
+6. [x] Add QR report types + PDF/Excel/CSV export (`api/reports.php`, `pages/nurse/reports.php`, `pages/admin/reports.php`, `api/qr_codes.php` QR export)
+7. [x] MICA integration — post-scan greeting with queue info (via `build_mica_scan_greeting`)
+8. [ ] Update Student Health Pass (`pages/student/my_qr.php`) — new QR status display
+9. [ ] Test workflows (registration, check-in, walk-in, medicine, certificate, scanning)

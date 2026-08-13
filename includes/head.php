@@ -17,14 +17,18 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <!-- DataTables -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css">
+<!-- QR Code + SheetJS (Excel import) — vendored locally for offline reliability -->
+<script src="<?= app_url('assets/js/qrcode.min.js') ?>"></script>
+<script src="<?= app_url('assets/js/html5-qrcode.min.js') ?>"></script>
+<script src="<?= app_url('assets/js/xlsx.full.min.js') ?>"></script>
 <!-- SweetAlert2 -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 <!-- AOS Animation -->
 <link rel="stylesheet" href="https://unpkg.com/aos@2.3.1/dist/aos.css">
 <!-- App styles -->
-<link rel="stylesheet" href="<?= APP_URL ?>/assets/css/style.css">
+<link rel="stylesheet" href="<?= app_url('assets/css/style.css') ?>">
 <!-- MICA Voice AI Assistant styles -->
-<link rel="stylesheet" href="<?= APP_URL ?>/assets/css/mica.css">
+<link rel="stylesheet" href="<?= app_url('assets/css/mica.css') ?>">
 
 <script>const APP_URL = "<?= APP_URL ?>";</script>
 <!-- Moment.js for real-time clock -->

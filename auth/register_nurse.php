@@ -1,6 +1,11 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
 
+// Prevent caching of authentication pages
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
+
 if (is_logged_in()) {
     redirect(dashboard_url_for(current_user()['role']));
 }
@@ -39,6 +44,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if (!$certify) {
         $errors[] = 'You must certify that the information above is true.';
+    }
+
+    // Birthdate validation: must be a valid date and not in the future.
+    if ($dateOfBirth !== '') {
+        $bdate = DateTime::createFromFormat('Y-m-d', $dateOfBirth);
+        if (!$bdate || $bdate->format('Y-m-d') !== $dateOfBirth) {
+            $errors[] = 'Please enter a valid birthdate (YYYY-MM-DD).';
+        } elseif ($dateOfBirth > date('Y-m-d')) {
+            $errors[] = 'Birthdate cannot be a future date.';
+        }
     }
 
     if (!$errors) {
@@ -138,7 +153,7 @@ $pageTitle = 'Register as Nurse';
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Date of Birth *</label>
-            <input type="date" name="date_of_birth" class="form-control" required value="<?= e($old['date_of_birth'] ?? '') ?>">
+            <input type="date" name="date_of_birth" class="form-control" required max="<?= date('Y-m-d') ?>" value="<?= e($old['date_of_birth'] ?? '') ?>">
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Contact Number *</label>

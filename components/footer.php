@@ -19,15 +19,36 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
-<script src="<?= APP_URL ?>/assets/js/main.js"></script>
+<script src="<?= app_url('assets/js/main.js') ?>"></script>
 
 <?php if (isset($_SESSION['user_id']) || is_logged_in()): ?>
+<script>
+(function () {
+  'use strict';
+  function runDeferredInits() {
+    if (typeof window.__initInventoryUI === 'function') {
+      try { window.__initInventoryUI(); } catch (e) { console.warn('Inventory UI init failed:', e); }
+    }
+    if (typeof window.__initNotificationUI === 'function') {
+      try { window.__initNotificationUI(); } catch (e) { console.warn('Notification UI init failed:', e); }
+    }
+    if (typeof window.__initQrManagementUI === 'function') {
+      try { window.__initQrManagementUI(); } catch (e) { console.warn('QR Management UI init failed:', e); }
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', runDeferredInits);
+  } else {
+    runDeferredInits();
+  }
+})();
+</script>
 <!-- ================================================================== -->
 <!-- MICA Global Assistant (only on authenticated pages)              -->
 <!-- Single component include — one FAB, one widget, no duplicates.    -->
 <!-- ================================================================== -->
 <?php include __DIR__ . '/mica.php'; ?>
-<script src="<?= APP_URL ?>/assets/js/mica.js"></script>
+<script src="<?= app_url('assets/js/mica.js') ?>"></script>
 <script>
 (function () {
   'use strict';

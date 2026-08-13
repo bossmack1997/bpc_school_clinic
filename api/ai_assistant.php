@@ -20,7 +20,22 @@
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/ai/AIService.php';
-require_login();
+
+// AJAX-friendly authentication check.
+// Unlike require_login() which redirects (and breaks JSON responses),
+// this returns a proper 401 JSON response when the session has expired
+// or the request is unauthenticated.
+if (!is_logged_in()) {
+    attempt_remember_me_login();
+}
+if (!is_logged_in()) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'message' => 'Your session has expired. Please log in again.']);
+    exit;
+}
+check_session_timeout();
+
 header('Content-Type: application/json');
 
 $db = getDB();
@@ -68,7 +83,7 @@ function detectEmergency(string $message): bool {
 // ================================================================
 function processChatMessage(PDO $db, array $user, array $aiConfig, string $message, bool $debugMode): array {
     // Initialize AI Service
-    $aiService = new AIService($db, $user, $aiConfig);
+    $aiService = new AIService($db, $user, array_merge($aiConfig, ['page' => $_POST['page'] ?? $_GET['page'] ?? '']));
 
     // Log incoming request
     error_log('[MICA Request] user_id=' . ($user['id'] ?? 'unknown')
@@ -124,11 +139,20 @@ function processChatMessage(PDO $db, array $user, array $aiConfig, string $messa
     ];
 }
 
+// JSON-friendly CSRF check (replaces csrf_verify_or_die which dies with plain text)
+function require_csrf_json(): void {
+    $token = $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? '';
+    if (!csrf_verify($token)) {
+        http_response_code(403);
+        json_response(false, [], 'Invalid CSRF token. Please refresh the page and try again.');
+    }
+}
+
 // ================================================================
 // ACTION: chat — Process a user message through the AI pipeline
 // ================================================================
 if ($action === 'chat') {
-    csrf_verify_or_die();
+    require_csrf_json();
 
     $message = trim($_POST['message'] ?? '');
     if ($message === '') {
@@ -167,7 +191,7 @@ if ($action === 'chat') {
 // voice-enabled frontend (user first name, greeting format).
 // ================================================================
 if ($action === 'mica_chat') {
-    csrf_verify_or_die();
+    require_csrf_json();
 
     $message = trim($_POST['message'] ?? '');
     if ($message === '') {
@@ -184,9 +208,15 @@ if ($action === 'mica_chat') {
     $sosRequired = $isEmergency || ($result['intent'] === 'emergency');
 
     $userFirstName = $user['first_name'] ?? 'there';
-    $timeOfDay = (int)date('H');
-    if ($timeOfDay < 12) $greeting = 'Good morning';
-    elseif ($timeOfDay < 18) $greeting = 'Good afternoon';
+
+    $phTime = new DateTime('now', new DateTimeZone(defined('MICA_TIMEZONE') ? MICA_TIMEZONE : 'Asia/Manila'));
+    $timeOfDayInt = (int)$phTime->format('H');
+    // PH time-based greeting per spec:
+    //   05:00–11:59 → Good morning
+    //   12:00–17:59 → Good afternoon
+    //   18:00–04:59 → Good evening
+    if ($timeOfDayInt >= 5 && $timeOfDayInt < 12) $greeting = 'Good morning';
+    elseif ($timeOfDayInt >= 12 && $timeOfDayInt < 18) $greeting = 'Good afternoon';
     else $greeting = 'Good evening';
 
     $responseData = [
@@ -200,7 +230,7 @@ if ($action === 'mica_chat') {
         'service_message'  => $processed['service_message'],
         'mica'             => true,
         'user_first_name'  => $userFirstName,
-        'greeting'         => "{$greeting}, {$userFirstName}. I'm MICA, your Medical Intelligent Clinic Assistant. How can I help you today?",
+        'greeting' => $greeting . ', ' . $userFirstName . '. I am MICA, your Medical Intelligent Clinic Assistant from BPC. How can I help you today?',
     ];
 
     if ($debugMode && !empty($processed['debug'])) {
@@ -214,7 +244,7 @@ if ($action === 'mica_chat') {
 // ACTION: clear_history — Clear the user's chat history
 // ================================================================
 if ($action === 'clear_history') {
-    csrf_verify_or_die();
+    require_csrf_json();
 
     $aiService = new AIService($db, $user, $aiConfig);
     $aiService->getChatHistory()->clear();
@@ -241,7 +271,7 @@ if ($action === 'history') {
 // ACTION: sos_emergency — Submit an SOS Emergency alert
 // ================================================================
 if ($action === 'sos_emergency') {
-    csrf_verify_or_die();
+    require_csrf_json();
 
     $emergencyType = trim($_POST['emergency_type'] ?? '');
     $description   = trim($_POST['description'] ?? '');
@@ -343,7 +373,7 @@ if ($action === 'sos_emergency') {
 // existing push_notification() system.
 // ================================================================
 if ($action === 'sos_update_status') {
-    csrf_verify_or_die();
+    require_csrf_json();
     require_role(['nurse', 'admin']);
 
     $emergencyId = (int)($_POST['emergency_id'] ?? 0);
@@ -437,7 +467,7 @@ if ($action === 'sos_update_status') {
 // ================================================================
 // Legacy support (no action specified)
 // ================================================================
-csrf_verify_or_die();
+require_csrf_json();
 $message = trim($_POST['message'] ?? '');
 if ($message === '') {
     json_response(false, ['service_status' => 'error'], 'Please type a message.');

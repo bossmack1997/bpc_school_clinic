@@ -18,16 +18,21 @@ function require_login() {
     if (!is_logged_in()) {
         redirect(APP_URL . '/auth/login.php');
     }
-    check_session_timeout();
-}
-
-function check_session_timeout() {
-    $timeout = 3600;
-    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $timeout) {
+    if (!validate_session()) {
         logout_user();
         redirect(APP_URL . '/auth/login.php?timeout=1');
     }
-    $_SESSION['last_activity'] = time();
+    // Prevent caching of protected pages
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
+}
+
+function check_session_timeout() {
+    if (!validate_session()) {
+        logout_user();
+        redirect(APP_URL . '/auth/login.php?timeout=1');
+    }
 }
 
 function require_role($roles) {
@@ -55,24 +60,37 @@ function login_user(array $userRow) {
         'last_name'  => $userRow['last_name'],
         'profile_picture' => $userRow['profile_picture'],
     ];
-    session_regenerate_id(true);
+    $_SESSION['created'] = time();
+    $_SESSION['last_activity'] = time();
+    secure_session_regenerate_id();
 }
 
 function logout_user() {
     $userId = current_user()['id'] ?? null;
     if ($userId) {
-        $db = getDB();
-        $stmt = $db->prepare("UPDATE users SET remember_token = NULL WHERE id = ?");
-        $stmt->execute([$userId]);
-        log_activity($userId, 'Logged out', 'auth');
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("UPDATE users SET remember_token = NULL WHERE id = ?");
+            $stmt->execute([$userId]);
+            log_activity($userId, 'Logged out', 'auth');
+        } catch (Exception $e) {
+            error_log('logout_user DB error: ' . $e->getMessage());
+        }
     }
-    setcookie('remember_token', '', time() - 3600, '/');
-    setcookie('remember_uid', '', time() - 3600, '/');
+
+    // Clear remember-me cookies with proper path and params
+    setcookie('remember_token', '', time() - 3600, '/', '', false, true);
+    setcookie('remember_uid', '', time() - 3600, '/', '', false, true);
+
+    // Clear session data
     $_SESSION = [];
+
+    // Destroy session cookie
     if (ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 42000, $params['path']);
+        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'] ?? '', $params['secure'] ?? false, $params['httponly'] ?? true);
     }
+
     session_destroy();
 }
 

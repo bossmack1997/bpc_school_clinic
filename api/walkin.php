@@ -73,31 +73,48 @@ if ($action === 'search_students') {
 }
 
 // ================================================================
-// ACTION: Search student by QR code
+// ACTION: QR-based student check-in (uses centralized QR verification)
 // ================================================================
 if ($action === 'qr_checkin') {
     csrf_verify_or_die();
     $qrData = trim($_POST['qr_data'] ?? '');
+    $purpose = trim($_POST['purpose'] ?? 'check-in');
     if (!$qrData) json_response(false, [], 'Invalid QR data.');
-    
+
+    $result = verify_student_qr($db, $qrData);
+    if (!$result['valid']) {
+        $scanMethod = strtolower(trim($_POST['scan_method'] ?? 'unknown'));
+        $scanMethod = in_array($scanMethod, ['camera', 'upload', 'walk_in'], true) ? $scanMethod : 'unknown';
+        log_qr_scan($db, null, '', $purpose, $user['id'], 'failed', 'Walk-in Desk', null, ['reason' => $result['reason']], $scanMethod);
+        json_response(false, [], 'QR verification failed: ' . $result['reason']);
+    }
+
+    $studentId = $result['student_id'];
+    $student = $result['student'];
+    $scanMethod = strtolower(trim($_POST['scan_method'] ?? 'unknown'));
+    $scanMethod = in_array($scanMethod, ['camera', 'upload', 'walk_in'], true) ? $scanMethod : 'unknown';
+
+    if (is_duplicate_scan($db, $student['qr_token'], get_qr_setting($db, 'duplicate_scan_window', 30))) {
+        log_qr_scan($db, $studentId, $student['qr_token'], $purpose, $user['id'], 'duplicate', 'Walk-in Desk', null, null, $scanMethod);
+        json_response(false, [], 'Duplicate scan detected. Please wait a moment and try again.');
+    }
+
+    log_qr_scan($db, $studentId, $student['qr_token'], $purpose, $user['id'], 'success', 'Walk-in Desk', null, null, $scanMethod);
+
     $stmt = $db->prepare("
         SELECT s.id, s.student_number, s.course, s.year_level, s.section,
                u.first_name, u.last_name, u.email, u.phone, u.profile_picture, u.gender,
                TIMESTAMPDIFF(YEAR, u.birthdate, CURDATE()) AS age
         FROM students s
         JOIN users u ON u.id = s.user_id
-        WHERE s.qr_code = ? OR s.student_number = ?
+        WHERE s.id = ?
         LIMIT 1
     ");
-    $stmt->execute([$qrData, $qrData]);
-    $student = $stmt->fetch();
-    if (!$student) json_response(false, [], 'Student not found.');
-    
-    // Log QR check-in
-    $stmt = $db->prepare("INSERT INTO qr_checkins (student_id, qr_data) VALUES (?,?)");
-    $stmt->execute([$student['id'], $qrData]);
-    
-    json_response(true, ['data' => $student]);
+    $stmt->execute([$studentId]);
+    $studentRecord = $stmt->fetch();
+
+    if (!$studentRecord) json_response(false, [], 'Student not found.');
+    json_response(true, ['data' => $studentRecord]);
 }
 
 // ================================================================

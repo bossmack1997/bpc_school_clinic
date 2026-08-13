@@ -184,7 +184,7 @@ $u = current_user();
   
   <!-- Consultation -->
   <hr>
-  <h6 class="fw-semibold mb-3"><i class="bi bi-stethoscope me-1"></i> Initial Consultation</h6>
+  <h6 class="fw-semibold mb-3"><i class="bi bi-heart-pulse me-1"></i> Initial Consultation</h6>
   <div class="row g-2">
     <div class="col-md-6"><label class="form-label small">Assessment</label><textarea class="form-control" name="assessment" rows="2"></textarea></div>
     <div class="col-md-6"><label class="form-label small">Diagnosis</label><input class="form-control" name="diagnosis" placeholder="Initial diagnosis"></div>
@@ -216,7 +216,7 @@ $u = current_user();
 <div class="modal-dialog modal-lg modal-dialog-scrollable">
 <div class="modal-content border-0 rounded-4">
 <div class="modal-header border-0" style="background:var(--info);color:#fff;border-radius:12px 12px 0 0;">
-  <h5 class="modal-title"><i class="bi bi-stethoscope me-2"></i>Consultation</h5>
+  <h5 class="modal-title"><i class="bi bi-heart-pulse me-2"></i>Consultation</h5>
   <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
 </div>
 <div class="modal-body">

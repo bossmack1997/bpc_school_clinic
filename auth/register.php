@@ -1,6 +1,11 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
 
+// Prevent caching of authentication pages
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
+
 if (is_logged_in()) {
     redirect(dashboard_url_for(current_user()['role']));
 }
@@ -39,8 +44,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($password !== $confirm) {
         $errors[] = 'Passwords do not match.';
     }
+    // Strong password policy: uppercase, lowercase, number, special char
+    if ($password && !preg_match('/[A-Z]/', $password)) {
+      $errors[] = 'Password must contain at least one uppercase letter.';
+    }
+    if ($password && !preg_match('/[a-z]/', $password)) {
+      $errors[] = 'Password must contain at least one lowercase letter.';
+    }
+    if ($password && !preg_match('/[0-9]/', $password)) {
+      $errors[] = 'Password must contain at least one number.';
+    }
+    if ($password && !preg_match('/[^A-Za-z0-9]/', $password)) {
+      $errors[] = 'Password must contain at least one special character.';
+    }
     if (!$certify) {
         $errors[] = 'You must certify that the information above is true.';
+    }
+
+    // Birthdate validation: must be a valid date and not in the future.
+    if ($dateOfBirth !== '') {
+        $bdate = DateTime::createFromFormat('Y-m-d', $dateOfBirth);
+        if (!$bdate || $bdate->format('Y-m-d') !== $dateOfBirth) {
+            $errors[] = 'Please enter a valid birthdate (YYYY-MM-DD).';
+        } elseif ($dateOfBirth > date('Y-m-d')) {
+            $errors[] = 'Birthdate cannot be a future date.';
+        }
     }
 
     if (!$errors) {
@@ -68,10 +96,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$username, $email, $hash, $firstName, $middleName, $lastName, $gender, $dateOfBirth, $contactNumber]);
             $userId = $db->lastInsertId();
 
-            $stmt = $db->prepare(
+$stmt = $db->prepare(
                 "INSERT INTO students (user_id, student_number, course, year_level, section) VALUES (?, ?, ?, ?, ?)"
             );
             $stmt->execute([$userId, $studentNo, $course, $yearLevel, $section]);
+            $studentId = $db->lastInsertId();
+
+            // Auto-generate a permanent, secure QR for the new student.
+            try {
+                ensure_student_qr($db, $studentId, $userId);
+            } catch (Exception $qrE) {
+                error_log('QR generation on registration failed: ' . $qrE->getMessage());
+            }
 
             $db->commit();
             log_activity($userId, 'Registered new student account', 'auth');
@@ -138,7 +174,7 @@ $pageTitle = 'Register';
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Date of Birth</label>
-            <input type="date" name="date_of_birth" class="form-control" value="<?= e($old['date_of_birth'] ?? '') ?>">
+            <input type="date" name="date_of_birth" class="form-control" max="<?= date('Y-m-d') ?>" value="<?= e($old['date_of_birth'] ?? '') ?>">
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Contact Number</label>
@@ -202,6 +238,37 @@ $pageTitle = 'Register';
     </div>
   </div>
 </div>
+  <script>
+  // Client-side password validation + strength & prevent duplicate submits
+  (function () {
+    const form = document.querySelector('form');
+    const pw = form.querySelector('input[name="password"]');
+    const confirm = form.querySelector('input[name="confirm_password"]');
+    const submitBtn = form.querySelector('button[type="submit"]');
+
+    function validPassword(v) {
+      return v.length >= 8 && /[A-Z]/.test(v) && /[a-z]/.test(v) && /[0-9]/.test(v) && /[^A-Za-z0-9]/.test(v);
+    }
+
+    form.addEventListener('submit', function (e) {
+      if (!validPassword(pw.value)) {
+        e.preventDefault();
+        alert('Password does not meet complexity requirements. Please follow the password rules.');
+        pw.focus();
+        return false;
+      }
+      if (pw.value !== confirm.value) {
+        e.preventDefault();
+        alert('Passwords do not match.');
+        confirm.focus();
+        return false;
+      }
+      // Prevent double submit
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating...';
+    });
+  })();
+  </script>
 <?php include __DIR__ . '/../components/footer.php'; ?>
 </body>
 </html>

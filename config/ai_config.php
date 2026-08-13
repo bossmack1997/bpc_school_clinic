@@ -1,4 +1,4 @@
- <?php
+<?php
 /**
  * AI Health Assistant Configuration
  * 
@@ -51,15 +51,22 @@ define('ELEVENLABS_VOICE_ID', getenv('ELEVENLABS_VOICE_ID') ?: 'BZgkqPqms7Kj9ulS
 define('ELEVENLABS_API_ENDPOINT', ELEVENLABS_VOICE_ID ? 'https://api.elevenlabs.io/v1/text-to-speech/' . ELEVENLABS_VOICE_ID : 'BZgkqPqms7Kj9ulSkVzn ');
 
 // ============================================================
-// Voice Verification Service Configuration
-// Provider abstraction — swap in future providers (Azure Speaker
-// Recognition, Resemblyzer, NVIDIA NeMo, etc.) by implementing the
-// VoiceProviderInterface and setting VOICE_PROVIDER accordingly.
+// MICA Configuration
 // ============================================================
-define('VOICE_PROVIDER', getenv('VOICE_PROVIDER') ?: 'hybrid');          // hybrid (default) | azure | resemblyzer | nemo
-define('VOICE_SIMILARITY_THRESHOLD', (float)(getenv('VOICE_SIMILARITY_THRESHOLD') ?: 0.60)); // 0.0–1.0, higher = stricter (0.60 default for the v2 fingerprint)
-define('VOICE_VERIFY_SAMPLE_SECONDS', (int)(getenv('VOICE_VERIFY_SAMPLE_SECONDS') ?: 3));    // ~2–3s verification sample
-define('VOICE_ENROLL_SAMPLE_SECONDS', (int)(getenv('VOICE_ENROLL_SAMPLE_SECONDS') ?: 8));    // ~5–10s enrollment sample
+// Philippine Timezone — used for the correct greeting based on
+// Asia/Manila time regardless of the server/browser timezone.
+define('MICA_TIMEZONE', getenv('MICA_TIMEZONE') ?: 'Asia/Manila');
+
+// Wake words (comma-separated) that appear as suggestions for voice listening.
+define('MICA_TTS_PROVIDER', !empty(ELEVENLABS_API_KEY) && ELEVENLABS_API_KEY !== 'your-elevenlabs-api-key-here' ? 'elevenlabs' : 'browser');
+
+// Continuous conversation inactivity timeout (ms) — auto-stop
+// listening after no clear speech is detected within this window.
+define('MICA_CONTINUOUS_TIMEOUT_MS', (int)(getenv('MICA_CONTINUOUS_TIMEOUT_MS') ?: 8000));
+
+// Minimum confidence (0-1) for a transcript to be processed.
+// Low-confidence / background-noise transcripts are ignored.
+define('MICA_MIN_CONFIDENCE', (float)(getenv('MICA_MIN_CONFIDENCE') ?: 0.35));
 
 // ============================================================
 // Legacy API Configuration (for backward compatibility)

@@ -44,10 +44,10 @@ $pageTitle = 'Medical Certificates';
           <div class="card p-3">
             <h6 class="section-title mb-3">All Certificates</h6>
             <div class="table-responsive">
-              <table class="table table-hover align-middle" id="certTable" style="width:100%">
-                <thead><tr><th>Student</th><th>No.</th><th>Type</th><th>Purpose</th><th>Date Issued</th><th>File</th><th>Actions</th></tr></thead>
-                <tbody></tbody>
-              </table>
+               <table class="table table-hover align-middle" id="certTable" style="width:100%">
+                 <thead><tr><th>Cert No.</th><th>Student</th><th>Student ID</th><th>Type</th><th>Purpose</th><th>Date Issued</th><th>File</th><th>Actions</th></tr></thead>
+                 <tbody></tbody>
+               </table>
             </div>
           </div>
         </div>
@@ -94,18 +94,30 @@ function loadCerts() {
   $.get(APP_URL + '/api/certificates.php', { action: 'list' }, function (res) {
     if (!res.success) return;
     const rows = res.data.map(c => [
+      c.certificate_number || '—',
       (c.s_first || '') + ' ' + (c.s_last || ''),
       c.student_number || '—',
       c.certificate_type,
       c.purpose || '—',
       c.date_issued || '—',
       c.file_path ? `<a href="${APP_URL}/${c.file_path}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark"></i></a>` : '—',
-      `<button class="btn btn-sm btn-outline-danger delete-btn" data-id="${c.id}"><i class="bi bi-trash3"></i></button>`
+      `<div class="d-flex gap-1">
+        <button class="btn btn-sm btn-outline-success print-cert" data-id="${c.id}" data-number="${c.certificate_number || ''}" title="Print"><i class="bi bi-printer"></i></button>
+        <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${c.id}" title="Delete"><i class="bi bi-trash3"></i></button>
+      </div>`
     ]);
-    $('#certTable').DataTable({ data: rows, columns:[{},{},{},{},{},{},{}], pageLength: 10, destroy:true });
+    $('#certTable').DataTable({ data: rows, columns:[{},{},{},{},{},{},{},{}], pageLength: 10, destroy:true });
   }, 'json');
 }
 loadCerts();
+
+$(document).on('click', '.print-cert', function () {
+  const certId = $(this).data('id');
+  const certNumber = $(this).data('number');
+  if (!certId) return;
+  const w = window.open(APP_URL + '/pages/nurse/certificate_print.php?id=' + certId, '_blank');
+  if (w) w.focus();
+});
 
 $(document).on('click', '.delete-btn', function () {
   const id = $(this).data('id');

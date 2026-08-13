@@ -1,0 +1,187 @@
+<?php
+/**
+ * pages/qr_verify.php
+ * Public-facing QR certificate verification page.
+ * Accepts a 'data' GET param with the QR payload, or renders the verifier UI.
+ */
+require_once __DIR__ . '/../config/config.php';
+$pageTitle = 'QR Verification';
+$qrData = trim($_GET['data'] ?? '');
+$verificationResult = null;
+$verificationError = null;
+
+if ($qrData) {
+    $db = getDB();
+    $result = verify_dynamic_qr($db, $qrData);
+    if (!$result['valid']) {
+        $verificationError = 'Dynamic QR invalid: ' . $result['reason'];
+    } else {
+        $verificationResult = $result;
+    }
+    unset($db);
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><?= e($pageTitle) ?> — <?= e(APP_NAME) ?></title>
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <!-- SweetAlert2 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+  <!-- App styles -->
+  <link href="<?= APP_URL ?>/assets/css/style.css" rel="stylesheet">
+  <script src="<?= app_url('assets/js/qrcode.min.js') ?>"></script>
+  <script src="<?= app_url('assets/js/html5-qrcode.min.js') ?>"></script>
+  <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
+</head>
+<body class="bg-light">
+<div class="container py-4">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+      <div class="card shadow-sm border-0">
+        <div class="card-body text-center py-4">
+          <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Logo" style="height:48px;">
+          <h5 class="fw-bold mb-1 mt-2">BPC School Clinic</h5>
+          <p class="text-muted small">QR Certificate Verification</p>
+
+          <?php if ($verificationError): ?>
+            <div class="alert alert-danger mt-3">
+              <i class="bi bi-x-circle-fill me-1"></i> <?= e($verificationError) ?>
+            </div>
+          <?php elseif ($verificationResult): ?>
+            <?php
+              $valid = $verificationResult['valid'] ?? false;
+              $student = null;
+              if ($verificationResult['student_id'] > 0) {
+                  $db = getDB();
+                  $stmt = $db->prepare("
+                      SELECT s.student_number, s.course, s.year_level, s.section,
+                             u.first_name, u.last_name
+                      FROM students s JOIN users u ON u.id = s.user_id
+                      WHERE s.id = ?
+                  ");
+                  $stmt->execute([$verificationResult['student_id']]);
+                  $student = $stmt->fetch();
+              }
+              $purpose = $verificationResult['purpose'] ?? '';
+            ?>
+            <?php if ($valid): ?>
+              <div class="alert alert-success mt-3">
+                <i class="bi bi-check-circle-fill me-1"></i> <strong>QR Verified Successfully</strong>
+              </div>
+              <div class="text-start small bg-light p-3 rounded-3">
+                <div class="d-flex justify-content-between py-1"><span class="text-muted">Purpose</span><span class="fw-semibold"><?= e(ucfirst(str_replace('_', ' ', $purpose))) ?></span></div>
+                <?php if ($student): ?>
+                  <div class="d-flex justify-content-between py-1"><span class="text-muted">Student Name</span><span class="fw-semibold"><?= e($student['first_name'] . ' ' . $student['last_name']) ?></span></div>
+                  <div class="d-flex justify-content-between py-1"><span class="text-muted">Student Number</span><span class="fw-semibold"><?= e($student['student_number']) ?></span></div>
+                  <div class="d-flex justify-content-between py-1"><span class="text-muted">Course / Year</span><span class="fw-semibold"><?= e($student['course'] . ' · ' . $student['year_level']) ?></span></div>
+                  <div class="d-flex justify-content-between py-1"><span class="text-muted">Section</span><span class="fw-semibold"><?= e($student['section']) ?></span></div>
+                <?php endif; ?>
+                <?php if ($verificationResult['expires_at'] ?? null): ?>
+                  <div class="d-flex justify-content-between py-1"><span class="text-muted">Expires</span><span class="fw-semibold"><?= e($verificationResult['expires_at']) ?></span></div>
+                <?php else: ?>
+                  <div class="d-flex justify-content-between py-1"><span class="text-muted">Expiration</span><span class="fw-semibold">No expiration</span></div>
+                <?php endif; ?>
+              </div>
+            <?php else: ?>
+              <div class="alert alert-danger mt-3">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i> This QR code is not valid.
+              </div>
+            <?php endif; ?>
+          <?php else: ?>
+            <p class="text-muted small">Paste a QR code or scan one to verify.</p>
+          <?php endif; ?>
+
+          <hr class="my-3">
+
+          <div id="verifyScannerContainer" class="mx-auto" style="max-width: 240px; height: 200px; display: none;">
+            <video id="verifyVideo" class="w-100 h-100 object-fit-cover rounded" autoplay playsinline></video>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-success mb-2" id="startVerifyScan" style="display: none;">
+            <i class="bi bi-camera-video me-1"></i> Scan QR Code
+          </button>
+
+          <div class="mb-3">
+            <textarea class="form-control form-control-sm" id="verifyQrInput" rows="2"
+                      placeholder='{"v":2,"type":"dynamic","p":"certificate_verification",...}'></textarea>
+          </div>
+          <button type="button" class="btn btn-success w-100" id="verifySubmitBtn">
+            <i class="bi bi-search me-1"></i> Verify QR Code
+          </button>
+
+          <p class="text-muted small mt-2">
+            <i class="bi bi-shield-check me-1"></i> All verification is performed server-side and never exposes personal data.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = window.jQuery;
+  const APP = "<?= APP_URL ?>";
+  let html5QrCode = null;
+
+  $('#verifySubmitBtn').on('click', function () {
+    const data = $('#verifyQrInput').val().trim();
+    if (data.length < 10) {
+      Swal.fire({ icon: 'warning', title: 'Empty QR', text: 'Please enter or scan a QR code.' });
+      return;
+    }
+    window.location.href = APP + '/pages/qr_verify.php?data=' + encodeURIComponent(data);
+  });
+
+  $('#startVerifyScan').on('click', async function () {
+    if (!window.Html5Qrcode) {
+      Swal.fire({ icon: 'error', title: 'Scanner Error', text: 'Scanner library not loaded.' });
+      return;
+    }
+    $(this).prop('disabled', true).text('Scanning…');
+    $('#verifyScannerContainer').show();
+    try {
+      html5QrCode = new Html5Qrcode('verifyVideo');
+      await html5QrCode.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: 200 },
+        function (decoded) {
+          $('#verifyQrInput').val(decoded);
+          stopVerifyScan();
+          $('#verifySubmitBtn').click();
+        },
+        function () { /* no error handling */ }
+      );
+    } catch (e) {
+      Swal.fire({ icon: 'error', title: 'Camera Error', text: e.message || 'Could not access camera.' });
+      $(this).prop('disabled', false).text('Scan QR Code');
+    }
+  });
+
+  function stopVerifyScan() {
+    if (html5QrCode) {
+      html5QrCode.stop().then(function () {
+        html5QrCode.clear();
+      }).catch(function () {});
+      html5QrCode = null;
+    }
+    $('#verifyScannerContainer').hide();
+    $('#startVerifyScan').prop('disabled', false).text('Scan QR Code');
+  }
+
+  <?php if (!$qrData): ?>
+    $('#verifyScannerContainer').show();
+    $('#startVerifyScan').show();
+  <?php endif; ?>
+})();
+</script>
+</body>
+</html>

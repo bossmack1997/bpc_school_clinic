@@ -14,6 +14,133 @@ if ($action === 'search') {
     json_response(true, ['data' => $stmt->fetchAll()]);
 }
 
+// ================================================================
+// IMPORT — bulk import students from CSV (auto-generates QR)
+// Expected columns:
+//   Student Number, First Name, Last Name, Course, Year Level,
+//   Section, Email, Username, Password, Gender, Birthdate, Phone
+// ================================================================
+if ($action === 'import_students') {
+    csrf_verify_or_die();
+    if ($user['role'] !== 'admin') json_response(false, [], 'Only admins can import students.');
+
+    if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+        json_response(false, [], 'Please choose a CSV file.');
+    }
+
+    $tmp = $_FILES['file']['tmp_name'];
+    $handle = fopen($tmp, 'r');
+    if (!$handle) json_response(false, [], 'Cannot open file.');
+
+    $data = [];
+    while (($line = fgetcsv($handle)) !== false) {
+        $data[] = array_map('trim', $line);
+    }
+    fclose($handle);
+
+    if (count($data) < 2) json_response(false, [], 'File appears empty.');
+
+    // Skip the header row (row 0)
+    $rows = array_slice($data, 1);
+
+    $inserted = 0;
+    $duplicates = 0;
+    $errors = [];
+    $skipped = [];
+
+    foreach ($rows as $idx => $row) {
+        $lineNo = $idx + 2;
+        $studentNo    = (string)($row[0] ?? '');
+        $firstName    = (string)($row[1] ?? '');
+        $lastName     = (string)($row[2] ?? '');
+        $course       = (string)($row[3] ?? '');
+        $yearLevel    = (string)($row[4] ?? '');
+        $section      = (string)($row[5] ?? '');
+        $email        = (string)($row[6] ?? '');
+        $username     = (string)($row[7] ?? '');
+        $password     = (string)($row[8] ?? '');
+        $gender       = (string)($row[9] ?? '');
+        $birthdate    = (string)($row[10] ?? '');
+        $phone        = (string)($row[11] ?? '');
+
+        if (!$studentNo || !$firstName || !$lastName) {
+            $errors[] = ['line' => $lineNo, 'reason' => 'Student number, first name, and last name are required.'];
+            continue;
+        }
+        if (!$email) {
+            $errors[] = ['line' => $lineNo, 'reason' => 'Email is required.'];
+            continue;
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = ['line' => $lineNo, 'reason' => 'Invalid email.'];
+            continue;
+        }
+        if (!$username) {
+            $errors[] = ['line' => $lineNo, 'reason' => 'Username is required.'];
+            continue;
+        }
+        if (strlen($password) < 8) {
+            $errors[] = ['line' => $lineNo, 'reason' => 'Password must be at least 8 characters.'];
+            continue;
+        }
+
+        // Duplicate checks
+        $dupStmt = $db->prepare("SELECT id FROM users WHERE username = ? OR email = ?");
+        $dupStmt->execute([$username, $email]);
+        if ($dupStmt->fetch()) {
+            $duplicates++;
+            $skipped[] = ['line' => $lineNo, 'student' => $studentNo, 'reason' => 'Username or email already exists.'];
+            continue;
+        }
+        $dupStmt2 = $db->prepare("SELECT id FROM students WHERE student_number = ?");
+        $dupStmt2->execute([$studentNo]);
+        if ($dupStmt2->fetch()) {
+            $duplicates++;
+            $skipped[] = ['line' => $lineNo, 'student' => $studentNo, 'reason' => 'Student number already exists.'];
+            continue;
+        }
+
+try {
+            $db->beginTransaction();
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+            $insUser = $db->prepare(
+                "INSERT INTO users (role, username, email, password_hash, first_name, last_name, phone, status)
+                 VALUES ('student', ?, ?, ?, ?, ?, ?, 'active')"
+            );
+            $insUser->execute([$username, $email, $hash, $firstName, $lastName, $phone ?: null]);
+            $userId = $db->lastInsertId();
+
+            $insStudent = $db->prepare(
+                "INSERT INTO students (user_id, student_number, course, year_level, section, gender, birthdate) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            );
+            $insStudent->execute([$userId, $studentNo, $course ?: null, $yearLevel ?: null, $section ?: null, $gender ?: null, $birthdate ?: null]);
+            $studentId = $db->lastInsertId();
+
+            // Auto-generate permanent QR
+            try {
+                ensure_student_qr($db, $studentId, $user['id']);
+            } catch (Exception $qrE) {
+                error_log('QR generation on import failed (line ' . $lineNo . '): ' . $qrE->getMessage());
+            }
+
+            $db->commit();
+            $inserted++;
+        } catch (Exception $e) {
+            $db->rollBack();
+            $errors[] = ['line' => $lineNo, 'reason' => $e->getMessage()];
+        }
+    }
+
+    log_activity($user['id'], 'Imported students', 'students', "$inserted student(s) imported");
+    json_response(true, [
+        'inserted' => $inserted,
+        'duplicates' => $duplicates,
+        'total' => count($rows),
+        'errors' => $errors,
+        'skipped' => $skipped,
+    ], "$inserted student(s) imported successfully.");
+}
+
 if ($action === 'walkin_start') {
     csrf_verify_or_die();
     if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized. Only nurses can start walk-in consultations.');
@@ -51,6 +178,16 @@ if ($action === 'walkin_start') {
 if ($action === 'patient_history') {
     $studentId = (int)($_GET['student_id'] ?? 0);
     if ($studentId <= 0) json_response(false, [], 'Invalid student.');
+
+    // IDOR protection: students can only access their own history
+    if ($user['role'] === 'student') {
+        $stmt = $db->prepare("SELECT id FROM students WHERE user_id=?");
+        $stmt->execute([$user['id']]);
+        $myStudentId = (int)$stmt->fetchColumn();
+        if ($myStudentId <= 0 || $studentId !== $myStudentId) {
+            json_response(false, [], 'Not authorized to view this patient history.');
+        }
+    }
 
     $stmt = $db->prepare("SELECT c.*, n.license_number FROM consultations c LEFT JOIN nurses n ON n.id=c.nurse_id WHERE c.student_id=? ORDER BY c.consultation_date DESC");
     $stmt->execute([$studentId]);

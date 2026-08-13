@@ -1,4 +1,4 @@
-  /**
+   /**
  * =====================================================================
  * MICA (Medical Intelligent Clinic Assistant) — Single Consolidated Bundle
  * =====================================================================
@@ -16,16 +16,10 @@
  *   - api/ai_assistant.php   (mica_chat, clear_history, history, sos_emergency)
  *   - api/mica_tts.php       (ElevenLabs TTS proxy — key never exposed)
  *
- * Highlights of this reconstruction:
- *   • FAB z-index raised to 2147483000 (above ALL Bootstrap modals) so it
- *     is NEVER hidden behind a modal and is ALWAYS clickable.
- *   • Draggable FAB (pointer events, bounded to viewport).
- *   • Minimize / Maximize / Close controls on the widget.
- *   • Typing + thinking animations, auto-scroll, markdown rendering.
- *   • Persistent chat history (restored from php session via api/history).
- *   • Clear conversation + new conversation actions.
- *   • Voice: Speech-to-Text, Text-to-Speech, waveform, replay, volume,
- *     speed, continuous conversation.
+ * Voice interaction is 100% browser-based (Web Speech API + speechSynthesis).
+ * No voice biometrics, no voice verification, no enrollment — the mic button
+ * goes straight to Speech-to-Text and the AI response is spoken back via
+ * Text-to-Speech.
  * =====================================================================
  */
 (function () {
@@ -39,7 +33,7 @@
       isOpen: false,
       isDragging: false,
       isMinimized: false,
-      mode: 'idle',                 // idle | listening | speaking | thinking
+      mode: 'idle',
       recognition: null,
       isListening: false,
       synthQueue: [],
@@ -47,11 +41,17 @@
       currentAudio: null,
       messages: [],
       isFirstMessage: true,
+      hasInteracted: false,
+      greetingSpoken: false,
       lastResponse: '',
       conversationCount: 0,
       unreadCount: 0,
-      lastInputMode: 'text',        // 'text' | 'voice' — voice input speaks, text never speaks
+      lastInputMode: 'text',
       voiceTestRunning: false,
+      muted: false,
+      wakeListening: false,
+      activeRequestId: 0,
+      continuousTimer: null,
     },
     config: {
       csrfToken: '',
@@ -63,6 +63,11 @@
       voiceSpeed: 1.0,
       preferredFemaleVoice: null,   // Auto-detected female voice for native TTS
       initialGreetingShown: false,
+      ttsProvider: 'elevenlabs',    // 'elevenlabs' or 'browser' — SINGLE source of truth for TTS engine
+      timezone: 'Asia/Manila',      // Philippine timezone for greeting
+      wakeWords: ['hey mica', 'hello mica', 'hi mica'],
+      continuousTimeoutMs: 8000,    // inactivity timeout for continuous mode
+      minConfidence: 0.35,          // minimum transcript confidence for noise filtering
       navigationCommands: [
         { match: /(open|go to|show|navigate to)\s+(dashboard|home)/i,            url: 'dashboard.php' },
         { match: /(open|go to|show|navigate to)\s+(appointments?|booking)/i,     url: 'appointments.php' },
@@ -85,11 +90,381 @@
   // ================================================================
   // Small helpers
   // ================================================================
-  function escapeHtml(text) {
+function escapeHtml(text) {
     if (!text) return '';
     var div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  // ================================================================
+  // SPEECH TEXT PIPELINE
+  // ----------------------------------------------------------------
+  // MICA must SOUND like a natural, professional female clinic
+  // assistant. The chat window keeps the original AI response; speech
+  // is produced from a cleaned, human-friendly version.
+  // ================================================================
+
+  // Expand technical acronyms so they are pronounced letter-by-letter.
+  // NOTE: "AM"/"PM" are intentionally NOT here — they are handled by spellTime().
+  var SPEECH_ACRONYMS = {
+    'BPC': 'B P C',
+    'QR': 'Q R',
+    'SOS': 'S O S',
+    'BMI': 'B M I',
+    'HTML': 'H T M L',
+    'CSS': 'C S S',
+    'AI': 'A I',
+    'HTTP': 'H T T P',
+    'URL': 'U R L',
+    'ID': 'I D',
+    'PH': 'P H',
+  };
+
+  // Pronunciation dictionary — fix misrecognised names before speech.
+  // Brand is always displayed as "MICA" in chat UI, but spoken as "Mee-ka".
+  // "Mika" (common STT error) → spoken as "Mee-ka"
+  var PRONUNCIATION_DICTIONARY = {
+    'MICA': 'Mee-ka',
+    'Mika': 'Mee-ka',
+    'mika': 'Mee-ka',
+    'Mica': 'Mee-ka',
+    'mica': 'Mee-ka',
+    'Meeka': 'Mee-ka',
+    'meeka': 'Mee-ka',
+    'Me ka': 'Mee-ka',
+    'me ka': 'Mee-ka',
+    'Mee ka': 'Mee-ka',
+    'mee ka': 'Mee-ka',
+  };
+
+  // Speech recognition normalization — applied to STT transcript BEFORE
+  // sending the text to the AI.  This prevents "Mika" from ever reaching
+  // the LLM and normalises spoken acronyms into their canonical form.
+  var RECOGNITION_NORMALIZATION = [
+    { from: /\bMika\b/gi,                    to: 'MICA' },
+    { from: /\bmika\b/gi,                    to: 'MICA' },
+    { from: /\bMica\b/gi,                    to: 'MICA' },
+    { from: /\bmica\b/gi,                    to: 'MICA' },
+    { from: /\bMeeka\b/gi,                   to: 'MICA' },
+    { from: /\bmeeka\b/gi,                   to: 'MICA' },
+    { from: /\bme ka\b/gi,                   to: 'MICA' },
+    { from: /\bMee ka\b/gi,                  to: 'MICA' },
+    { from: /\b(m|mi)c(a|ah)\b/gi,           to: 'MICA' },  // fuzzy catch
+    // Normalise spoken acronyms that STT splits into separate letters.
+    { from: /\bb\s+p\s+c\b/gi,               to: 'BPC' },
+    { from: /\bq\s+r\b/gi,                   to: 'QR' },
+    { from: /\ba\s+i\b/gi,                   to: 'AI' },
+    { from: /\bs\s+o\s+s\b/gi,               to: 'SOS' },
+    { from: /\bb\s+m\s+i\b/gi,               to: 'BMI' },
+    { from: /\bh\s+t\s+m\s+l\b/gi,           to: 'HTML' },
+    { from: /\bc\s+s\s+s\b/gi,               to: 'CSS' },
+  ];
+
+  // Map of numbers (0-99) to words for natural reading.
+  var SPEECH_ONES = ['zero','one','two','three','four','five','six','seven','eight','nine','ten',
+    'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  var SPEECH_TENS = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+
+  function numberToWords(n) {
+    if (n === 0) return 'zero';
+    if (n < 20) return SPEECH_ONES[n];
+    if (n < 100) {
+      var t = Math.floor(n / 10);
+      var r = n % 10;
+      return SPEECH_TENS[t] + (r ? '-' + SPEECH_ONES[r] : '');
+    }
+    if (n < 1000) {
+      var h = Math.floor(n / 100);
+      var rest = n % 100;
+      return SPEECH_ONES[h] + ' hundred' + (rest ? ' ' + numberToWords(rest) : '');
+    }
+    if (n < 1000000) {
+      var th = Math.floor(n / 1000);
+      var rest2 = n % 1000;
+      return numberToWords(th) + ' thousand' + (rest2 ? ' ' + numberToWords(rest2) : '');
+    }
+    return String(n); // fallback
+  }
+
+  function numberToOrdinal(n) {
+    var words = numberToWords(n).split('-');
+    var last = words[words.length - 1];
+    var map = {
+      one: 'first', two: 'second', three: 'third', five: 'fifth',
+      eight: 'eighth', nine: 'ninth', twelve: 'twelfth',
+    };
+    if (map[last]) words[words.length - 1] = map[last];
+    else if (last.slice(-1) === 'y') words[words.length - 1] = last.slice(0, -1) + 'ieth';
+    else words[words.length - 1] = last + 'th';
+    return words.join(' ');
+  }
+
+  // Convert standalone numbers (integers) to their spoken word form.
+  function spellNumbers(text) {
+    return text.replace(/\b(\d{1,3}(?:,\d{3})*|\d+)\b/g, function (m) {
+      var cleaned = m.replace(/,/g, '');
+      var num = parseInt(cleaned, 10);
+      if (isNaN(num) || num < 0 || num > 9999999) return m;
+      return numberToWords(num);
+    });
+  }
+
+  // Convert "2026" years like "two thousand twenty-six" (handled by spellNumbers),
+  // but this helper ensures 4-digit numbers read as years.
+  function spellYear(year) {
+    var y = parseInt(year, 10);
+    if (isNaN(y)) return year;
+    if (y >= 2000) {
+      // 2000 -> 2099 : "two thousand ..."
+      var thou = Math.floor(y / 1000);
+      var rest = y % 1000;
+      return SPEECH_ONES[thou] + ' thousand' + (rest ? (rest < 100 ? ' ' : ' ') + numberToWords(rest) : '');
+    }
+    return numberToWords(y);
+  }
+
+  // Convert ISO dates "2026-08-05" -> "August fifth, two thousand twenty-six".
+  function spellDate(text) {
+    return text.replace(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/g, function (m, y, mo, d) {
+      var months = ['','January','February','March','April','May','June','July',
+        'August','September','October','November','December'];
+      var monthName = months[parseInt(mo, 10)] || mo;
+      var day = numberToOrdinal(parseInt(d, 10));
+      var year = spellYear(y);
+      return monthName + ' ' + day + ', ' + year;
+    });
+  }
+
+  // Convert times "13:30", "9:00", "9:30 PM" -> "one thirty PM".
+  function spellTime(text) {
+    return text.replace(/\b(\d{1,2}):([0-5]\d)\b(\s?(AM|PM|am|pm))?/g, function (m, h, min, suffix) {
+      var hour = parseInt(h, 10);
+      var minute = parseInt(min, 10);
+      var meridiem = suffix ? suffix.trim().toUpperCase() : '';
+      var isPM = meridiem === 'PM';
+      if (!meridiem) {
+        isPM = hour >= 12;
+        meridiem = isPM ? 'PM' : 'AM';
+      }
+      var dispHour = hour % 12;
+      if (dispHour === 0) dispHour = 12;
+      var hourWord = numberToWords(dispHour);
+      if (minute === 0) return hourWord + ' ' + meridiem;
+      return hourWord + ' ' + numberToWords(minute) + ' ' + meridiem;
+    });
+  }
+
+// Remove emojis, emoticons, and invisible Unicode characters.
+  function stripEmojis(text) {
+    // Each range is applied separately to avoid huge single character-class
+    // regexes that can trip up some parsers.
+    var ranges = [
+      '\\u{1F000}-\\u{1FAFF}', // misc symbols & pictographs
+      '\\u{1F900}-\\u{1F9FF}', // supplemental symbols
+      '\\u{1F600}-\\u{1F64F}', // emoticons
+      '\\u{1F680}-\\u{1F6FF}', // transport & map
+      '\\u{2600}-\\u{27BF}',   // misc symbols, dingbats
+      '\\u{2B00}-\\u{2BFF}',   // arrows / misc symbols
+      '\\u{2190}-\\u{21FF}',   // arrows
+      '\\u{2300}-\\u{23FF}',   // technical symbols
+      '\\u{2B50}-\\u{2BFF}',   // stars, marks
+       '\\u{1F3FB}-\\u{1F3FF}', // emoji modifiers (skin tones)
+       '\\u{FE0F}',             // variation selector (emoji color)
+       '\\u{FE0E}',             // variation selector (text presentation)
+       '\\u{200D}',             // zero-width joiner
+       '\\u{20E3}',             // combining enclosing keycap
+       '\\u{1F1E6}-\\u{1F1FF}',// regional indicators (flags)
+    ];
+    var out = text;
+    for (var i = 0; i < ranges.length; i++) {
+      out = out.replace(new RegExp('[' + ranges[i] + ']', 'gu'), '');
+    }
+
+    // Remove common Western emoticons: :-) :( :D ;) etc.
+    out = out.replace(/[:=;][-^>]?[)DdpP(]/g, ' ');
+
+    // Remove invisible / zero-width Unicode characters.
+     out = out.replace(/[\u200B-\u200F\u2028-\u202F\u205F-\u206F\uFEFF\uFFFC\uFFFD\u00AD]/g, ' ');
+
+    // Remove other decorative / technical symbols that should never be spoken.
+    out = out.replace(/[\u2600-\u2605\u2606-\u26FF\u2700-\u27BF\u2B00-\u2BFF]/g, ' ');
+
+    return out;
+  }
+
+  // Remove markdown formatting, code blocks, HTML tags, URLs, lists, symbols.
+  function cleanSpeechText(raw) {
+    if (!raw) return '';
+    var text = String(raw);
+
+    // 1. Remove hidden metadata / code blocks / JSON / stack traces.
+    text = text.replace(/```[\s\S]*?```/g, ' ');
+    text = text.replace(/`[^`]*`/g, ' ');
+    text = text.replace(/<script[\s\S]*?<\/script>/gi, ' ');
+    text = text.replace(/<style[\s\S]*?<\/style>/gi, ' ');
+    text = text.replace(/<pre[\s\S]*?<\/pre>/gi, ' ');
+    text = text.replace(/\{[\s\S]*?\n\s*\}/g, ' '); // rough JSON/object blocks
+    text = text.replace(/at\s+[\w$\\.]+\s+\([^)]*\)/g, ' '); // stack-trace frames
+    text = text.replace(/:\s*'[^']*'/g, ' '); // key:'value' fragments
+
+    // 2. Remove HTML tags.
+    text = text.replace(/<[^>]+>/g, ' ');
+
+    // 3. Remove URLs.
+    text = text.replace(/https?:\/\/\S+/g, ' ');
+    text = text.replace(/www\.\S+/g, ' ');
+
+    // 4. Remove markdown headers.
+    text = text.replace(/^#{1,6}\s+/gm, '');
+
+    // 5. Remove markdown emphasis / links.
+    text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+    text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2');
+    text = text.replace(/__([^_]+)__/g, '$1');
+    text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+    // 6. Remove list markers.
+    text = text.replace(/(^|\n)\s*([-*+•]|\d+[.)])\s+/g, '$1 ');
+    text = text.replace(/^\s*[-*+•]\s+/gm, ' ');
+    text = text.replace(/^\s*\d+[.)]\s+/gm, ' ');
+
+    // 7. Remove blockquote markers.
+    text = text.replace(/^\s*>\s+/gm, ' ');
+
+     // 8. Remove emojis and technical symbols.
+    text = stripEmojis(text);
+    text = text.replace(/[#*_~|>]/g, ' ');
+    text = text.replace(/[@%\\]/g, ' ');
+    text = text.replace(/[<>{}\[\]()]/g, ' ');
+    text = text.replace(/[_`]/g, ' ');
+    text = text.replace(/[;,]/g, (m) => m + ' ');
+    text = text.replace(/\s*[=:]\s*/g, ' ');
+
+    // 8b. Apply pronunciation dictionary BEFORE acronym expansion.
+    // This fixes misrecognised names (Mika → Mee-ka) that would
+    // otherwise be mangled by acronym expansion or left as raw text.
+    Object.keys(PRONUNCIATION_DICTIONARY).forEach(function (key) {
+      var re = new RegExp('\\b' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
+      text = text.replace(re, PRONUNCIATION_DICTIONARY[key]);
+    });
+
+    // 9. Expand acronyms (before date/time/number conversion so letters stay).
+    Object.keys(SPEECH_ACRONYMS).forEach(function (key) {
+      var re = new RegExp('\\b' + key + '\\b', 'g');
+      text = text.replace(re, SPEECH_ACRONYMS[key]);
+    });
+
+    // 10. Convert dates, times, then remaining numbers.
+    text = spellDate(text);
+    text = spellTime(text);
+    text = spellNumbers(text);
+
+    // 11. Normalize whitespace and punctuation.
+    text = text.replace(/\s+/g, ' ').trim();
+    text = text.replace(/\s+([.,!?])/g, '$1');
+    text = text.replace(/\.{2,}/g, '.');
+
+    return text;
+  }
+
+  // If the response is too long, speak a concise summary + offer the rest.
+  function summarizeForSpeech(text) {
+    var words = text.split(/\s+/).filter(Boolean).length;
+    if (words <= 120) return text;
+
+    var cleaned = cleanSpeechText(text);
+    cleaned = makeSpeechNatural(cleaned);
+    var sentences = cleaned.split(/(?<=[.!?])\s+/);
+    var summary = [];
+    var count = 0;
+    var limit = Math.min(60, Math.floor(sentences.length / 2));
+    for (var i = 0; i < sentences.length; i++) {
+      if (count + sentences[i].split(/\s+/).length > limit) break;
+      summary.push(sentences[i]);
+      count += sentences[i].split(/\s+/).length;
+    }
+    if (summary.length === 0 && sentences.length) summary.push(sentences[0]);
+
+    var s = summary.join(' ').trim();
+    if (!s) s = cleaned.substring(0, 300);
+    return s.replace(/[.!?]\s*$/, '. ') + ' Would you like me to explain the rest?';
+  }
+
+  // Final speech-ready text used by every TTS path.
+  function makeSpeechNatural(text) {
+    var t = text;
+
+    // Convert em dashes and curly quotes to plain ASCII before other transforms.
+    t = t.replace(/—/g, '. ');
+    t = t.replace(/–/g, '-');
+    t = t.replace(/[""]/g, '"');
+    t = t.replace(/['']/g, "'");
+
+    // Remove any remaining bullet / arrow / math / currency / symbol characters
+    // that stripEmojis might have missed (these should never be spoken).
+    t = t.replace(/[\u2022\u2023\u25E6\u2020\u2021\u2190-\u21FF\u2200-\u22FF\u00A3\u20B9\u20B1\u20A6\u20B5\u2122\u00A9\u00AE\u2120]/g, ' ');
+
+    // Convert common AI-style phrasing to conversational female speech.
+    var transforms = [
+      { from: /\bThe requested\b/gi,                  to: 'Your' },
+      { from: /\bhas been successfully\b/gi,           to: 'was' },
+      { from: /\bsuccessfully completed\b/gi,         to: 'done' },
+      { from: /\. The (system|clinic|application)\b/gi, to: '. The clinic' },
+      { from: /\bI am not sure\b/gi,                  to: "I'm not sure" },
+      { from: /\bdoes not\b/gi,                       to: "doesn't" },
+      { from: /\bcannot\b/gi,                         to: "can't" },
+      { from: /\bIt is\b/gi,                          to: 'It\'s' },
+      { from: /\bThat is\b/gi,                        to: 'That\'s' },
+      { from: /\bThere is\b/gi,                       to: 'There\'s' },
+      { from: /\bThere are\b/gi,                      to: 'There\'re' },
+      { from: /\bYou should\b/gi,                     to: 'You ought to' },
+      { from: /\bIn order to\b/gi,                    to: 'To' },
+      { from: /\bDue to the fact that\b/gi,           to: 'Because' },
+      { from: /\bAs a result\b/gi,                    to: 'So' },
+      { from: /\bPlease be advised\b/gi,              to: 'Please note' },
+      { from: /\bPlease note that\b/gi,               to: 'Please be aware that' },
+      { from: /\bFor more information\b/gi,           to: 'For details' },
+      { from: /\bIf you have any questions\b/gi,      to: 'If you need help' },
+      { from: /\bFeel free to\b/gi,                   to: 'Please' },
+      { from: /\bUtilization of\b/gi,                  to: 'Use of' },
+      { from: /\bImplementation of\b/gi,              to: 'Using' },
+      { from: /\bDiagnosis is\b/gi,                   to: 'You have' },
+      { from: /\bTreatment is\b/gi,                   to: 'You should' },
+      { from: /\bPlease note that\b/gi,                to: 'Note' },
+      { from: /\bIt is recommended\b/gi,              to: 'I recommend' },
+      { from: /\bOne should\b/gi,                     to: 'You should' },
+      { from: /\bIt is important to\b/gi,             to: 'It\'s important to' },
+      { from: /\bIt is advisable to\b/gi,             to: 'It\'s best to' },
+      { from: /\bThe patient\b/gi,                    to: 'You' },
+      { from: /\bA patient\b/gi,                      to: 'A patient' },
+      { from: /\bAccording to the records\b/gi,       to: 'From your records' },
+      { from: /\bAccording to the database\b/gi,      to: 'From the clinic records' },
+      { from: /\bThe system\b/gi,                    to: 'The clinic' },
+      { from: /\bPlease be informed\b/gi,             to: 'Just so you know' },
+      { from: /\bWe would like to inform you\b/gi,    to: 'I want to let you know' },
+    ];
+
+    for (var i = 0; i < transforms.length; i++) {
+      t = t.replace(transforms[i].from, transforms[i].to);
+    }
+
+    // Add natural pauses after periods (slightly longer pause).
+    t = t.replace(/\.\s*/g, '. ');
+    // Normalize multiple spaces.
+    t = t.replace(/\s+/g, ' ').trim();
+
+    return t;
+  }
+
+  // Final speech-ready text used by every TTS path.
+  function prepareSpeechText(text) {
+    var cleaned = cleanSpeechText(text);
+    if (!cleaned) return '';
+    cleaned = makeSpeechNatural(cleaned);
+    var words = cleaned.split(/\s+/).filter(Boolean).length;
+    if (words > 120) return summarizeForSpeech(cleaned);
+    return cleaned;
   }
 
   function getRolePath() {
@@ -350,6 +725,11 @@
     var now = new Date();
     var time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
+    // Ensure branding consistency: "Mika/mica" → "MICA" in the displayed chat.
+    // The speech pipeline receives the raw content (via speakQueued) so it
+    // can apply its own cleaning + pronunciation dictionary.
+    var displayContent = role === 'ai' ? normalizeForDisplay(content) : content;
+
     var msgDiv = document.createElement('div');
     msgDiv.className = 'mica-message mica-' + role;
 
@@ -359,36 +739,57 @@
 
     msgDiv.innerHTML =
       '<div class="mica-bubble">' +
-        '<div>' + renderMarkdown(content) + speakingIndicator + '</div>' +
+        '<div>' + renderMarkdown(displayContent) + speakingIndicator + '</div>' +
         '<div class="mica-bubble-time">' + time + '</div>' +
       '</div>';
 
     C.dom.micaBody.appendChild(msgDiv);
     scrollToBottom();
-    C.state.messages.push({ role: role, content: content, time: time });
+    C.state.messages.push({ role: role, content: displayContent, time: time });
+  }
+
+// Return the time-of-day greeting based on PHILIPPINE time (Asia/Manila),
+  // regardless of the browser's local timezone.
+  function getPhilippineGreeting() {
+    var hour = new Date().getHours();
+    var tz = C.config.timezone || 'Asia/Manila';
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: tz }).formatToParts(new Date());
+      var hp = parts.find(function (p) { return p.type === 'hour'; });
+      if (hp) hour = parseInt(hp.value, 10);
+    } catch (e) { /* fall back to browser hour */ }
+    if (hour >= 5 && hour < 12) return 'Good morning';
+    if (hour >= 12 && hour < 18) return 'Good afternoon';
+    return 'Good evening';
   }
 
   function showPersonalizedGreeting() {
-    var timeOfDay = (function () {
-      var h = new Date().getHours();
-      return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-    })();
+    var timeOfDay = getPhilippineGreeting();
     var firstName = (window.MICA_USER && window.MICA_USER.firstName) || 'there';
+    var role = (window.MICA_USER && window.MICA_USER.role) || 'student';
+
+    var roleIntro = '';
+    if (role === 'nurse') {
+      roleIntro = " I'm here to help with patient records, appointments, and clinic info.";
+    } else if (role === 'admin') {
+      roleIntro = " I can provide clinic analytics, announcements, and system overviews.";
+    } else {
+      roleIntro = " I can help with appointments, medical records, BMI, and more.";
+    }
 
     var div = document.createElement('div');
     div.className = 'mica-message mica-ai';
     div.innerHTML =
       '<div class="mica-bubble">' +
-        '<div><strong>👋 ' + timeOfDay + ', ' + escapeHtml(firstName) + '!</strong><br>' +
-        'I\'m <strong>MICA</strong> — your <strong>Medical Intelligent Clinic Assistant</strong>.<br>' +
-        'I can help you with:<br>' +
-        '• 🏥 <strong>Health information</strong> &amp; wellness tips<br>' +
-        '• 📅 <strong>Appointment booking</strong> guidance<br>' +
-        '• 📋 Accessing your <strong>medical records</strong><br>' +
-        '• ⚖️ <strong>BMI</strong> &amp; health monitoring<br>' +
-        '• 💊 <strong>Medicine &amp; vaccination</strong> info<br>' +
-        '• 🚨 <strong>SOS Emergency</strong> alerts<br>' +
-        'Try a suggestion below or just start typing! 🎤</div>' +
+        '<div><strong>👋 ' + timeOfDay + ', ' + escapeHtml(firstName) + '!</strong><br><br>' +
+        'I\'m <strong>MICA</strong> — your <strong>Medical Intelligent Clinic Assistant</strong><br>' +
+        'from Bulacan Polytechnic College.<br><br>' +
+        'Ask me about your <strong>medical records</strong>, <strong>appointments</strong>, ' +
+        '<strong>BMI</strong>, <strong>vaccinations</strong>, <strong>medicine availability</strong>, ' +
+        'or <strong>SOS emergency</strong> help.<br><br>' +
+        'You can <strong>type</strong> your question or tap the <strong>microphone</strong> to speak.<br>' +
+        'I\'ll listen, understand, and respond — just like a real assistant would.<br><br>' +
+        'How can I help you today?</div>' +
         '<div class="mica-bubble-time">Just now</div>' +
       '</div>';
     C.dom.micaBody.appendChild(div);
@@ -429,6 +830,11 @@
     if (C.dom.micaInput) C.dom.micaInput.disabled = true;
     if (C.dom.sendBtn) C.dom.sendBtn.disabled = true;
 
+    C.state.hasInteracted = true;
+
+    // Stop any in-progress speech when the user submits a new message.
+    stopSpeaking();
+
     // Record the input mode BEFORE awaiting the response so the AI reply
     // knows whether to be spoken (voice) or shown only (text).
     C.state.lastInputMode = mode;
@@ -444,6 +850,7 @@
     formData.append('message', message);
     formData.append('first_message', C.state.isFirstMessage ? '1' : '0');
     formData.append('csrf_token', C.config.csrfToken);
+    formData.append('page', window.MICA_CURRENT_PAGE || '');
     C.state.isFirstMessage = false;
 
     fetch(C.config.appUrl + '/api/ai_assistant.php', {
@@ -451,10 +858,26 @@
       body: formData,
     })
       .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        console.log('[MICA] Chat request — HTTP ' + res.status + ' for url: ' + C.config.appUrl + '/api/ai_assistant.php');
+        if (res.status === 401) {
+          // Session expired — show message and redirect to login
+          addMessage('ai', 'Your session has expired. Redirecting to login...');
+          if (!C.state.isPlaying) setMode('idle');
+          setTimeout(function () {
+            window.location.href = C.config.appUrl + '/auth/login.php';
+          }, 1500);
+          return null;
+        }
+        if (!res.ok) {
+          return res.json().catch(function () { return null; }).then(function (errData) {
+            var detail = (errData && errData.message) ? errData.message : 'HTTP ' + res.status;
+            throw new Error(detail);
+          });
+        }
         return res.json();
       })
       .then(function (data) {
+        if (!data) return; // 401 handled above
         if (data.success) {
           var reply = data.reply || 'I\'m not sure how to respond. Could you ask me something else?';
           addMessage('ai', reply);
@@ -479,7 +902,10 @@
       })
       .catch(function (err) {
         console.error('[MICA] Chat error:', err);
-        addMessage('ai', 'Connection error. Please check your network and try again. The clinic AI is temporarily unavailable.');
+        console.log('[MICA] Error message:', err && err.message ? err.message : String(err));
+        addMessage('ai', (err && err.message)
+          ? ('MICA: ' + err.message + '. Please try again or refresh the page.')
+          : 'Connection error. Please check your network and try again. The clinic AI is temporarily unavailable.');
         if (!C.state.isPlaying) setMode('idle');
       })
       .finally(function () {
@@ -582,7 +1008,7 @@
     fetch(C.config.appUrl + '/api/ai_assistant.php', {
       method: 'POST',
       body: formData,
-    }).then(function (r) { return r.json(); })
+    }).then(function (r) { console.log('[MICA] ClearHistory request — HTTP ' + r.status); return r.json(); })
       .then(function (data) {
         if (data.success) {
           C.state.messages = [];
@@ -590,8 +1016,11 @@
           C.state.isFirstMessage = true;
           if (C.dom.micaBody) C.dom.micaBody.innerHTML = '';
           showPersonalizedGreeting();
+        } else {
+          console.warn('[MICA] ClearHistory failed:', data.message || 'unknown error');
         }
-      });
+      })
+      .catch(function (err) { console.error('[MICA] ClearHistory error:', err); });
   }
 
   function newConversation() {
@@ -605,9 +1034,9 @@
   function loadHistory() {
     fetch(C.config.appUrl + '/api/ai_assistant.php?action=history', {
       method: 'GET',
-    }).then(function (r) { return r.json(); })
+    }).then(function (r) { console.log('[MICA] History request — HTTP ' + r.status); return r.json(); })
       .then(function (data) {
-        if (!data.success) return;
+        if (!data.success) { console.warn('[MICA] History fetch returned success:false:', data.message); return; }
         if (!data.data.history || data.data.history.length === 0) {
           showPersonalizedGreeting();
           return;
@@ -621,7 +1050,7 @@
         C.config.initialGreetingShown = true;
         hideChips();
       })
-      .catch(function () { showPersonalizedGreeting(); });
+      .catch(function (err) { console.error('[MICA] History load error:', err); showPersonalizedGreeting(); });
   }
 
   // ================================================================
@@ -678,7 +1107,7 @@
     };
 
     recognition.onsoundstart = function () {
-      if (C.state.mode === 'speaking' && C.state.currentAudio) {
+      if (C.state.mode === 'speaking' && C.state.isPlaying) {
         interruptSpeaking();
       }
     };
@@ -718,6 +1147,26 @@
     if (C.dom.micaInput) C.dom.micaInput.placeholder = 'Type a message...';
   }
 
+  function normalizeSpeechTranscript(text) {
+    if (!text) return text;
+    var out = String(text);
+    for (var i = 0; i < RECOGNITION_NORMALIZATION.length; i++) {
+      out = out.replace(RECOGNITION_NORMALIZATION[i].from, RECOGNITION_NORMALIZATION[i].to);
+    }
+    return out.replace(/\s+/g, ' ').trim();
+  }
+
+  // Ensure the assistant name is always displayed as "MICA" in the UI.
+  function normalizeForDisplay(text) {
+    if (!text) return text;
+    var out = String(text);
+    var neverDisplay = ['Mika', 'mika', 'Mica', 'mica', 'Meeka', 'meeka'];
+    for (var i = 0; i < neverDisplay.length; i++) {
+      out = out.replace(new RegExp('\\b' + neverDisplay[i] + '\\b', 'g'), 'MICA');
+    }
+    return out;
+  }
+
   function handleVoiceInput(transcript) {
     C.state.isListening = false;
     if (C.state.recognition) { try { C.state.recognition.stop(); } catch (e) { /* ignore */ } }
@@ -726,142 +1175,19 @@
       setMode('idle');
       return;
     }
+
+    // Normalize speech recognition BEFORE sending to the AI.
+    // Fixes "Mika" → "MICA", "b p c" → "BPC", etc.
+    transcript = normalizeSpeechTranscript(transcript);
+
+    // Ensure branding consistency in the input field.
     if (C.dom.micaInput) C.dom.micaInput.value = transcript.trim();
+    transcript = normalizeForDisplay(transcript.trim());
 
     // VOICE MODE: mark the input as 'voice' so the reply is spoken,
     // then the state machine returns to Idle (no continuous listening).
     if (handleNavigation(transcript)) return;
-    sendMessage(transcript.trim(), 'voice');
-  }
-
-  // ================================================================
-  // Voice Verification Gate
-  // Voice Mode requires the authenticated account owner's voice profile.
-  // Flow: mic pressed → logged in? → has profile? → capture 2-3s → verify.
-  // Text chat is unaffected; SOS is unaffected.
-  // ================================================================
-  function requestVoiceMode() {
-    if (!supportsSpeechRecognition) {
-      showStatus('Voice input not supported. Please type.');
-      return;
-    }
-    // Check provider availability + enrollment status first.
-    $.get(C.config.appUrl + '/api/voice.php', { action: 'status' }, function (res) {
-      if (!res.success || !res.available || !res.provider_available) {
-        showStatus('Voice verification service is temporarily unavailable. You may continue using Text Chat.');
-        if (typeof Swal !== 'undefined') {
-          Swal.fire({ icon: 'warning', title: 'Voice Mode Unavailable', text: 'Voice verification service is temporarily unavailable. You may continue using Text Chat.' });
-        }
-        return;
-      }
-      if (!res.enrolled) {
-        showStatus('No voice profile found. Please complete Voice Enrollment before using Voice Mode.');
-        if (typeof Swal !== 'undefined') {
-          Swal.fire({ icon: 'warning', title: 'Voice Enrollment Required', text: 'No voice profile found.\nPlease complete Voice Enrollment before using Voice Mode.' });
-        }
-        return;
-      }
-      // Enrolled → capture a short sample and verify before starting STT.
-      verifyThenListen();
-    }, 'json').fail(function () {
-      showStatus('Voice verification service is temporarily unavailable. You may continue using Text Chat.');
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({ icon: 'warning', title: 'Voice Mode Unavailable', text: 'Voice verification service is temporarily unavailable. You may continue using Text Chat.' });
-      }
-    });
-  }
-
-  function verifyThenListen() {
-    showStatus('🎤 Verify your voice... speak now (2-3 seconds).');
-    captureSignature(3).then(function (payload) {
-      if (!payload) {
-        showStatus('Voice capture failed. Please check your microphone.');
-        return;
-      }
-      var formData = new FormData();
-      formData.append('action', 'verify');
-      formData.append('csrf_token', C.config.csrfToken);
-      formData.append('audio[sample_rate]', payload.sample_rate);
-      // Downsample: send every 8th frame as ONE JSON field
-      // (avoids PHP max_input_vars truncation of thousands of fields).
-      var downsampled = [];
-      for (var i = 0; i < payload.frames.length; i += 8) {
-        downsampled.push(payload.frames[i]);
-      }
-      formData.append('audio_json', JSON.stringify(downsampled));
-      fetch(C.config.appUrl + '/api/voice.php', { method: 'POST', body: formData })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-          if (res.success && res.verified) {
-            showStatus('✅ Voice verified. Listening...');
-            startListening();
-          } else {
-            showStatus('Voice verification failed. Only the authenticated account owner may use MICA Voice Assistant.');
-            if (typeof Swal !== 'undefined') {
-              Swal.fire({ icon: 'error', title: 'Voice Verification Failed', text: 'Voice verification failed. Only the authenticated account owner may use MICA Voice Assistant.' });
-            }
-          }
-        })
-        .catch(function () {
-          showStatus('Voice verification service is temporarily unavailable. You may continue using Text Chat.');
-        });
-    }).catch(function () {
-      showStatus('Voice capture cancelled.');
-    });
-  }
-
-  // Capture N seconds of audio via getUserMedia + AudioContext,
-  // returning a Promise of { sample_rate, frames:array } (16kHz mono).
-  function captureSignature(durationSeconds) {
-    return new Promise(function (resolve, reject) {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        reject(new Error('Microphone not supported'));
-        return;
-      }
-      durationSeconds = durationSeconds || 3;
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(function (stream) {
-          var AudioCtx = window.AudioContext || window.webkitAudioContext;
-          if (!AudioCtx) {
-            stream.getTracks().forEach(function (t) { t.stop(); });
-            reject(new Error('Audio context not supported'));
-            return;
-          }
-          var ctx = new AudioCtx();
-          var source = ctx.createMediaStreamSource(stream);
-          var sampleRate = ctx.sampleRate || 16000;
-          var targetRate = 16000;
-          var frames = [];
-          var recorder = ctx.createScriptProcessor(4096, 1, 1);
-          source.connect(recorder);
-          recorder.connect(ctx.destination);
-          var done = false;
-          function stopAndResolve() {
-            if (done) return;
-            done = true;
-            try { recorder.disconnect(); } catch (e) {}
-            try { source.disconnect(); } catch (e) {}
-            stream.getTracks().forEach(function (t) { t.stop(); });
-            try { ctx.close(); } catch (e) {}
-            resolve({ sample_rate: targetRate, frames: frames });
-          }
-          recorder.onaudioprocess = function (e) {
-            if (done) return;
-            var ch = e.inputBuffer.getChannelData(0);
-            var step = Math.max(1, Math.round(sampleRate / targetRate));
-            for (var i = 0; i < ch.length; i += step) {
-              frames.push(ch[i]);
-            }
-            if (frames.length >= targetRate * durationSeconds) {
-              stopAndResolve();
-            }
-          };
-          setTimeout(stopAndResolve, (durationSeconds + 1) * 1000);
-        })
-        .catch(function (err) {
-          reject(err);
-        });
-    });
+    sendMessage(transcript, 'voice');
   }
 
   // ================================================================
@@ -927,17 +1253,10 @@
     return C.config.preferredFemaleVoice;
   }
 
-  function speakWithNativeTTS(text) {
+   function speakWithNativeTTS(text) {
     return new Promise(function (resolve) {
       if (!('speechSynthesis' in window)) { resolve(); return; }
-      var clean = text
-        .replace(/\*\*(.*?)\*\*/g, '$1')
-        .replace(/\*(.*?)\*/g, '$1')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/[#*_~`>|:-]/g, '')
-        .replace(/\n+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+      var clean = prepareSpeechText(text);
       if (!clean) { resolve(); return; }
 
       var utter = new SpeechSynthesisUtterance(clean);
@@ -1096,12 +1415,22 @@
     });
 
     C.dom.micBtn.addEventListener('click', function () {
-      if (C.state.isListening) stopListening();
-      else requestVoiceMode();
+      if (C.state.isListening) {
+        stopListening();
+        return;
+      }
+      // If MICA is currently speaking or processing, stop it and allow a fresh start.
+      if (C.state.isPlaying || C.state.mode === 'speaking' || C.state.mode === 'thinking') {
+        stopSpeaking();
+        if (C.state.mode === 'thinking') setMode('idle');
+        return;
+      }
+      startListening();
     });
     if (C.dom.replayBtn) {
       C.dom.replayBtn.addEventListener('click', function () {
         if (C.state.lastResponse) {
+          stopSpeaking();
           addMessage('ai', '🔄 Replaying...');
           speakQueued(C.state.lastResponse);
         } else {
@@ -1183,6 +1512,16 @@
       C.config.appUrl = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : '';
       if (!C.config.appUrl) C.config.appUrl = window.location.origin + '/bpc_clinic_system';
 
+      // Pull server-provided MICA_CONFIG (timezone, wake words, greeting, TTS provider).
+      if (typeof window.MICA_CONFIG !== 'undefined' && window.MICA_CONFIG) {
+        if (window.MICA_CONFIG.timezone) C.config.timezone = window.MICA_CONFIG.timezone;
+        if (window.MICA_CONFIG.wakeWords) C.config.wakeWords = window.MICA_CONFIG.wakeWords;
+        if (window.MICA_CONFIG.continuousTimeoutMs) C.config.continuousTimeoutMs = window.MICA_CONFIG.continuousTimeoutMs;
+        if (window.MICA_CONFIG.minConfidence) C.config.minConfidence = window.MICA_CONFIG.minConfidence;
+        if (window.MICA_CONFIG.greeting) C.config.greeting = window.MICA_CONFIG.greeting;
+        if (window.MICA_CONFIG.ttsProvider) C.config.ttsProvider = window.MICA_CONFIG.ttsProvider;
+      }
+
       buildUI();
       bindEvents();
 
@@ -1230,7 +1569,7 @@
     testVoice: function () { testVoice(); },
   };
 
-  // Voice sub-API (kept for backward compat with any page code referring to MICA_VOICE)
+   // Voice sub-API — browser Speech Synthesis + Speech Recognition helpers
   window.MICA_VOICE = {
     initRecognition: initRecognition,
     startListening: startListening,
@@ -1238,42 +1577,46 @@
     handleVoiceInput: handleVoiceInput,
     speakText: function (text) {
       return new Promise(function (resolve) {
-        // Try server TTS first, fall back to native
-        ttsViaServer(text).then(resolve).catch(function () { speakWithNativeTTS(text).then(resolve); });
+        // SINGLE SOURCE OF TRUTH + dual-voice guard:
+        // 1. Stop ALL previous playback (HTML audio + browser speechSynthesis)
+        //    before starting ANY new speech. This guarantees only ONE engine
+        //    is ever active at a time.
+        // 2. Try ElevenLabs (female voice). If it fails, fall back to browser
+        //    speechSynthesis (female voice) — but NEVER while ElevenLabs is
+        //    still playing. The .catch() only fires when ElevenLabs fully fails.
+        if (C.state.currentAudio) {
+          try { C.state.currentAudio.pause(); C.state.currentAudio = null; } catch (e) { /* ignore */ }
+        }
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        C.state.isPlaying = false;
+
+        var provider = C.config.ttsProvider || 'elevenlabs';
+        if (provider === 'elevenlabs') {
+          ttsViaServer(text).then(resolve).catch(function (e) {
+            console.warn('[MICA] ElevenLabs TTS failed, falling back to browser:', (e && e.message) ? e.message : e);
+            // Cancel any speechSynthesis that might have been triggered by ElevenLabs error
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            speakWithNativeTTS(text).then(resolve);
+          });
+        } else {
+          speakWithNativeTTS(text).then(resolve);
+        }
       });
     },
     interruptSpeaking: interruptSpeaking,
     processSynthQueue: processSynthQueue,
     setVolume: setVolume,
     setSpeed: setSpeed,
-    isSupported: supportsSpeechRecognition,
-    isListening: function () { return C.state.isListening; },
-
-    // ---- Voice Verification API (single source used by MICA + enrollment card) ----
-    requestVoiceMode: requestVoiceMode,
-    captureSignature: captureSignature,
-    getVoiceStatus: function () {
-      return new Promise(function (resolve) {
-        $.get(C.config.appUrl + '/api/voice.php', { action: 'status' }, function (res) {
-          resolve(res || { success: false });
-        }, 'json').fail(function () { resolve({ success: false }); });
-      });
-    },
-  };
+     isSupported: supportsSpeechRecognition,
+     isListening: function () { return C.state.isListening; },
+   };
 
   // TTS via server proxy (api/mica_tts.php) — key never exposed
   function ttsViaServer(text) {
     return new Promise(function (resolve, reject) {
       if (!text || text.length < 3) { resolve(); return; }
-      var cleanText = text
-        .replace(/\*\*(.*?)\*\*/g, '$1')
-        .replace(/\*(.*?)\*/g, '$1')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/[#*_~`>|:-]/g, '')
-        .replace(/\n+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!cleanText) { resolve(); return; }
+       var cleanText = prepareSpeechText(text);
+       if (!cleanText) { resolve(); return; }
 
       var cacheKey = cleanText.substring(0, 100);
       if (C.config.audioCache[cacheKey]) {
@@ -1312,6 +1655,7 @@
     var audio = new Audio(url);
     C.state.currentAudio = audio;
     audio.volume = C.config.voiceVolume || 1.0;
+    audio.playbackRate = C.config.voiceSpeed || 1.0;
 
     audio.onended = function () {
       URL.revokeObjectURL(url);
@@ -1323,21 +1667,27 @@
 
     audio.onerror = function () {
       URL.revokeObjectURL(url);
+      try { audio.pause(); } catch (e) { /* ignore */ }
       C.state.isPlaying = false;
       C.state.currentAudio = null;
-      processSynthQueue();
-      reject(new Error('Audio playback failed'));
+      // Reject — do NOT call processSynthQueue() here. The rejection flows
+      // through MICA_VOICE.speakText's .catch() which falls back to browser
+      // TTS, and processSynthQueue is called when that completes.
+      reject(new Error('Audio playback error'));
     };
 
     C.state.isPlaying = true;
     setMode('speaking');
 
     audio.play().catch(function (err) {
+      // Autoplay blocked or play failed — reject so the fallback (browser TTS)
+      // engages automatically via MICA_VOICE.speakText's .catch() handler.
       console.warn('[MICA] Audio play error:', err.message);
+      try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
       C.state.isPlaying = false;
       C.state.currentAudio = null;
       setMode('idle');
-      resolve();
+      reject(new Error('Audio play failed: ' + err.message));
     });
   }
 })();

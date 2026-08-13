@@ -1,5 +1,10 @@
- <?php
+<?php
 require_once __DIR__ . '/../config/config.php';
+
+// Prevent caching of login page
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
 
 if (is_logged_in()) {
     redirect(dashboard_url_for(current_user()['role']));
@@ -17,26 +22,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($identifier === '' || $password === '') {
         $errors[] = 'Please enter your username/email and password.';
     } else {
-        $db = getDB();
-        $stmt = $db->prepare("SELECT * FROM users WHERE (username = ? OR email = ?) LIMIT 1");
-        $stmt->execute([$identifier, $identifier]);
-        $user = $stmt->fetch();
+        $clientIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $lockoutRemaining = login_rate_limit_check($clientIp);
 
-        if (!$user || !password_verify($password, $user['password_hash'])) {
-            $errors[] = 'Invalid credentials. Please try again.';
-        } elseif ($user['status'] !== 'active') {
-            $errors[] = 'Your account is not active yet. Please contact the clinic administrator.';
+        if ($lockoutRemaining > 0) {
+            $minutes = ceil($lockoutRemaining / 60);
+            $errors[] = "Too many failed attempts. Please try again in {$minutes} minute(s).";
         } else {
-            login_user($user);
-            $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
-            log_activity($user['id'], 'Logged in', 'auth');
+            $db = getDB();
+            $stmt = $db->prepare("SELECT * FROM users WHERE (username = ? OR email = ?) LIMIT 1");
+            $stmt->execute([$identifier, $identifier]);
+            $user = $stmt->fetch();
 
-            if ($remember) {
-                set_remember_me_cookie($user['id']);
+            if (!$user || !password_verify($password, $user['password_hash'])) {
+                login_rate_limit_record_failure($clientIp, $identifier);
+                $errors[] = 'Invalid username or password.';
+            } elseif ($user['status'] !== 'active') {
+                login_rate_limit_clear($clientIp);
+                $errors[] = 'Your account is not active yet. Please contact the clinic administrator.';
+            } else {
+                login_user($user);
+                login_rate_limit_clear($clientIp);
+                login_rate_limit_reset_user($user['id']);
+                $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
+                log_activity($user['id'], 'Logged in', 'auth');
+
+                if ($remember) {
+                    set_remember_me_cookie($user['id']);
+                }
+
+                $_SESSION['login_success'] = true;
+                redirect(dashboard_url_for($user['role']));
             }
-
-            $_SESSION['login_success'] = true;
-            redirect(dashboard_url_for($user['role']));
         }
     }
 }
@@ -90,6 +107,22 @@ $pageTitle = 'Login';
             <input type="password" name="password" id="password" class="form-control border-start-0 ps-0" required placeholder="Enter your password" aria-label="Password" aria-describedby="passwordError">
             <button class="btn btn-outline-secondary px-3" type="button" id="pwToggle" aria-label="Show password" aria-pressed="false"><i class="bi bi-eye" id="pwIcon"></i></button>
             <div class="invalid-feedback" id="passwordError">Please enter your password.</div>
+          </div>
+        </div>
+        <!-- Password requirements (informational, shown while typing) -->
+        <div class="mb-3" id="pwRules" style="display:none;">
+          <div class="card p-3 small">
+            <div class="fw-semibold mb-2">Password Requirements</div>
+            <ul class="mb-0" id="pwReqList" style="list-style:none;padding-left:0;">
+              <li id="reqLength"><i class="bi bi-x-circle-fill text-danger me-1"></i> Minimum 8 characters</li>
+              <li id="reqUpper"><i class="bi bi-x-circle-fill text-danger me-1"></i> At least one uppercase letter</li>
+              <li id="reqLower"><i class="bi bi-x-circle-fill text-danger me-1"></i> At least one lowercase letter</li>
+              <li id="reqNumber"><i class="bi bi-x-circle-fill text-danger me-1"></i> At least one number</li>
+              <li id="reqSpecial"><i class="bi bi-x-circle-fill text-danger me-1"></i> At least one special character</li>
+            </ul>
+            <div class="mt-2">Strength: <span id="pwStrength" class="fw-semibold">—</span></div>
+            <div class="text-muted small mt-1">Example strong password: <code>Clinic@2026</code></div>
+            <div class="text-muted small mt-2" id="capsLockHint" style="display:none;color:var(--warning);">Caps Lock is ON</div>
           </div>
         </div>
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -172,6 +205,57 @@ $pageTitle = 'Login';
       el.classList.remove('is-invalid');
     });
   });
+})();
+</script>
+<script>
+// Password strength & caps lock hints (informational on login)
+(function () {
+  const pw = document.getElementById('password');
+  const pwRules = document.getElementById('pwRules');
+  const pwReq = {
+    length: document.getElementById('reqLength'),
+    upper: document.getElementById('reqUpper'),
+    lower: document.getElementById('reqLower'),
+    number: document.getElementById('reqNumber'),
+    special: document.getElementById('reqSpecial')
+  };
+  const pwStrength = document.getElementById('pwStrength');
+  const capsHint = document.getElementById('capsLockHint');
+
+  function scorePassword(s) {
+    let score = 0;
+    if (s.length >= 8) score++;
+    if (/[A-Z]/.test(s)) score++;
+    if (/[a-z]/.test(s)) score++;
+    if (/[0-9]/.test(s)) score++;
+    if (/[^A-Za-z0-9]/.test(s)) score++;
+    return score;
+  }
+
+  function updateRules() {
+    const v = pw.value || '';
+    pwReq.length.querySelector('i').className = v.length >= 8 ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
+    pwReq.upper.querySelector('i').className = /[A-Z]/.test(v) ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
+    pwReq.lower.querySelector('i').className = /[a-z]/.test(v) ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
+    pwReq.number.querySelector('i').className = /[0-9]/.test(v) ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
+    pwReq.special.querySelector('i').className = /[^A-Za-z0-9]/.test(v) ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
+    const score = scorePassword(v);
+    const labels = ['Very Weak','Weak','Medium','Strong','Very Strong'];
+    pwStrength.textContent = v ? labels[Math.max(0, Math.min(labels.length - 1, score - 1))] : '—';
+  }
+
+  if (pw) {
+    pw.addEventListener('focus', function () { pwRules.style.display = ''; updateRules(); });
+    pw.addEventListener('blur', function () { setTimeout(()=>{ pwRules.style.display = 'none'; }, 300); });
+    pw.addEventListener('input', updateRules);
+    pw.addEventListener('keyup', function (e) {
+      if (e.getModifierState && e.getModifierState('CapsLock')) {
+        capsHint.style.display = '';
+      } else {
+        capsHint.style.display = 'none';
+      }
+    });
+  }
 })();
 </script>
 <?php include __DIR__ . '/../components/footer.php'; ?>

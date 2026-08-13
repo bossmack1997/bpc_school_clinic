@@ -19,6 +19,17 @@ if (!$micaUser) return;
 $micaFirstName = e($micaUser['first_name'] ?? 'there');
 $micaFullName  = e(($micaUser['first_name'] ?? '') . ' ' . ($micaUser['last_name'] ?? ''));
 $micaRole      = e($micaUser['role'] ?? 'student');
+
+$micaTz = defined('MICA_TIMEZONE') ? MICA_TIMEZONE : 'Asia/Manila';
+$micaHour = (int)date('H');
+try {
+    $dt = new DateTime('now', new DateTimeZone($micaTz));
+    $micaHour = (int)$dt->format('H');
+} catch (Exception $e) { /* fallback */ }
+if ($micaHour >= 5 && $micaHour < 12) $micaTimeOfDay = 'Good morning';
+elseif ($micaHour >= 12 && $micaHour < 18) $micaTimeOfDay = 'Good afternoon';
+else $micaTimeOfDay = 'Good evening';
+$micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medical Intelligent Clinic Assistant from BPC. How can I help you today?';
 ?>
 <!-- ================================================================ -->
 <!-- SOS Emergency Modal (Global - used by MICA on every page)        -->
@@ -81,7 +92,17 @@ window.MICA_USER = {
   role: '<?= $micaRole ?>',
 };
 
-window.MICA_GREETING = 'Hello, <?= $micaFirstName ?>. Welcome back to the BPC School Clinic. I\'m MICA, your Medical Intelligent Clinic Assistant. How may I assist you today?';
+window.MICA_CONFIG = {
+  timezone: '<?= defined('MICA_TIMEZONE') ? e(MICA_TIMEZONE) : 'Asia/Manila' ?>',
+  wakeWords: <?= json_encode(array_values(array_filter(array_map('trim', explode(',', defined('MICA_WAKE_WORDS') ? MICA_WAKE_WORDS : 'hey mica, hello mica, hi mica'))))) ?>,
+  continuousTimeoutMs: <?= defined('MICA_CONTINUOUS_TIMEOUT_MS') ? (int)MICA_CONTINUOUS_TIMEOUT_MS : 8000 ?>,
+  minConfidence: <?= defined('MICA_MIN_CONFIDENCE') ? (float)MICA_MIN_CONFIDENCE : 0.35 ?>,
+  greeting: '<?= $micaGreeting ?>',
+  ttsProvider: '<?= defined('MICA_TTS_PROVIDER') ? MICA_TTS_PROVIDER : 'browser' ?>',
+};
+
+// Backward-compatible alias (some pages may reference MICA_GREETING directly).
+window.MICA_GREETING = window.MICA_CONFIG.greeting;
 
 window.__MICA_SOS_LOCATION__ = null;
 

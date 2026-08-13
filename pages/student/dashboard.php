@@ -79,7 +79,7 @@ $pageTitle = 'My Dashboard';
         <div class="col-md-4">
           <div class="medical-stat-card gradient-blue">
             <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-weight-scale"></i></div>
+              <div class="msc-icon"><i class="bi bi-activity"></i></div>
               <div class="msc-value"><?= $latestHealth['bmi'] ?? '—' ?></div>
             </div>
             <div>
@@ -91,7 +91,7 @@ $pageTitle = 'My Dashboard';
         <div class="col-md-4">
           <div class="medical-stat-card gradient-teal">
             <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-file-waveform-fill"></i></div>
+              <div class="msc-icon"><i class="bi bi-file-earmark-medical-fill"></i></div>
               <div class="msc-value"><span class="counter-animate" data-count="<?= (int)$totalVisits ?>">0</span></div>
             </div>
             <div>
@@ -121,7 +121,7 @@ $pageTitle = 'My Dashboard';
           <div class="qa-sub-lg">View your health files</div>
         </a>
         <a href="vaccination.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-syringe"></i></div>
+          <div class="qa-icon-lg"><i class="bi bi-shield-check"></i></div>
           <div class="qa-title-lg">Vaccination Record</div>
           <div class="qa-sub-lg">Check vaccine history</div>
         </a>

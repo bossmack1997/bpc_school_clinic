@@ -17,6 +17,7 @@
  * - clinic_schedule
  * - emergency
  * - health_education
+ * - qr_health_pass
  * - general_conversation
  * 
  * Uses priority-based keyword matching. Emergency has highest priority.
@@ -187,7 +188,21 @@ class IntentDetector
         }
 
         // =========================================================
-        // 12. GREETING
+        // 12. QR HEALTH PASS
+        // =========================================================
+        $qrKeywords = [
+            'qr code', 'qr scan', 'health pass', 'digital pass', 'smart pass',
+            'my qr', 'scan qr', 'qr check-in', 'check in', 'queue number',
+            'current queue', 'waiting number', 'queue status', 'qr timeline',
+            'scan history', 'where is my queue', 'what is my queue',
+            'my queue', 'queue', 'check-in', 'check in today',
+        ];
+        if ($this->matchKeywords($lower, $qrKeywords)) {
+            return 'qr_health_pass';
+        }
+
+        // =========================================================
+        // 13. GREETING
         // =========================================================
         $greetingKeywords = [
             'hello', 'hi', 'hey', 'good morning', 'good afternoon',

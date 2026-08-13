@@ -13,6 +13,7 @@ $pageTitle = 'Medicine Dispensing';
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area">
       <div class="row g-3">
+        <!-- ==================== DISPENSE FORM ==================== -->
         <div class="col-lg-5">
           <div class="card p-3">
             <h6 class="section-title mb-3"><i class="bi bi-capsule text-success me-1"></i> Dispense Medicine</h6>
@@ -32,17 +33,24 @@ $pageTitle = 'Medicine Dispensing';
               <input type="hidden" name="medicine_id" id="medicine_id">
               <div class="alert alert-info py-2 small d-none" id="selectedMed"></div>
               <div class="mb-2"><label class="form-label small">Quantity</label><input type="number" class="form-control" name="quantity" min="1" required></div>
-              <div class="mb-2"><label class="form-label small">Reason</label><input class="form-control" name="reason" value="Dispensing"></div>
-              <button class="btn btn-primary w-100" type="submit">Dispense</button>
+              <div class="mb-2"><label class="form-label small">Purpose / Reason <span class="text-danger">*</span></label><input class="form-control" name="purpose" id="dispensePurpose" required placeholder="e.g. Headache relief"></div>
+              <div class="mb-2"><label class="form-label small">Diagnosis / Reason</label><input class="form-control" name="diagnosis" placeholder="e.g. Tension headache"></div>
+              <div class="mb-2"><label class="form-label small">Remarks</label><textarea class="form-control" name="remarks" rows="2" placeholder="Optional notes"></textarea></div>
+              <button class="btn btn-primary w-100" type="submit"><i class="bi bi-check2-circle me-1"></i> Dispense</button>
             </form>
           </div>
         </div>
+
+        <!-- ==================== DISPENSING HISTORY ==================== -->
         <div class="col-lg-7">
-          <div class="card p-3">
-            <h6 class="section-title mb-3">Dispensing History</h6>
+          <div class="card p-3 mb-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-2">
+              <h6 class="section-title mb-0">Dispensing History</h6>
+              <button class="btn btn-sm btn-outline-secondary" id="printHistoryBtn"><i class="bi bi-printer me-1"></i> Print</button>
+            </div>
             <div class="table-responsive">
               <table class="table table-hover align-middle" id="histTable" style="width:100%">
-                <thead><tr><th>Date</th><th>Student</th><th>Medicine</th><th>Qty</th><th>Reason</th></tr></thead>
+                <thead><tr><th>Date</th><th>Student</th><th>Medicine</th><th>Qty</th><th>Purpose</th><th>Nurse</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
@@ -56,6 +64,7 @@ $pageTitle = 'Medicine Dispensing';
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
 let selectedStudentId = null, selectedMedId = null;
+let histDt = null;
 
 $('#studentSearch').on('keyup', function () {
   const q = $(this).val();
@@ -75,7 +84,6 @@ $(document).on('click', '#studentResults button', function () {
   $('#dispenseForm').removeClass('d-none');
   $('#studentResults').empty();
   $('#studentSearch').val('');
-  loadHistory();
 });
 
 $('#medSearch').on('keyup', function () {
@@ -84,7 +92,9 @@ $('#medSearch').on('keyup', function () {
   $.get(APP_URL + '/api/dispensing.php', { action: 'search_medicines', q }, function (res) {
     const $r = $('#medResults').empty();
     res.data.forEach(m => {
-      $r.append(`<button type="button" class="list-group-item list-group-item-action" data-id="${m.id}" data-name="${m.medicine_name} (Stock: ${m.quantity} ${m.unit||''})">${m.medicine_name} — Stock: ${m.quantity} ${m.unit||''}</button>`);
+      const expInfo = m.expiration_date ? ' · Exp: ' + m.expiration_date : '';
+      const lowInfo = +m.quantity <= +m.reorder_level ? ' <span class="badge bg-warning text-dark">Low</span>' : '';
+      $r.append(`<button type="button" class="list-group-item list-group-item-action" data-id="${m.id}" data-name="${m.medicine_name} (Stock: ${m.quantity} ${m.unit||''})">${m.medicine_name}${m.brand ? ' (' + m.brand + ')' : ''} — Stock: ${m.quantity} ${m.unit||''}${expInfo}${lowInfo}</button>`);
     });
   }, 'json');
 });
@@ -101,19 +111,60 @@ $('#dispenseForm').on('submit', function (e) {
   e.preventDefault();
   const data = $(this).serialize() + '&action=dispense&csrf_token=' + csrfToken;
   $.post(APP_URL + '/api/dispensing.php', data, function (res) {
-    if (res.success) { toastSuccess(res.message); $('#dispenseForm')[0].reset(); $('#dispenseForm').addClass('d-none'); $('#selectedMed').addClass('d-none'); selectedStudentId = null; selectedMedId = null; }
+    if (res.success) {
+      toastSuccess(res.message);
+      $('#dispenseForm')[0].reset();
+      $('#dispenseForm').addClass('d-none');
+      $('#selectedMed').addClass('d-none');
+      selectedStudentId = null; selectedMedId = null;
+      loadAllHistory();
+    }
     else toastError(res.message);
   }, 'json');
 });
 
-function loadHistory() {
-  if (!selectedStudentId) return;
-  $.get(APP_URL + '/api/dispensing.php', { action: 'history', student_id: selectedStudentId }, function (res) {
+// ============================================================
+// Load full dispensing history (all students, searchable)
+// ============================================================
+function loadAllHistory() {
+  $.get(APP_URL + '/api/dispensing.php', { action: 'all_history', limit: 200 }, function (res) {
     if (!res.success) return;
-    const rows = res.data.map(d => [d.performed_at, '', d.medicine_name, d.quantity + ' ' + (d.unit||''), d.reason || '—']);
-    $('#histTable').DataTable({ data: rows, columns:[{},{},{},{},{}], pageLength: 5, destroy:true });
+    const rows = res.data.map(d => {
+      const stud = [d.stud_first, d.stud_last].filter(Boolean).join(' ') || '—';
+      const nurse = [d.nurse_first, d.nurse_last].filter(Boolean).join(' ') || '—';
+      return [
+        d.performed_at,
+        stud + (d.student_number ? '<br><span class="text-muted small">' + d.student_number + '</span>' : ''),
+        d.medicine_name,
+        d.quantity + ' ' + (d.unit || ''),
+        d.reason || '—',
+        nurse
+      ];
+    });
+    if (histDt) histDt.destroy();
+    histDt = $('#histTable').DataTable({ data: rows, columns: [null, null, null, null, null, null], pageLength: 10, order: [[0, 'desc']] });
   }, 'json');
 }
+
+$('#printHistoryBtn').on('click', function () {
+  const w = window.open('', '_blank');
+  w.document.write(`
+    <html><head><title>Dispensing History</title>
+    <style>body{font-family:Arial,sans-serif;padding:30px}table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f0f0f0}
+    h2{color:#0B6B3A;margin:0 0 4px}.muted{color:#777;font-size:12px;margin-bottom:18px}</style>
+    </head><body>
+    <h2>BPC School Clinic — Medicine Dispensing History</h2>
+    <div class="muted">Bulacan Polytechnic College · Generated on ${new Date().toLocaleString()}</div>
+    <table><thead><tr><th>Date</th><th>Student</th><th>Medicine</th><th>Qty</th><th>Purpose</th><th>Nurse</th></tr></thead>
+    <tbody>${$('#histTable tbody').html()}</tbody></table>
+    </body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(function () { w.print(); }, 400);
+});
+
+loadAllHistory();
 </script>
 </body>
 </html>

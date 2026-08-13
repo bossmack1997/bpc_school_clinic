@@ -143,47 +143,133 @@ $(function () {
   }, 4000);
 
   // ================================================================
-  // Notification Polling (refreshes every few seconds)
+  // Notification service
   // ================================================================
-  if ($('#notifBadge').length) {
-    loadNotifications();
-    setInterval(loadNotifications, 5000);
+  const NOTIFICATION_PAGE_URL = window.NOTIFICATION_PAGE_URL || 'notifications.php';
+  const NOTIFICATION_POLL_INTERVAL = 30000;
+  let notificationPollTimer = null;
 
-    // Mark as read when notification dropdown is opened
-    $(document).on('click', '#notifBadge, .topbar-btn[data-bs-toggle="dropdown"]', function () {
-      // Mark notifications as read once the dropdown is shown
-      setTimeout(function () {
-        var badge = $('#notifBadge');
-        if (badge.is(':visible') && parseInt(badge.text()) > 0) {
-          $.post(APP_URL + '/api/notifications.php', {
-            action: 'mark_all_read',
-            csrf_token: $('meta[name="csrf-token"]').attr('content')
-          }, function (res) {
-            if (res.success) {
-              badge.addClass('d-none');
-              $('#notifList .dropdown-item.fw-semibold').removeClass('fw-semibold');
-            }
-          }, 'json');
-        }
-      }, 500);
+  function updateNotificationBadge(unread) {
+    const $badge = $('#notifBadge');
+    if (unread > 0) {
+      $badge.text(unread).removeClass('d-none');
+    } else {
+      $badge.addClass('d-none');
+    }
+  }
+
+  function renderNotificationDropdown(notifications) {
+    const $list = $('#notifList').empty();
+    if (!notifications || notifications.length === 0) {
+      $list.append('<li><a class="dropdown-item text-muted small text-center" href="#">No notifications</a></li>');
+      $list.append('<li><hr class="dropdown-divider"></li>');
+      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${NOTIFICATION_PAGE_URL}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
+      return;
+    }
+
+    notifications.forEach(function (n) {
+      const timeAgoText = timeSince(n.created_at);
+      const unreadClass = n.is_read ? '' : 'unread';
+      const dotColor = n.is_read ? 'background:var(--secondary);' : 'background:var(--success);';
+      const iconHtml = `<span class="badge bg-${n.color} rounded-circle d-inline-flex align-items-center justify-content-center" style="width:32px;height:32px;font-size:1rem;"><i class="bi bi-${n.icon}"></i></span>`;
+      const titleClasses = n.is_read ? 'text-body' : 'fw-semibold text-primary';
+      const linkUrl = `${NOTIFICATION_PAGE_URL}?id=${n.notification_id}`;
+
+      $list.append(
+        `<li><a href="${linkUrl}" class="dropdown-item notif-dropdown-item notif-link ${unreadClass}" data-id="${n.notification_id}">
+           <div class="d-flex align-items-start gap-2">
+             <div class="mt-1 flex-shrink-0">${iconHtml}</div>
+             <div class="flex-grow-1">
+               <div class="${titleClasses}">${escapeHtml(n.title)}</div>
+               <div class="text-muted" style="font-size:.75rem">${escapeHtml(n.message)}</div>
+               <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                 <span class="badge bg-${n.color} bg-opacity-10 text-${n.color}" style="font-size:.65rem;">${escapeHtml(n.type_label)}</span>
+                 <span class="text-muted" style="font-size:.65rem;">${timeAgoText}</span>
+               </div>
+             </div>
+             <div class="mt-1"><span class="notif-dot" style="${dotColor}"></span></div>
+           </div>
+         </a></li>`
+      );
     });
 
-    // Clicking a regular (non-SOS) notification marks all as read
-    $(document).on('click', '#notifList a.notif-link:not(.sos-notif-item)', function () {
-      var badge = $('#notifBadge');
-      var unreadCount = parseInt(badge.text()) || 0;
-      if (unreadCount > 0) {
-        $.post(APP_URL + '/api/notifications.php', {
-          action: 'mark_all_read',
-          csrf_token: $('meta[name="csrf-token"]').attr('content')
-        }, function (res) {
-          if (res.success) {
-            badge.addClass('d-none');
-          }
-        }, 'json');
+    $list.append('<li><hr class="dropdown-divider"></li>');
+    $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${NOTIFICATION_PAGE_URL}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
+  }
+
+  function loadNotifications() {
+    $.get(APP_URL + '/api/notifications.php', { action: 'latest' }, function (res) {
+      if (!res.success) return;
+      const unread = res.unread_count || 0;
+      renderNotificationDropdown(res.data);
+      updateNotificationBadge(unread);
+    }, 'json');
+  }
+
+  window.loadNotifications = loadNotifications;
+
+  function markNotificationRead(id, callback) {
+    if (!id) {
+      if (typeof callback === 'function') callback();
+      return;
+    }
+    $.post(APP_URL + '/api/notifications.php', {
+      action: 'mark_read',
+      id: id,
+      csrf_token: $('meta[name="csrf-token"]').attr('content')
+    }, function (res) {
+      if (res && res.success) {
+        loadNotifications();
+        if (typeof window.loadNotifCenter === 'function') {
+          window.loadNotifCenter();
+        }
+        if (typeof callback === 'function') callback(null);
+      } else {
+        if (typeof callback === 'function') callback((res && res.message) || 'Failed to mark notification as read.');
       }
+    }, 'json').fail(function () {
+      if (typeof callback === 'function') callback('Network error');
     });
   }
+
+  function markAllNotificationsRead(callback) {
+    $.post(APP_URL + '/api/notifications.php', {
+      action: 'mark_all_read',
+      csrf_token: $('meta[name="csrf-token"]').attr('content')
+    }, function (res) {
+      if (res && res.success) {
+        loadNotifications();
+        if (typeof window.loadNotifCenter === 'function') {
+          window.loadNotifCenter();
+        }
+      }
+      if (typeof callback === 'function') callback(res && res.success ? null : (res && res.message) || 'Failed to mark all as read.');
+    }, 'json').fail(function () {
+      if (typeof callback === 'function') callback('Network error');
+    });
+  }
+
+  if ($('#notifBadge').length) {
+    loadNotifications();
+    if (notificationPollTimer) clearInterval(notificationPollTimer);
+    notificationPollTimer = setInterval(loadNotifications, NOTIFICATION_POLL_INTERVAL);
+  }
+
+  $(document).on('click', '#notifList a.notif-link', function (e) {
+    e.preventDefault();
+    const id = $(this).data('id');
+    markNotificationRead(id, function () {
+      window.location.href = `${NOTIFICATION_PAGE_URL}?id=${id}`;
+    });
+  });
+
+  $(document).on('click', '#notifList a.sos-notif-item', function (e) {
+    e.preventDefault();
+    const id = $(this).data('id');
+    markNotificationRead(id, function () {
+      window.location.href = `${NOTIFICATION_PAGE_URL}?id=${id}`;
+    });
+  });
 
   // ================================================================
   // SOS Emergency — Open Details Modal (nurse/admin only)
@@ -297,9 +383,9 @@ function escapeHtml(text) {
   if (text === null || text === undefined) return '';
   return String(text)
     .replace(/&/g, '&amp;')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
 
@@ -307,7 +393,7 @@ function escapeHtml(text) {
 // Notifications
 // ================================================================
 function loadNotifications() {
-  $.get(APP_URL + '/api/notifications.php', { action: 'list' }, function (res) {
+  $.get(APP_URL + '/api/notifications.php', { action: 'latest' }, function (res) {
     if (!res.success) return;
     const unread = res.unread_count || 0;
     const $badge = $('#notifBadge');
@@ -369,9 +455,9 @@ function loadNotifications() {
               : n.type === 'health'
                 ? 'background:var(--success);'
                 : 'background:var(--info);';
-          const link = n.link || '#';
+const link = n.link || '#';
           $list.append(
-            `<li><a class="dropdown-item notif-dropdown-item notif-link ${n.is_read ? '' : 'unread'}" href="${link}">
+            `<li><a class="dropdown-item notif-dropdown-item notif-link ${n.is_read ? '' : 'unread'}" href="${link}" data-id="${n.id}">
                <div class="d-flex align-items-start gap-2">
                  <div class="mt-1 flex-shrink-0">
                    <span class="notif-dot" style="${dotColor}"></span>
@@ -387,12 +473,9 @@ function loadNotifications() {
         }
       });
 
-      // "View all" link
-      const viewAll = $list.children().length > 10;
-      if (viewAll) {
-        $list.append('<li><hr class="dropdown-divider"></li>');
-        $list.append('<li><a class="dropdown-item text-center small text-primary" href="notifications.php">View all notifications</a></li>');
-      }
+      // Always show a "View all notifications" link to the full Notification Center.
+      $list.append('<li><hr class="dropdown-divider"></li>');
+      $list.append('<li><a class="dropdown-item text-center small text-primary" href="notifications.php"><i class="bi bi-bell me-1"></i>View all notifications</a></li>');
     }
   }, 'json');
 }
@@ -521,19 +604,6 @@ function updateSosStatus(status) {
   });
 }
 
-// Mark all notifications as read when dropdown is opened
-$(document).on('show.bs.dropdown', '[aria-label="Notifications"]', function () {
-  // Mark all as read via AJAX
-  $.post(APP_URL + '/api/notifications.php', {
-    action: 'mark_all_read',
-    csrf_token: $('meta[name="csrf-token"]').attr('content')
-  }, function (res) {
-    if (res.success) {
-      $('#notifBadge').addClass('d-none');
-    }
-  }, 'json');
-});
-
 // ================================================================
 // Time Since Helper
 // ================================================================
@@ -633,13 +703,32 @@ if (typeof $.fn.DataTable !== 'undefined') {
 }
 
 // ================================================================
-// Auto-format date inputs to today's date minimum
+// Date inputs — context-aware min/max constraints
+// ----------------------------------------------------
+// Birthdate / date-of-birth fields must allow PAST dates up to today
+// (max = today) and must NOT be forced to >= today. Other date inputs
+// (appointments, follow-ups, expiration) default to "today or later"
+// only when no `min` attribute is already present.
 // ================================================================
-$(document).on('focus', 'input[type="date"]', function () {
-  if (!$(this).attr('min')) {
-    $(this).attr('min', new Date().toISOString().split('T')[0]);
-  }
-});
+(function () {
+  var birthdateNames = /^(birthdate|date_of_birth|birth_date)$/i;
+  var today = function () { return new Date().toISOString().split('T')[0]; };
+
+  $(document).on('focus', 'input[type="date"]', function () {
+    var $this = $(this);
+    var name = $this.attr('name') || '';
+
+    if (birthdateNames.test(name)) {
+      // Birthdate: allow any past date up to (and including) today.
+      if (!$this.attr('max')) { $this.attr('max', today()); }
+      // Never impose a `min` on birthdate fields.
+      return;
+    }
+
+    // All other date inputs: enforce "today or later" if no min set.
+    if (!$this.attr('min')) { $this.attr('min', today()); }
+  });
+})();
 
 // ================================================================
 // Logout Confirmation (SweetAlert2)

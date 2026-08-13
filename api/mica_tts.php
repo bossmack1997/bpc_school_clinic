@@ -12,7 +12,21 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
-require_login();
+
+// AJAX-friendly authentication check.
+// Unlike require_login() which redirects (and breaks the audio/JSON
+// response), this returns a proper JSON error when the session has
+// expired or the request is unauthenticated.
+if (!is_logged_in()) {
+    attempt_remember_me_login();
+}
+if (!is_logged_in()) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'error' => 'Your session has expired. Please log in again.']);
+    exit;
+}
+check_session_timeout();
 
 $action = $_REQUEST['action'] ?? 'synthesize';
 
@@ -20,7 +34,15 @@ $action = $_REQUEST['action'] ?? 'synthesize';
 // ACTION: synthesize — Convert text to speech via ElevenLabs
 // ================================================================
 if ($action === 'synthesize') {
-    csrf_verify_or_die();
+    // JSON-friendly CSRF check instead of csrf_verify_or_die()
+    // which dies with plain text and breaks the response contract.
+    $csrfToken = $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? '';
+    if (!csrf_verify($csrfToken)) {
+        http_response_code(403);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token. Please refresh the page and try again.']);
+        exit;
+    }
 
     $text = trim($_POST['text'] ?? '');
     if ($text === '') {
@@ -66,9 +88,9 @@ if ($action === 'synthesize') {
         'text' => $text,
         'model_id' => 'eleven_multilingual_v2',
         'voice_settings' => [
-            'stability' => 0.5,
-            'similarity_boost' => 0.75,
-            'style' => 0.3,
+            'stability' => 0.40,
+            'similarity_boost' => 0.85,
+            'style' => 0.50,
             'use_speaker_boost' => true,
         ],
     ]);

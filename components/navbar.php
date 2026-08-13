@@ -66,20 +66,19 @@ $navRoleDir = in_array($u['role'] ?? '', ['admin', 'nurse'], true) ? $u['role'] 
       <ul class="dropdown-menu dropdown-menu-end shadow" style="width:340px; max-height:420px; overflow-y:auto;" id="notifList">
         <li class="dropdown-item text-muted small">Loading...</li>
       </ul>
+      <script>window.NOTIFICATION_PAGE_URL = "<?= APP_URL ?>/pages/<?= $navRoleDir ?>/notifications.php";</script>
     </div>
 
     <!-- Profile -->
     <div class="dropdown">
       <button class="profile-trigger" data-bs-toggle="dropdown">
-        <img src="<?= APP_URL . '/' . e($u['profile_picture']) ?>" onerror="this.src='https://via.placeholder.com/32/0B6B3A/ffffff?text=U'" class="avatar" alt="Profile">
+        <?php $profileImage = trim((string)($u['profile_picture'] ?? '')); ?>
+        <img src="<?= e($profileImage !== '' ? app_url($profileImage) : asset_url('images/default-avatar.svg')) ?>" onerror="this.src='https://via.placeholder.com/32/0B6B3A/ffffff?text=U'" class="avatar" alt="Profile">
         <span class="name d-none d-md-inline"><?= e($u['first_name'] . ' ' . $u['last_name']) ?></span>
         <span class="role-badge bg-primary-light text-primary d-none d-lg-inline"><?= e(ucfirst($u['role'])) ?></span>
       </button>
       <ul class="dropdown-menu dropdown-menu-end shadow">
         <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/profile.php"><i class="bi bi-person me-2"></i>My Profile</a></li>
-        <?php if ($u['role'] === 'student'): ?>
-          <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/personal_info.php"><i class="bi bi-info-circle me-2"></i>Personal Info</a></li>
-        <?php endif; ?>
         <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/notifications.php"><i class="bi bi-bell me-2"></i>Notifications</a></li>
         <?php if ($u['role'] !== 'student'): ?>
           <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/reports.php"><i class="bi bi-file-earmark-bar-graph me-2"></i>Reports</a></li>
