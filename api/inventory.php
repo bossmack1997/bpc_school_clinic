@@ -291,10 +291,13 @@ if ($action === 'update') {
     $id = (int)($_POST['id'] ?? 0);
     if ($id <= 0) json_response(false, [], 'Invalid medicine.');
 
+    $quantity = (int)($_POST['quantity'] ?? 0);
+    if ($quantity < 0) json_response(false, [], 'Quantity cannot be negative.');
+
     $stmt = $db->prepare("
         UPDATE medicines SET
             medicine_name=?, generic_name=?, brand=?, category=?, dosage=?, form=?,
-            supplier=?, manufacturer=?, unit=?, reorder_level=?, expiration_date=?,
+            supplier=?, manufacturer=?, quantity=?, unit=?, reorder_level=?, expiration_date=?,
             batch_number=?, barcode=?, storage_location=?, description=?
         WHERE id=? AND is_archived=0
     ");
@@ -303,7 +306,7 @@ if ($action === 'update') {
         trim($_POST['brand'] ?? ''), trim($_POST['category'] ?? ''),
         trim($_POST['dosage'] ?? ''), trim($_POST['form'] ?? ''),
         trim($_POST['supplier'] ?? ''), trim($_POST['manufacturer'] ?? ''),
-        trim($_POST['unit'] ?? 'pcs'), (int)($_POST['reorder_level'] ?? 20),
+        $quantity, trim($_POST['unit'] ?? 'pcs'), (int)($_POST['reorder_level'] ?? 20),
         ($_POST['expiration_date'] ?? null) ?: null,
         trim($_POST['batch_number'] ?? ''), trim($_POST['barcode'] ?? ''),
         trim($_POST['storage_location'] ?? ''), trim($_POST['description'] ?? ''),
@@ -426,36 +429,72 @@ if ($action === 'import_preview') {
     csrf_verify_or_die();
     if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can import medicines.');
 
-    if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) json_response(false, [], 'Please choose a CSV or Excel file.');
-
-    $tmp = $_FILES['file']['tmp_name'];
-    $origName = $_FILES['file']['name'];
-    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-
+    // Accept BOTH: a file upload (CSV via fgetcsv) OR a JSON rows array
+    // (sent from the client-side SheetJS/CSV parser).
     $rows = null;
-    if ($ext === 'csv') {
-        $handle = fopen($tmp, 'r');
-        if (!$handle) json_response(false, [], 'Cannot open file.');
-        $data = [];
-        while (($line = fgetcsv($handle)) !== false) {
-            $data[] = array_map('trim', $line);
+    if (!empty($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
+        $tmp = $_FILES['file']['tmp_name'];
+        $origName = $_FILES['file']['name'];
+        $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+
+        if ($ext === 'csv') {
+            $handle = fopen($tmp, 'r');
+            if (!$handle) json_response(false, [], 'Cannot open file.');
+            $data = [];
+            while (($line = fgetcsv($handle)) !== false) {
+                $data[] = array_map('trim', $line);
+            }
+            fclose($handle);
+            $rows = $data;
+        } else {
+            json_response(false, [], 'Unsupported file type. Use CSV.');
         }
-        fclose($handle);
-        $rows = $data;
-    } elseif (in_array($ext, ['xlsx', 'xls'], true)) {
-        // Use SheetJS on the client to upload JSON; fallback here reads CSV only.
-        json_response(false, [], 'For Excel files, use the client-side preview (SheetJS) and then import via JSON.');
-    } else {
-        json_response(false, [], 'Unsupported file type. Use CSV or Excel.');
+    } elseif (isset($_POST['rows']) && is_array($_POST['rows'])) {
+        // Client parsed the file (SheetJS or CSV) and sent rows as JSON array.
+        $rawRows = $_POST['rows'];
+        $rows = [];
+        foreach ($rawRows as $r) {
+            if (is_array($r)) {
+                $rows[] = array_values(array_map(fn($v) => trim((string)$v), $r));
+            }
+        }
     }
 
     if (!$rows || count($rows) < 2) json_response(false, [], 'File appears empty.');
 
-    // Expected header order (match CSV template):
-    $headers = ['Medicine Name','Generic Name','Brand','Category','Dosage','Form','Quantity','Unit','Minimum Stock','Supplier','Batch Number','Expiration Date','Location','Description'];
-    $headerRow = $rows[0];
-    // Case-insensitive + trimmed
-    $normalizedHeader = array_map(fn($h) => strtolower(trim((string)$h)), $headerRow);
+    // Expected header order (match CSV template) — validate headers
+    $expectedHeaders = ['Medicine Name','Generic Name','Brand','Category','Dosage','Form','Quantity','Unit','Minimum Stock','Supplier','Batch Number','Expiration Date','Location','Description'];
+    $headerRow = array_map('trim', array_values($rows[0]));
+    $normalizedExpected = array_map(fn($h) => strtolower((string)$h), $expectedHeaders);
+    $normalizedHeader = array_map(fn($h) => strtolower((string)$h), $headerRow);
+
+    // Allow the template order — check that the first column is Medicine Name
+    // (mirrors the expected template; missing/renamed headers → clear error)
+    $headerErrors = [];
+    if (count($normalizedHeader) < 14) {
+        $headerErrors[] = 'CSV must contain 14 columns. Found ' . count($normalizedHeader) . '.';
+    } else {
+        // Verify key column names are present (case-insensitive)
+        foreach (['medicine name', 'quantity', 'expiration date'] as $requiredCol) {
+            if (!in_array($requiredCol, $normalizedHeader, true)) {
+                $headerErrors[] = "Missing required header column: '{$requiredCol}'";
+            }
+        }
+        // Check expected order if at least one expected header matches
+        $firstExpected = $normalizedExpected[0];
+        if (($normalizedHeader[0] ?? '') !== $firstExpected) {
+            $headerErrors[] = "First column must be '{$expectedHeaders[0]}'. Found '" . ($headerRow[0] ?? '') . "'.";
+        }
+    }
+    if ($headerErrors) {
+        json_response(false, [], 'Invalid CSV headers: ' . implode(' ', $headerErrors));
+    }
+
+    // Build column index map from headers so we tolerate column reordering
+    $colMap = [];
+    foreach ($normalizedHeader as $idx => $name) {
+        $colMap[$name] = $idx;
+    }
 
     $valid = 0; $invalid = 0; $skipped = 0; $preview = []; $errors = [];
 
@@ -465,20 +504,22 @@ if ($action === 'import_preview') {
         $lineNo = $idx + 2;
         $rowErr = [];
 
-        $mName  = trim((string)($row[0] ?? ''));
-        $gName  = trim((string)($row[1] ?? ''));
-        $brand  = trim((string)($row[2] ?? ''));
-        $cat    = trim((string)($row[3] ?? ''));
-        $dosage = trim((string)($row[4] ?? ''));
-        $form   = trim((string)($row[5] ?? ''));
-        $qty    = trim((string)($row[6] ?? ''));
-        $unit   = trim((string)($row[7] ?? '')) ?: 'pcs';
-        $reorder= trim((string)($row[8] ?? ''));
-        $supplier = trim((string)($row[9] ?? ''));
-        $batch  = trim((string)($row[10] ?? ''));
-        $expiration = trim((string)($row[11] ?? ''));
-        $location = trim((string)($row[12] ?? ''));
-        $desc   = trim((string)($row[13] ?? ''));
+        $mName  = trim((string)($row[$colMap['medicine name'] ?? 0] ?? ''));
+        $gName  = trim((string)($row[$colMap['generic name'] ?? 1] ?? ''));
+        $brand  = trim((string)($row[$colMap['brand'] ?? 2] ?? ''));
+        $cat    = trim((string)($row[$colMap['category'] ?? 3] ?? ''));
+        $dosage = trim((string)($row[$colMap['dosage'] ?? 4] ?? ''));
+        $form   = trim((string)($row[$colMap['form'] ?? 5] ?? ''));
+        $qty    = trim((string)($row[$colMap['quantity'] ?? 6] ?? ''));
+        $unit   = trim((string)($row[$colMap['unit'] ?? 7] ?? '')) ?: 'pcs';
+        $reorder= trim((string)($row[$colMap['minimum stock'] ?? 8] ?? ''));
+        $supplier = trim((string)($row[$colMap['supplier'] ?? 9] ?? ''));
+        $batch  = trim((string)($row[$colMap['batch number'] ?? 10] ?? ''));
+        $expiration = trim((string)($row[$colMap['expiration date'] ?? 11] ?? ''));
+        $location = trim((string)($row[$colMap['location'] ?? 12] ?? ''));
+        $desc   = trim((string)($row[$colMap['description'] ?? 13] ?? ''));
+
+        file_put_contents(__DIR__ . '/../csv_debug.log', date('Y-m-d H:i:s') . ' [CSV DEBUG] Line=' . $lineNo . ' Medicine=' . $mName . ' RawExpiration=' . var_export($expiration, true) . ' ColMap=' . var_export($colMap, true) . "\n", FILE_APPEND);
 
         // validate required
         if (!$mName) { $rowErr[] = 'Medicine Name is required'; }
@@ -486,19 +527,34 @@ if ($action === 'import_preview') {
         elseif (!is_numeric($qty) || (int)$qty < 0) { $rowErr[] = 'Quantity must be a non-negative number'; }
 
         // validate dates
-        if ($expiration !== '' && !strtotime($expiration)) { $rowErr[] = 'Invalid Expiration Date'; }
-        if ($expiration !== '' && strtotime($expiration) && $expiration < date('Y-m-d')) { $rowErr[] = 'Expiration date is in the past'; }
+        $expDateObj = null;
+        if ($expiration !== '') {
+            $expDateObj = DateTime::createFromFormat('Y-m-d', $expiration);
+            if (!$expDateObj || $expDateObj->format('Y-m-d') !== $expiration) {
+                $alt = strtotime($expiration);
+                if ($alt === false) {
+                    $rowErr[] = 'Invalid Expiration Date';
+                } else {
+                    $expiration = date('Y-m-d', $alt);
+                    $expDateObj = DateTime::createFromFormat('Y-m-d', $expiration);
+                }
+            }
+            if ($expDateObj && $expDateObj < new DateTime('today')) { $rowErr[] = 'Expiration date is in the past'; }
+            file_put_contents(__DIR__ . '/../csv_debug.log', date('Y-m-d H:i:s') . ' [CSV DEBUG] Line=' . $lineNo . ' Medicine=' . $mName . ' Parsed=' . ($expDateObj ? $expDateObj->format('Y-m-d') : 'null') . ' Today=' . (new DateTime('today'))->format('Y-m-d') . ' IsPast=' . ($expDateObj && $expDateObj < new DateTime('today') ? 'YES' : 'NO') . "\n", FILE_APPEND);
+        }
 
         // validate reorder
         if ($reorder !== '' && (!is_numeric($reorder) || (int)$reorder < 0)) { $rowErr[] = 'Minimum Stock must be non-negative'; }
 
-        // duplicate medicine name
+        // duplicate medicine name (case-insensitive, exact match)
         foreach ($existing as $ex) {
-            if (strcasecmp($ex['medicine_name'], $mName) === 0) { $rowErr[] = 'Duplicate medicine'; break; }
+            if (strcasecmp((string)$ex['medicine_name'], $mName) === 0) { $rowErr[] = 'Duplicate medicine'; break; }
         }
-        // duplicate batch
-        foreach ($existing as $ex) {
-            if ($batch !== '' && $ex['batch_number'] !== null && strcasecmp((string)$ex['batch_number'], $batch) === 0) { $rowErr[] = 'Duplicate batch number'; break; }
+        // duplicate batch number (only if batch is present)
+        if ($batch !== '') {
+            foreach ($existing as $ex) {
+                if ($ex['batch_number'] !== null && strcasecmp((string)$ex['batch_number'], $batch) === 0) { $rowErr[] = 'Duplicate batch number'; break; }
+            }
         }
 
         if ($rowErr) {
@@ -537,25 +593,134 @@ if ($action === 'import_commit') {
     $items = $_POST['items'] ?? [];
     if (!is_array($items) || !$items) json_response(false, [], 'No valid items to import.');
 
+    // ---- Server-side re-validation (never trust client-side only) ----
     $inserted = 0;
-    $stmt = $db->prepare("
-        INSERT INTO medicines
-           (medicine_name, generic_name, brand, category, dosage, form, supplier, quantity, unit, reorder_level, expiration_date, batch_number, storage_location, description)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ");
-    foreach ($items as $item) {
-        $stmt->execute([
-            $item['medicine_name'], $item['generic_name'] ?? '', $item['brand'] ?? '', $item['category'] ?? '',
-            $item['dosage'] ?? '', $item['form'] ?? '', $item['supplier'] ?? '',
-            (int)$item['quantity'], $item['unit'] ?: 'pcs', (int)($item['reorder_level'] ?? 20),
-            $item['expiration_date'] ?: null, $item['batch_number'] ?? '',
-            $item['storage_location'] ?? '', $item['description'] ?? '',
-        ]);
-        $inserted++;
+    $skipped = 0;
+    $invalid = 0;
+    $errors = [];
+    $today = date('Y-m-d');
+
+    // Load existing medicine names and batch numbers once for duplicate checks
+    $existing = $db->query("SELECT medicine_name, batch_number FROM medicines")->fetchAll();
+
+    try {
+        $db->beginTransaction();
+
+        foreach ($items as $idx => $item) {
+            if (!is_array($item)) { $invalid++; $errors[] = ['line' => $idx + 2, 'medicine' => '', 'errors' => ['Invalid row format']]; continue; }
+
+            $mName  = trim((string)($item['medicine_name'] ?? ''));
+            $gName  = trim((string)($item['generic_name'] ?? ''));
+            $brand  = trim((string)($item['brand'] ?? ''));
+            $cat    = trim((string)($item['category'] ?? ''));
+            $dosage = trim((string)($item['dosage'] ?? ''));
+            $form   = trim((string)($item['form'] ?? ''));
+            $qtyRaw = trim((string)($item['quantity'] ?? ''));
+            $unit   = trim((string)($item['unit'] ?? '')) ?: 'pcs';
+            $reorderRaw = trim((string)($item['reorder_level'] ?? ''));
+            $supplier = trim((string)($item['supplier'] ?? ''));
+            $batch  = trim((string)($item['batch_number'] ?? ''));
+            $expiration = trim((string)($item['expiration_date'] ?? ''));
+            $location = trim((string)($item['storage_location'] ?? ''));
+            $desc   = trim((string)($item['description'] ?? ''));
+
+            $rowErr = [];
+
+            // Required: medicine name
+            if ($mName === '') { $rowErr[] = 'Medicine Name is required'; }
+
+            // Quantity: required, numeric, non-negative
+            if ($qtyRaw === '') { $rowErr[] = 'Quantity is required'; }
+            elseif (!is_numeric($qtyRaw) || (int)$qtyRaw < 0) { $rowErr[] = 'Quantity must be a non-negative number'; }
+
+            // Expiration date: optional, must be valid if provided
+            $expDateObj = null;
+            if ($expiration !== '') {
+                $expDateObj = DateTime::createFromFormat('Y-m-d', $expiration);
+                if (!$expDateObj || $expDateObj->format('Y-m-d') !== $expiration) {
+                    $alt = strtotime($expiration);
+                    if ($alt === false) {
+                        $rowErr[] = 'Invalid Expiration Date';
+                    } else {
+                        $expiration = date('Y-m-d', $alt);
+                        $expDateObj = DateTime::createFromFormat('Y-m-d', $expiration);
+                    }
+                }
+                if ($expDateObj && $expDateObj < new DateTime('today')) { $rowErr[] = 'Expiration date is in the past'; }
+            }
+
+            // Reorder level: optional, non-negative
+            if ($reorderRaw !== '' && (!is_numeric($reorderRaw) || (int)$reorderRaw < 0)) {
+                $rowErr[] = 'Minimum Stock must be non-negative';
+            }
+
+            // Duplicate medicine name (case-insensitive)
+            foreach ($existing as $ex) {
+                if (strcasecmp((string)$ex['medicine_name'], $mName) === 0) {
+                    $rowErr[] = 'Duplicate medicine';
+                    break;
+                }
+            }
+
+            // Duplicate batch number (only if non-empty)
+            if ($batch !== '') {
+                foreach ($existing as $ex) {
+                    if ($ex['batch_number'] !== null && strcasecmp((string)$ex['batch_number'], $batch) === 0) {
+                        $rowErr[] = 'Duplicate batch number';
+                        break;
+                    }
+                }
+            }
+
+            if ($rowErr) {
+                $invalid++;
+                $skipped++;
+                $errors[] = ['line' => $idx + 2, 'medicine' => $mName, 'errors' => $rowErr];
+                continue;
+            }
+
+            // Insert the medicine
+            $stmt = $db->prepare("
+                INSERT INTO medicines
+                   (medicine_name, generic_name, brand, category, dosage, form, supplier, quantity, unit, reorder_level, expiration_date, batch_number, storage_location, description)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ");
+            $stmt->execute([
+                $mName, $gName, $brand, $cat, $dosage, $form, $supplier,
+                (int)$qtyRaw, $unit, $reorderRaw === '' ? 20 : (int)$reorderRaw,
+                $expiration !== '' ? $expiration : null, $batch, $location, $desc,
+            ]);
+            $medicineId = (int)$db->lastInsertId();
+
+            // Log stock-in for each imported medicine
+            $qty = (int)$qtyRaw;
+            if ($qty > 0) {
+                $db->prepare("INSERT INTO medicine_logs (medicine_id, action, quantity, reason, performed_by) VALUES (?, 'stock_in', ?, 'Imported via CSV', ?)")
+                   ->execute([$medicineId, $qty, $user['id']]);
+            }
+
+            // Mark as existing for subsequent duplicate checks within the same batch
+            $existing[] = ['medicine_name' => $mName, 'batch_number' => $batch];
+            $inserted++;
+        }
+
+        $db->commit();
+    } catch (Exception $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        error_log('Import commit failed: ' . $e->getMessage());
+        json_response(false, [], 'Database error during import. No rows were inserted.');
     }
 
-    log_activity($user['id'], 'Imported medicines', 'inventory', "$inserted item(s)");
-    json_response(true, ['inserted' => $inserted], "$inserted medicine(s) imported successfully.");
+    log_activity($user['id'], 'Imported medicines', 'inventory', "$inserted inserted, $skipped skipped");
+
+    $msg = "$inserted medicine(s) imported successfully.";
+    if ($skipped > 0) $msg .= " $skipped duplicate/invalid row(s) skipped.";
+    json_response(true, [
+        'inserted' => $inserted,
+        'skipped' => $skipped,
+        'invalid' => $invalid,
+        'errors' => $errors,
+    ], $msg);
 }
 
 // ================================================================
@@ -563,13 +728,26 @@ if ($action === 'import_commit') {
 // ================================================================
 if ($action === 'template') {
     $headers = ['Medicine Name','Generic Name','Brand','Category','Dosage','Form','Quantity','Unit','Minimum Stock','Supplier','Batch Number','Expiration Date','Location','Description'];
-    $sample = ['Paracetamol','Acetaminophen','Biogesic','Analgesic','500mg','Tablet','100','pcs','20','PharmaCorp','BT-2025-001','2025-12-31','Shelf A1','For fever and pain'];
+    $samples = [
+        ['Mefenamic Acid','Mefenamic','Ponstan','Analgesic','250mg','Capsule','50','pcs','10','PharmaCorp','MEF-2028-001','2028-03-31','Shelf A2','For pain and inflammation'],
+        ['Amoxicillin','Amoxicillin','Amoxil','Antibiotic','500mg','Capsule','80','pcs','15','PharmaCorp','AMX-2028-001','2028-06-30','Shelf B1','For bacterial infections'],
+        ['Cetirizine','Cetirizine','Zyrtec','Antihistamine','10mg','Tablet','60','pcs','12','PharmaCorp','CET-2028-001','2028-04-30','Shelf C1','For allergies'],
+        ['Loperamide','Loperamide','Imodium','Antidiarrheal','2mg','Tablet','40','pcs','8','PharmaCorp','LOP-2028-001','2028-05-31','Shelf C2','For diarrhea'],
+        ['Salbutamol','Salbutamol','Ventolin','Bronchodilator','2mg','Tablet','70','pcs','15','PharmaCorp','SAL-2028-001','2028-07-31','Shelf D1','For asthma'],
+        ['Omeprazole','Omeprazole','Prilosec','Antacid','20mg','Capsule','90','pcs','20','PharmaCorp','OME-2028-001','2028-08-31','Shelf D2','For acid reflux'],
+        ['Ambroxol','Ambroxol','Ambroxol SR','Expectorant','30mg','Tablet','55','pcs','10','PharmaCorp','AMB-2028-001','2028-09-30','Shelf E1','For cough'],
+        ['Povidone Iodine','Povidone Iodine','Betadine','Antiseptic','10%','Solution','30','pcs','5','PharmaCorp','POV-2028-001','2028-10-31','Shelf E2','For wound cleaning'],
+        ['Oral Rehydration Salts','ORS','Hydrite','Rehydrator','1 packet','Sachet','100','pcs','25','PharmaCorp','ORS-2028-001','2028-12-31','Shelf F1','For dehydration'],
+        ['Calamine Lotion','Calamine','Calamine Brand','Dermatological','100ml','Lotion','50','pcs','10','PharmaCorp','CAL-2028-001','2028-01-31','Shelf B2','For skin irritations'],
+    ];
 
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="medicine_import_template.csv"');
     $out = fopen('php://output', 'w');
     fputcsv($out, $headers);
-    fputcsv($out, $sample);
+    foreach ($samples as $s) {
+        fputcsv($out, $s);
+    }
     fclose($out);
     exit;
 }

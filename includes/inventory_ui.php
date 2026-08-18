@@ -222,10 +222,10 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
 <div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-primary text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-upload me-2"></i> Import Medicines</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
+       <div class="modal-header border-0 bg-primary text-white rounded-top-4">
+         <h5 class="modal-title"><i class="bi bi-upload me-2"></i> Import Medicines</h5>
+         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+       </div>
       <div class="modal-body">
         <div class="alert alert-info small">Upload a CSV or Excel file. Preview is validated before import. Download the <a href="<?= APP_URL ?>/api/inventory.php?action=template">CSV template</a>.</div>
         <input type="file" id="importFile" class="form-control" accept=".csv,.xlsx,.xls">
@@ -245,7 +245,18 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
 window.__initInventoryUI = function () {
   (function () {
   'use strict';
-  const APP = window.APP_URL || '';
+  function getAppBase() {
+    if (typeof APP_URL !== 'undefined' && APP_URL && APP_URL !== 'http://localhost' && APP_URL !== 'http://127.0.0.1') {
+      return APP_URL;
+    }
+    if (window.APP_URL && window.APP_URL !== 'http://localhost' && window.APP_URL !== 'http://127.0.0.1') {
+      return window.APP_URL;
+    }
+    const path = window.location.pathname;
+    const match = path.match(/^(\/[^\/]+\/)/);
+    return window.location.origin + (match ? match[1] : '');
+  }
+  const APP = getAppBase();
   const csrf = $('meta[name="csrf-token"]').attr('content');
   const canManage = <?= $canManage ? 'true' : 'false' ?>;
   let dt = null;
@@ -465,6 +476,62 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
     new bootstrap.Modal(document.getElementById('importModal')).show();
   });
 
+  // ============================================================
+  // Import Modal focus management (accessibility)
+  // ============================================================
+  (function () {
+    const importModalEl = document.getElementById('importModal');
+    if (!importModalEl) return;
+
+    let importModalTrigger = null;
+
+    importModalEl.addEventListener('show.bs.modal', function (event) {
+      importModalTrigger = event.relatedTarget || document.activeElement;
+    });
+
+    importModalEl.addEventListener('hide.bs.modal', function () {
+      if (document.activeElement && importModalEl.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
+    });
+
+    importModalEl.addEventListener('hidden.bs.modal', function () {
+      if (document.activeElement && importModalEl.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
+      if (importModalTrigger && document.contains(importModalTrigger)) {
+        importModalTrigger.focus();
+      }
+      importModalTrigger = null;
+    });
+  })();
+
+  // Proper CSV parser that handles quoted fields (RFC 4180 compatible)
+  function parseCSV(text) {
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; }
+          else { inQuotes = false; }
+        } else {
+          field += c;
+        }
+      } else {
+        if (c === '"') { inQuotes = true; }
+        else if (c === ',') { row.push(field.trim()); field = ''; }
+        else if (c === '\n') { row.push(field.trim()); field = ''; if (row.some(function (v) { return v !== ''; })) rows.push(row); row = []; }
+        else if (c === '\r') { /* skip carriage return */ }
+        else { field += c; }
+      }
+    }
+    // Last field / row
+    if (field !== '' || row.length > 0) { row.push(field.trim()); if (row.some(function (v) { return v !== ''; })) rows.push(row); }
+    return rows;
+  }
+
   $('#importFile').on('change', function () {
     const file = this.files[0];
     if (!file) return;
@@ -473,11 +540,8 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
       let data = [];
       if (file.name.toLowerCase().endsWith('.csv')) {
         const text = e.target.result;
-        const lines = text.split(/\r?\n/).filter(function (l) { return l.trim() !== ''; });
-        data = lines.map(function (l) {
-          // simple CSV split (no embedded commas handling for simplicity)
-          return l.split(',').map(function (c) { return c.trim(); });
-        });
+        // Proper CSV parser supporting quoted fields
+        data = parseCSV(text);
       } else if (window.XLSX) {
         const wb = XLSX.read(e.target.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
@@ -487,20 +551,10 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
         return;
       }
 
-      // Build JSON payload for server validation
       if (data.length < 2) { toastError('File appears empty.'); return; }
-      const items = data.slice(1).map(function (r, i) {
-        return {
-          medicine_name: (r[0] || '').trim(), generic_name: (r[1] || '').trim(), brand: (r[2] || '').trim(),
-          category: (r[3] || '').trim(), dosage: (r[4] || '').trim(), form: (r[5] || '').trim(),
-          quantity: (r[6] || '').trim(), unit: (r[7] || 'pcs').trim(), reorder_level: (r[8] || '20').trim(),
-          supplier: (r[9] || '').trim(), batch_number: (r[10] || '').trim(), expiration_date: (r[11] || '').trim(),
-          storage_location: (r[12] || '').trim(), description: (r[13] || '').trim(),
-        };
-      });
 
-      // Send to server for validation (import_preview expects file upload, so we send JSON rows)
-      doClientValidate(items);
+      // Send raw rows to the server for validation (server is the source of truth)
+      doServerPreview(data);
     };
     if (file.name.toLowerCase().endsWith('.csv')) {
       reader.readAsText(file);
@@ -509,51 +563,73 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
     }
   });
 
-  function doClientValidate(items) {
-    // Client-side basic validation mirroring server rules
-    const valid = [], invalid = [];
-    items.forEach(function (it, i) {
-      const errs = [];
-      if (!it.medicine_name) errs.push('Name required');
-      if (it.quantity === '' || isNaN(it.quantity) || parseInt(it.quantity) < 0) errs.push('Invalid qty');
-      if (it.expiration_date && isNaN(Date.parse(it.expiration_date))) errs.push('Invalid date');
-      if (errs.length) invalid.push({ line: i + 2, medicine: it.medicine_name, errors: errs });
-      else valid.push({ ...it, quantity: parseInt(it.quantity), reorder_level: parseInt(it.reorder_level) || 20 });
+  function doServerPreview(rows) {
+    $('#importSummary').html('<div class="alert alert-info small"><span class="spinner-border spinner-border-sm me-1"></span> Validating on server...</div>');
+    $('#importErrors').empty();
+    $('#importPreviewTable').hide();
+    $('#confirmImportBtn').prop('disabled', true);
+
+    // Send the raw rows (array of arrays) to the server for import_preview validation
+    $.post(APP + '/api/inventory.php', {
+      action: 'import_preview',
+      rows: rows,
+      csrf_token: csrf
+    }, function (res) {
+      if (!res.success) {
+        $('#importSummary').html('<div class="alert alert-danger small">' + escapeHtml(res.message || 'Validation failed.') + '</div>');
+        return;
+      }
+
+      pendingImport = res.preview || [];
+      const summary = res.summary || { total: 0, valid: 0, invalid: 0 };
+      const errs = res.errors || [];
+
+      $('#importSummary').html(
+        '<div class="alert ' + (summary.valid > 0 ? 'alert-info' : 'alert-warning') + ' small">' +
+        'Total: <b>' + summary.total + '</b> · Valid: <b class="text-success">' + summary.valid + '</b> · Invalid: <b class="text-danger">' + summary.invalid + '</b></div>'
+      );
+      $('#importErrors').html(errs.length
+        ? '<div class="alert alert-warning small">' + errs.map(function (e) { return 'Line ' + e.line + ' (' + (e.medicine || '?') + '): ' + e.errors.join(', '); }).join('<br>') + '</div>'
+        : '');
+
+      $('#confirmImportBtn').prop('disabled', pendingImport.length === 0);
+
+      // Show preview table
+      const $tb = $('#importPreviewTable');
+      if (pendingImport.length) {
+        $tb.show();
+        const headers = ['Name','Generic','Brand','Category','Dosage','Form','Qty','Unit','Min','Supplier','Batch','Exp','Location','Desc'];
+        $tb.find('thead').html('<tr>' + headers.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr>');
+        $tb.find('tbody').html(pendingImport.slice(0, 20).map(function (v) {
+          return '<tr><td>' + escapeHtml(v.medicine_name) + '</td><td>' + escapeHtml(v.generic_name || '') + '</td><td>' + escapeHtml(v.brand || '') + '</td><td>' + escapeHtml(v.category || '') + '</td><td>' + escapeHtml(v.dosage || '') + '</td><td>' + escapeHtml(v.form || '') + '</td><td>' + v.quantity + '</td><td>' + escapeHtml(v.unit || '') + '</td><td>' + v.reorder_level + '</td><td>' + escapeHtml(v.supplier || '') + '</td><td>' + escapeHtml(v.batch_number || '') + '</td><td>' + escapeHtml(v.expiration_date || '') + '</td><td>' + escapeHtml(v.storage_location || '') + '</td><td>' + escapeHtml(v.description || '') + '</td></tr>';
+        }).join(''));
+      } else {
+        $tb.hide();
+      }
+    }, 'json').fail(function () {
+      $('#importSummary').html('<div class="alert alert-danger small">Network error during validation. Please try again.</div>');
+      $('#confirmImportBtn').prop('disabled', true);
     });
-
-    pendingImport = valid;
-    $('#importSummary').html(
-      '<div class="alert alert-info small">Total: <b>' + items.length + '</b> · Valid: <b class="text-success">' + valid.length +
-      '</b> · Invalid: <b class="text-danger">' + invalid.length + '</b></div>'
-    );
-    $('#importErrors').html(invalid.length
-      ? '<div class="alert alert-warning small">' + invalid.map(function (e) { return 'Line ' + e.line + ' (' + (e.medicine || '?') + '): ' + e.errors.join(', '); }).join('<br>') + '</div>'
-      : '');
-    $('#confirmImportBtn').prop('disabled', valid.length === 0);
-
-    // Show preview table
-    const $tb = $('#importPreviewTable');
-    if (valid.length) {
-      $tb.show();
-      const headers = ['Name','Generic','Brand','Category','Dosage','Form','Qty','Unit','Min','Supplier','Batch','Exp','Location','Desc'];
-      $tb.find('thead').html('<tr>' + headers.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr>');
-      $tb.find('tbody').html(valid.slice(0, 20).map(function (v) {
-        return '<tr><td>' + escapeHtml(v.medicine_name) + '</td><td>' + escapeHtml(v.generic_name) + '</td><td>' + escapeHtml(v.brand) + '</td><td>' + escapeHtml(v.category) + '</td><td>' + escapeHtml(v.dosage) + '</td><td>' + escapeHtml(v.form) + '</td><td>' + v.quantity + '</td><td>' + escapeHtml(v.unit) + '</td><td>' + v.reorder_level + '</td><td>' + escapeHtml(v.supplier) + '</td><td>' + escapeHtml(v.batch_number) + '</td><td>' + escapeHtml(v.expiration_date) + '</td><td>' + escapeHtml(v.storage_location) + '</td><td>' + escapeHtml(v.description) + '</td></tr>';
-      }).join(''));
-    } else {
-      $tb.hide();
-    }
   }
 
   $('#confirmImportBtn').on('click', function () {
+    var btn = $(this);
     if (!pendingImport.length) { toastError('No valid rows to import.'); return; }
+    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Importing...');
     $.post(APP + '/api/inventory.php', { action: 'import_commit', items: pendingImport, csrf_token: csrf }, function (res) {
       if (res.success) {
         toastSuccess(res.message);
-        bootstrap.Modal.getInstance(document.getElementById('importModal')).hide();
+        var modalEl = document.getElementById('importModal');
+        if (modalEl) { var inst = bootstrap.Modal.getInstance(modalEl); if (inst) inst.hide(); }
         loadInventory(); loadStats();
-      } else toastError(res.message);
-    }, 'json');
+      } else {
+        toastError(res.message || 'Import failed. Please try again.');
+        btn.prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i> Import Valid Rows');
+      }
+    }, 'json').fail(function () {
+      toastError('Network error. Please check your connection and try again.');
+      btn.prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i> Import Valid Rows');
+    });
   });
 
   // ============================================================
@@ -563,5 +639,5 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
   loadCategories();
   loadInventory();
   })();
-})();
+};
 </script>

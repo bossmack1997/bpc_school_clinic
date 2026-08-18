@@ -12,6 +12,8 @@ if ($roleFilter === 'student') {
     $where = "WHERE u.role = 'student'";
 } elseif ($roleFilter === 'nurse') {
     $where = "WHERE u.role = 'nurse'";
+} elseif ($roleFilter === 'admin') {
+    $where = "WHERE u.role = 'admin'";
 }
 
 $users = $db->prepare("

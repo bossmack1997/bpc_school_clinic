@@ -54,10 +54,10 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Certificate <?= e($certNumber) ?> — <?= e(APP_NAME) ?></title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link href="<?= APP_URL ?>/assets/css/style.css" rel="stylesheet">
-  <script src="<?= app_url('assets/js/qrcode.min.js') ?>"></script>
+  <link rel="stylesheet" href="<?= asset_url('css/bootstrap.min.css') ?>">
+  <link rel="stylesheet" href="<?= asset_url('css/bootstrap-icons.min.css') ?>">
+  <link href="<?= asset_url('css/style.css') ?>" rel="stylesheet">
+  <script src="<?= asset_url('js/qrcode.min.js') ?>"></script>
   <style>
     @page {
       size: A4;

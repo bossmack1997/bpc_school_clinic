@@ -6,115 +6,439 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
 
-$token = $_GET['token'] ?? ($_POST['token'] ?? '');
-$uid   = $_GET['uid'] ?? ($_POST['uid'] ?? '');
 $errors = [];
-$valid = false;
 $done = false;
+$valid = false;
 
-if ($token && $uid) {
-    $db = getDB();
-    $stmt = $db->prepare("SELECT * FROM users WHERE id = ? AND reset_token IS NOT NULL AND reset_token_expires > NOW() LIMIT 1");
-    $stmt->execute([$uid]);
+// Get token from URL or POST
+$token = trim($_GET['token'] ?? $_POST['token'] ?? '');
+
+$db = getDB();
+$user = null;
+$tokenHash = null;
+
+if ($token !== '') {
+
+    // Hash the raw token from the URL
+    $tokenHash = hash('sha256', $token);
+
+    /*
+     * IMPORTANT:
+     * Use UTC_TIMESTAMP() so expiration uses the same timezone
+     * that was used when the token was created.
+     */
+    $stmt = $db->prepare("
+        SELECT id, email, reset_token, reset_token_expires
+        FROM users
+        WHERE reset_token = ?
+          AND reset_token_expires IS NOT NULL
+          AND reset_token_expires > UTC_TIMESTAMP()
+        LIMIT 1
+    ");
+
+    $stmt->execute([$tokenHash]);
     $user = $stmt->fetch();
-    if ($user && hash_equals($user['reset_token'], hash('sha256', $token))) {
+
+    if ($user) {
         $valid = true;
     }
 }
 
-if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    csrf_verify_or_die();
-    $password = $_POST['password'] ?? '';
-    $confirm  = $_POST['confirm_password'] ?? '';
+/*
+ * Handle password reset submission
+ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    // Enforce strong password policy
-    if (strlen($password) < 8) {
-      $errors[] = 'Password must be at least 8 characters.';
-    } elseif ($password !== $confirm) {
-      $errors[] = 'Passwords do not match.';
-    } elseif (!preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password) || !preg_match('/[0-9]/', $password) || !preg_match('/[^A-Za-z0-9]/', $password)) {
-      $errors[] = 'Password must include uppercase, lowercase, number, and special character.';
+    csrf_verify_or_die();
+
+    // Token must still be present
+    if ($token === '' || !$tokenHash) {
+        $errors[] = 'This reset link is invalid or has expired. Please request a new one.';
+        $valid = false;
     } else {
-        $hash = password_hash($password, PASSWORD_DEFAULT);
-        $db->prepare("UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?")
-           ->execute([$hash, $uid]);
-        log_activity($uid, 'Reset password', 'auth');
-        $done = true;
+
+        $password = $_POST['password'] ?? '';
+        $confirm  = $_POST['confirm_password'] ?? '';
+
+        // Validate password strength
+        $pwErrors = validate_password_strength($password);
+
+        if ($pwErrors) {
+            $errors = array_merge($errors, $pwErrors);
+        }
+
+        // Confirm password
+        if ($password !== $confirm) {
+            $errors[] = 'Passwords do not match.';
+        }
+
+        /*
+         * Re-check the token immediately before changing
+         * the password. This prevents expired/reused tokens.
+         */
+        if (!$errors) {
+
+            $stmt = $db->prepare("
+                SELECT id
+                FROM users
+                WHERE reset_token = ?
+                  AND reset_token_expires IS NOT NULL
+                  AND reset_token_expires > UTC_TIMESTAMP()
+                LIMIT 1
+            ");
+
+            $stmt->execute([$tokenHash]);
+            $resetUser = $stmt->fetch();
+
+            if (!$resetUser) {
+
+                $errors[] =
+                    'This reset link is invalid or has expired. Please request a new one.';
+
+                $valid = false;
+
+            } else {
+
+                $resetUserId = (int)$resetUser['id'];
+
+                // Hash the new password
+                $passwordHash = password_hash(
+                    $password,
+                    PASSWORD_DEFAULT
+                );
+
+                /*
+                 * Update password and invalidate token
+                 * in the same query.
+                 */
+                $update = $db->prepare("
+                    UPDATE users
+                    SET
+                        password_hash = ?,
+                        reset_token = NULL,
+                        reset_token_expires = NULL
+                    WHERE id = ?
+                      AND reset_token = ?
+                      AND reset_token_expires > UTC_TIMESTAMP()
+                ");
+
+                $update->execute([
+                    $passwordHash,
+                    $resetUserId,
+                    $tokenHash
+                ]);
+
+                if ($update->rowCount() === 1) {
+
+                    log_activity(
+                        $resetUserId,
+                        'Reset password',
+                        'auth'
+                    );
+
+                    csrf_regenerate();
+
+                    $done = true;
+                    $valid = false;
+
+                } else {
+
+                    $errors[] =
+                        'This reset link is invalid or has expired. Please request a new one.';
+                    
+                    $valid = false;
+                }
+            }
+        }
     }
 }
 
 $pageTitle = 'Reset Password';
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<?php include __DIR__ . '/../includes/head.php'; ?>
+    <?php include __DIR__ . '/../includes/head.php'; ?>
 </head>
+
 <body>
+
 <div class="auth-wrapper">
-  <div class="auth-card" style="max-width:520px; grid-template-columns:1fr;">
-    <div class="auth-form-side">
-      <h4 class="mb-3"><i class="bi bi-lock-fill text-success me-1"></i> Reset Password</h4>
 
-      <?php if (!$valid && !$done): ?>
-        <div class="alert alert-danger py-2 small">This reset link is invalid or has expired. Please request a new one.</div>
-        <a href="forgot_password.php" class="btn btn-primary w-100">Request New Link</a>
-      <?php elseif ($done): ?>
-        <div class="alert alert-success py-2 small">Your password has been reset successfully.</div>
-        <a href="login.php" class="btn btn-primary w-100">Go to Login</a>
-      <?php else: ?>
-        <?php if ($errors): ?>
-          <div class="alert alert-danger py-2 small"><?= implode('<br>', array_map('e', $errors)) ?></div>
-        <?php endif; ?>
-        <form method="POST">
-          <?= csrf_field() ?>
-          <input type="hidden" name="token" value="<?= e($token) ?>">
-          <input type="hidden" name="uid" value="<?= e($uid) ?>">
-          <div class="mb-3">
-            <label class="form-label small fw-semibold">New Password</label>
-            <input type="password" name="password" class="form-control" required minlength="8">
-          </div>
-          <div class="mb-3">
-            <label class="form-label small fw-semibold">Confirm New Password</label>
-            <input type="password" name="confirm_password" class="form-control" required minlength="8">
-          </div>
-          <button type="submit" class="btn btn-primary w-100" id="resetBtn">Reset Password</button>
-        </form>
-      <?php endif; ?>
+    <div
+        class="auth-card"
+        style="max-width:520px; grid-template-columns:1fr;"
+    >
+
+        <div class="auth-form-side">
+
+            <?php if ($done): ?>
+
+                <div class="text-center">
+
+                    <div
+                        class="auth-icon d-inline-flex mb-3"
+                        style="font-size:2rem;color:var(--primary)"
+                    >
+                        <i class="bi bi-check-circle-fill"></i>
+                    </div>
+
+                    <h4 class="mb-2">
+                        Password Reset Successful
+                    </h4>
+
+                    <p class="text-muted mb-4">
+                        Your password has been successfully updated.
+                        You can now log in using your new password.
+                    </p>
+
+                    <a
+                        href="login.php"
+                        class="btn btn-primary w-100 py-2 fw-semibold"
+                    >
+                        <i class="bi bi-box-arrow-in-right me-1"></i>
+                        Go to Login
+                    </a>
+
+                </div>
+
+            <?php elseif (!$valid): ?>
+
+                <div class="text-center">
+
+                    <div
+                        class="auth-icon d-inline-flex mb-3"
+                        style="font-size:2rem;color:#dc3545"
+                    >
+                        <i class="bi bi-link-45deg"></i>
+                    </div>
+
+                    <h4 class="mb-2">
+                        Invalid or Expired Link
+                    </h4>
+
+                    <p class="text-muted mb-4">
+                        This password reset link is invalid or has expired.
+                        Please request a new password reset link.
+                    </p>
+
+                    <?php if ($errors): ?>
+
+                        <div class="alert alert-danger py-2 small text-start">
+
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+
+                            <?= implode(
+                                '<br>',
+                                array_map('e', $errors)
+                            ) ?>
+
+                        </div>
+
+                    <?php endif; ?>
+
+                    <a
+                        href="forgot_password.php"
+                        class="btn btn-primary w-100 py-2 fw-semibold"
+                    >
+                        <i class="bi bi-envelope me-1"></i>
+                        Request New Reset Link
+                    </a>
+
+                    <a
+                        href="login.php"
+                        class="btn btn-link w-100 text-decoration-none mt-2"
+                    >
+                        Back to Login
+                    </a>
+
+                </div>
+
+            <?php else: ?>
+
+                <div class="text-center mb-4">
+
+                    <div
+                        class="auth-icon d-inline-flex mb-3"
+                        style="font-size:2rem;color:var(--primary)"
+                    >
+                        <i class="bi bi-shield-lock-fill"></i>
+                    </div>
+
+                    <h4 class="mb-1">
+                        Create New Password
+                    </h4>
+
+                    <p class="text-muted mb-0">
+                        Enter a strong password for your account.
+                    </p>
+
+                </div>
+
+                <?php if ($errors): ?>
+
+                    <div class="alert alert-danger py-2 small">
+
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+
+                        <?= implode(
+                            '<br>',
+                            array_map('e', $errors)
+                        ) ?>
+
+                    </div>
+
+                <?php endif; ?>
+
+                <form method="POST" id="resetForm">
+
+                    <?= csrf_field() ?>
+
+                    <input
+                        type="hidden"
+                        name="token"
+                        value="<?= e($token) ?>"
+                    >
+
+                    <div class="mb-3">
+
+                        <label
+                            class="form-label fw-semibold"
+                            for="newPw"
+                        >
+                            New Password
+                        </label>
+
+                        <input
+                            type="password"
+                            name="password"
+                            id="newPw"
+                            class="form-control"
+                            required
+                            minlength="8"
+                            autocomplete="new-password"
+                            placeholder="Enter your new password"
+                        >
+
+                        <div class="form-text">
+                            Minimum 8 characters with uppercase,
+                            lowercase, number, and special character.
+                        </div>
+
+                    </div>
+
+                    <div class="mb-4">
+
+                        <label
+                            class="form-label fw-semibold"
+                            for="confirmPw"
+                        >
+                            Confirm New Password
+                        </label>
+
+                        <input
+                            type="password"
+                            name="confirm_password"
+                            id="confirmPw"
+                            class="form-control"
+                            required
+                            minlength="8"
+                            autocomplete="new-password"
+                            placeholder="Re-enter your new password"
+                        >
+
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="btn btn-primary w-100 py-2 fw-semibold"
+                        id="resetBtn"
+                    >
+                        <i class="bi bi-check2-circle me-1"></i>
+                        Reset Password
+                    </button>
+
+                    <a
+                        href="login.php"
+                        class="btn btn-link w-100 text-decoration-none mt-2"
+                    >
+                        Back to Login
+                    </a>
+
+                </form>
+
+            <?php endif; ?>
+
+        </div>
+
     </div>
-  </div>
+
 </div>
+
 <script>
-// Enforce client-side password strength on reset
+
 (function () {
-  const form = document.querySelector('form');
-  if (!form) return;
-  const pw = form.querySelector('input[name="password"]');
-  const confirm = form.querySelector('input[name="confirm_password"]');
-  const btn = document.getElementById('resetBtn');
 
-  function validPassword(v) {
-    return v.length >= 8 && /[A-Z]/.test(v) && /[a-z]/.test(v) && /[0-9]/.test(v) && /[^A-Za-z0-9]/.test(v);
-  }
+    const form = document.getElementById('resetForm');
 
-  form.addEventListener('submit', function (e) {
-    if (!validPassword(pw.value)) {
-      e.preventDefault();
-      alert('Password must be at least 8 characters and include uppercase, lowercase, number, and special character.');
-      pw.focus();
-      return false;
+    if (!form) return;
+
+    const pw = document.getElementById('newPw');
+    const confirm = document.getElementById('confirmPw');
+    const btn = document.getElementById('resetBtn');
+
+    function validPassword(value) {
+
+        return (
+            value.length >= 8 &&
+            /[A-Z]/.test(value) &&
+            /[a-z]/.test(value) &&
+            /[0-9]/.test(value) &&
+            /[^A-Za-z0-9]/.test(value)
+        );
+
     }
-    if (pw.value !== confirm.value) {
-      e.preventDefault();
-      alert('Passwords do not match.');
-      confirm.focus();
-      return false;
-    }
-    btn.disabled = true;
-    btn.textContent = 'Resetting...';
-  });
+
+    form.addEventListener('submit', function (event) {
+
+        if (!validPassword(pw.value)) {
+
+            event.preventDefault();
+
+            alert(
+                'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.'
+            );
+
+            pw.focus();
+
+            return;
+        }
+
+        if (pw.value !== confirm.value) {
+
+            event.preventDefault();
+
+            alert('Passwords do not match.');
+
+            confirm.focus();
+
+            return;
+        }
+
+        btn.disabled = true;
+
+        btn.innerHTML =
+            '<span class="spinner-border spinner-border-sm me-1"></span> Resetting...';
+
+    });
+
 })();
+
 </script>
+
 <?php include __DIR__ . '/../components/footer.php'; ?>
+
 </body>
 </html>

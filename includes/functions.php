@@ -176,15 +176,20 @@ function build_student_qr_payload($studentId, $studentNumber) {
     }
 
     if ($allowPii) {
-        $appKey  = defined('APP_KEY') && APP_KEY ? APP_KEY : 'bpc_qr_ph1';
-        $token   = substr(hash_hmac('sha256', $appKey . '|' . $studentId . '|' . $studentNumber, $appKey), 0, 40);
-        $payload = json_encode([
-            'v'   => 1,
-            'sid' => (int)$studentId,
-            'sno' => (string)$studentNumber,
-            't'   => $token,
-        ]);
-        return ['token' => $token, 'payload' => $payload];
+        $appKey = defined('APP_KEY') && APP_KEY ? APP_KEY : '';
+        if (!$appKey) {
+            error_log('QR PII-in-payload mode disabled: APP_KEY is not configured.');
+            $allowPii = false;
+        } else {
+            $token = substr(hash_hmac('sha256', $appKey . '|' . $studentId . '|' . $studentNumber, $appKey), 0, 40);
+            $payload = json_encode([
+                'v'   => 1,
+                'sid' => (int)$studentId,
+                'sno' => (string)$studentNumber,
+                't'   => $token,
+            ]);
+            return ['token' => $token, 'payload' => $payload];
+        }
     }
 
     // SECURE TOKEN-ONLY format (default)
@@ -346,6 +351,11 @@ function e($value) {
     return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8');
 }
 
+// ================================================================
+// Mail / SMTP
+// ================================================================
+// Password reset email is now handled by includes/mail.php (PHPMailer).
+// That file is loaded from config.php after the .env loader.
 // ================================================================
 // QR SETTINGS HELPERS
 // ================================================================

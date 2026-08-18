@@ -58,6 +58,7 @@ function login_user(array $userRow) {
         'email'      => $userRow['email'],
         'first_name' => $userRow['first_name'],
         'last_name'  => $userRow['last_name'],
+        'phone'      => $userRow['phone'] ?? '',
         'profile_picture' => $userRow['profile_picture'],
     ];
     $_SESSION['created'] = time();
@@ -104,8 +105,11 @@ function set_remember_me_cookie($userId) {
     $stmt = $db->prepare("UPDATE users SET remember_token = ? WHERE id = ?");
     $stmt->execute([$selector . ':' . $hashedValidator, $userId]);
 
-    setcookie('remember_uid', $userId, $expires, '/', '', false, true);
-    setcookie('remember_token', $selector . ':' . $validator, $expires, '/', '', false, true);
+    $isHttps = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
+        || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+
+    setcookie('remember_uid', $userId, $expires, '/', '', $isHttps, true);
+    setcookie('remember_token', $selector . ':' . $validator, $expires, '/', '', $isHttps, true);
 }
 
 function attempt_remember_me_login() {
@@ -126,6 +130,36 @@ function attempt_remember_me_login() {
 
     login_user($user);
     set_remember_me_cookie($user['id']); // rotate token
+
+    // Create a "New login detected" notification for remember-me auto-login.
+    try {
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $device = 'Unknown device';
+        if ($ua !== '') {
+            if (preg_match('/Mobile|Android|iPhone|iPad/i', $ua)) {
+                $device = 'Mobile device';
+            } elseif (preg_match('/Windows/i', $ua)) {
+                $device = 'Windows device';
+            } elseif (preg_match('/Macintosh|Mac OS/i', $ua)) {
+                $device = 'Mac device';
+            } elseif (preg_match('/Linux/i', $ua)) {
+                $device = 'Linux device';
+            }
+        }
+        $loginTime = date('M d, Y g:i A');
+        push_notification(
+            (int)$user['id'],
+            'account',
+            'New login detected',
+            "You logged in on {$loginTime} from {$device}.",
+            null,
+            null,
+            'low'
+        );
+    } catch (Throwable $e) {
+        error_log('Remember-me login notification failed: ' . $e->getMessage());
+    }
+
     return true;
 }
 

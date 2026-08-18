@@ -9,19 +9,18 @@
  * ------------------------------------------------------------------
  */
 ?>
+<!-- Global Scripts (single load source — no duplication) -->
 <!-- ================================================================== -->
-<!-- Global Scripts (single load source — no duplication)             -->
-<!-- ================================================================== -->
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
-<script src="<?= app_url('assets/js/main.js') ?>"></script>
+<script src="<?= asset_url('js/jquery.min.js') ?>"></script>
+<script src="<?= asset_url('js/bootstrap.bundle.min.js') ?>"></script>
+<script src="<?= asset_url('js/jquery.dataTables.min.js') ?>"></script>
+<script src="<?= asset_url('js/dataTables.bootstrap5.min.js') ?>"></script>
+<script src="<?= asset_url('js/sweetalert2.all.min.js') ?>"></script>
+<script src="<?= asset_url('js/chart.umd.min.js') ?>"></script>
+<script src="<?= asset_url('js/aos.js') ?>"></script>
+<script src="<?= asset_url('js/main.js') ?>"></script>
 
-<?php if (isset($_SESSION['user_id']) || is_logged_in()): ?>
+<?php if (is_logged_in()): ?>
 <script>
 (function () {
   'use strict';
@@ -48,7 +47,7 @@
 <!-- Single component include — one FAB, one widget, no duplicates.    -->
 <!-- ================================================================== -->
 <?php include __DIR__ . '/mica.php'; ?>
-<script src="<?= app_url('assets/js/mica.js') ?>"></script>
+<script src="<?= asset_url('js/mica.js') ?>"></script>
 <script>
 (function () {
   'use strict';

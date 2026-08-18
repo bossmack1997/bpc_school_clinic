@@ -149,65 +149,6 @@ $(function () {
   const NOTIFICATION_POLL_INTERVAL = 30000;
   let notificationPollTimer = null;
 
-  function updateNotificationBadge(unread) {
-    const $badge = $('#notifBadge');
-    if (unread > 0) {
-      $badge.text(unread).removeClass('d-none');
-    } else {
-      $badge.addClass('d-none');
-    }
-  }
-
-  function renderNotificationDropdown(notifications) {
-    const $list = $('#notifList').empty();
-    if (!notifications || notifications.length === 0) {
-      $list.append('<li><a class="dropdown-item text-muted small text-center" href="#">No notifications</a></li>');
-      $list.append('<li><hr class="dropdown-divider"></li>');
-      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${NOTIFICATION_PAGE_URL}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
-      return;
-    }
-
-    notifications.forEach(function (n) {
-      const timeAgoText = timeSince(n.created_at);
-      const unreadClass = n.is_read ? '' : 'unread';
-      const dotColor = n.is_read ? 'background:var(--secondary);' : 'background:var(--success);';
-      const iconHtml = `<span class="badge bg-${n.color} rounded-circle d-inline-flex align-items-center justify-content-center" style="width:32px;height:32px;font-size:1rem;"><i class="bi bi-${n.icon}"></i></span>`;
-      const titleClasses = n.is_read ? 'text-body' : 'fw-semibold text-primary';
-      const linkUrl = `${NOTIFICATION_PAGE_URL}?id=${n.notification_id}`;
-
-      $list.append(
-        `<li><a href="${linkUrl}" class="dropdown-item notif-dropdown-item notif-link ${unreadClass}" data-id="${n.notification_id}">
-           <div class="d-flex align-items-start gap-2">
-             <div class="mt-1 flex-shrink-0">${iconHtml}</div>
-             <div class="flex-grow-1">
-               <div class="${titleClasses}">${escapeHtml(n.title)}</div>
-               <div class="text-muted" style="font-size:.75rem">${escapeHtml(n.message)}</div>
-               <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
-                 <span class="badge bg-${n.color} bg-opacity-10 text-${n.color}" style="font-size:.65rem;">${escapeHtml(n.type_label)}</span>
-                 <span class="text-muted" style="font-size:.65rem;">${timeAgoText}</span>
-               </div>
-             </div>
-             <div class="mt-1"><span class="notif-dot" style="${dotColor}"></span></div>
-           </div>
-         </a></li>`
-      );
-    });
-
-    $list.append('<li><hr class="dropdown-divider"></li>');
-    $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${NOTIFICATION_PAGE_URL}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
-  }
-
-  function loadNotifications() {
-    $.get(APP_URL + '/api/notifications.php', { action: 'latest' }, function (res) {
-      if (!res.success) return;
-      const unread = res.unread_count || 0;
-      renderNotificationDropdown(res.data);
-      updateNotificationBadge(unread);
-    }, 'json');
-  }
-
-  window.loadNotifications = loadNotifications;
-
   function markNotificationRead(id, callback) {
     if (!id) {
       if (typeof callback === 'function') callback();
@@ -263,14 +204,6 @@ $(function () {
     });
   });
 
-  $(document).on('click', '#notifList a.sos-notif-item', function (e) {
-    e.preventDefault();
-    const id = $(this).data('id');
-    markNotificationRead(id, function () {
-      window.location.href = `${NOTIFICATION_PAGE_URL}?id=${id}`;
-    });
-  });
-
   // ================================================================
   // SOS Emergency — Open Details Modal (nurse/admin only)
   // ================================================================
@@ -298,7 +231,14 @@ $(function () {
         action: 'mark_read',
         id: notifId,
         csrf_token: $('meta[name="csrf-token"]').attr('content')
-      }, function () {}, 'json');
+      }, function () {
+        if (typeof window.loadNotifications === 'function') {
+          window.loadNotifications();
+        }
+        if (typeof window.loadNotifCenter === 'function') {
+          window.loadNotifCenter();
+        }
+      }, 'json');
     }
 
     openSosDetailsModal(sos);
@@ -406,7 +346,7 @@ function loadNotifications() {
     }
 
     const $list = $('#notifList').empty();
-    if (res.data.length === 0) {
+    if (!res.data || res.data.length === 0) {
       $list.append('<li><a class="dropdown-item text-muted small text-center" href="#">No notifications</a></li>');
     } else {
       // Emergency (SOS) notifications are already sorted to the top by the API.
@@ -475,9 +415,15 @@ const link = n.link || '#';
 
       // Always show a "View all notifications" link to the full Notification Center.
       $list.append('<li><hr class="dropdown-divider"></li>');
-      $list.append('<li><a class="dropdown-item text-center small text-primary" href="notifications.php"><i class="bi bi-bell me-1"></i>View all notifications</a></li>');
+      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${NOTIFICATION_PAGE_URL}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
     }
-  }, 'json');
+  }, 'json').fail(function (xhr, status, err) {
+    // Silent failure — the polling loop continues but never spams the
+    // console with repeated ERR_CONNECTION_CLOSED errors.
+    if (window.console && console.debug) {
+      console.debug('[Notifications] Poll failed (will retry):', status, err);
+    }
+  });
 }
 
 // ================================================================

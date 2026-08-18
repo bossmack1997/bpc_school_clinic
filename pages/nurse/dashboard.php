@@ -17,8 +17,8 @@ $todaysAppts->execute();
 $todaysAppts = $todaysAppts->fetchColumn();
 
 $pendingAppts = $db->query("SELECT COUNT(*) FROM appointments WHERE status='pending'")->fetchColumn();
-$lowStock = $db->query("SELECT COUNT(*) FROM medicines WHERE quantity <= reorder_level")->fetchColumn();
-$expiredMeds = $db->query("SELECT COUNT(*) FROM medicines WHERE expiration_date IS NOT NULL AND expiration_date <= CURDATE()")->fetchColumn();
+$lowStock = $db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= reorder_level")->fetchColumn();
+$expiredMeds = $db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND expiration_date IS NOT NULL AND expiration_date < CURDATE()")->fetchColumn();
 
 $upcoming = $db->query("
   SELECT a.*, s.student_number, u.first_name, u.last_name

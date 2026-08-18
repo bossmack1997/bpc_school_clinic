@@ -286,7 +286,7 @@ class DatabaseContext
                     SUM(CASE WHEN quantity > 0 THEN 1 ELSE 0 END) AS available,
                     SUM(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 ELSE 0 END) AS low_stock,
                     SUM(CASE WHEN quantity = 0 THEN 1 ELSE 0 END) AS out_of_stock
-                FROM medicines
+                FROM medicines WHERE is_archived = 0
             ");
             return $stmt->fetchAll();
         }
@@ -296,22 +296,22 @@ class DatabaseContext
                 SELECT id, medicine_name, category, quantity, unit, reorder_level, expiration_date, batch_number,
                        CASE WHEN expiration_date IS NOT NULL AND expiration_date <= CURDATE() THEN 1 ELSE 0 END AS is_expired,
                        CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END AS is_low
-                FROM medicines
+                FROM medicines WHERE is_archived = 0
                 ORDER BY medicine_name
             ");
             return $stmt->fetchAll();
         }
 
         // Admin — analytics only
-        $stmt = $this->db->query("
-            SELECT 
-                COUNT(*) AS total_medicines,
-                SUM(quantity) AS total_units,
-                SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) AS low_stock_count,
-                SUM(CASE WHEN expiration_date IS NOT NULL AND expiration_date <= CURDATE() THEN 1 ELSE 0 END) AS expired_count,
-                ROUND(AVG(quantity), 0) AS average_quantity
-            FROM medicines
-        ");
+            $stmt = $this->db->query("
+                SELECT 
+                    COUNT(*) AS total_medicines,
+                    SUM(quantity) AS total_units,
+                    SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) AS low_stock_count,
+                    SUM(CASE WHEN expiration_date IS NOT NULL AND expiration_date < CURDATE() THEN 1 ELSE 0 END) AS expired_count,
+                    ROUND(AVG(quantity), 0) AS average_quantity
+                FROM medicines WHERE is_archived = 0
+            ");
         return $stmt->fetchAll();
     }
 

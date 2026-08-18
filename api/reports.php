@@ -47,6 +47,7 @@ if ($action === 'generate') {
             FROM medicines m
             LEFT JOIN medicine_logs ml ON ml.medicine_id = m.id
             AND DATE(ml.performed_at) BETWEEN ? AND ?
+            WHERE m.is_archived = 0
             GROUP BY m.id
             ORDER BY m.medicine_name
         ");

@@ -28,6 +28,7 @@ if ($action === 'update_info') {
     $_SESSION['user']['first_name'] = $firstName;
     $_SESSION['user']['last_name'] = $lastName;
     $_SESSION['user']['email'] = $email;
+    $_SESSION['user']['phone'] = $phone;
 
     log_activity($user['id'], 'Updated profile info', 'profile');
     json_response(true, [], 'Profile updated successfully.');
@@ -138,6 +139,9 @@ if ($action === 'update_personal_info') {
         if ($email !== '' && array_key_exists('email', $_POST)) {
             $_SESSION['user']['email'] = $email;
         }
+        if (array_key_exists('phone', $_POST)) {
+            $_SESSION['user']['phone'] = $userFields['phone'];
+        }
 
         push_notification($user['id'], 'account', 'Profile Updated', 'Your personal information has been successfully updated.', APP_URL . '/pages/student/profile.php');
         log_activity($user['id'], 'Updated personal information', 'profile');
@@ -240,6 +244,9 @@ if ($action === 'update_nurse_info') {
         }
         if ($email !== '' && array_key_exists('email', $_POST)) {
             $_SESSION['user']['email'] = $email;
+        }
+        if (array_key_exists('phone', $_POST)) {
+            $_SESSION['user']['phone'] = $userFields['phone'];
         }
 
         push_notification($user['id'], 'account', 'Profile Updated', 'Your profile information has been successfully updated.', APP_URL . '/pages/nurse/profile.php');

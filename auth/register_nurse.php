@@ -39,6 +39,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (strlen($password) < 8) {
         $errors[] = 'Password must be at least 8 characters.';
     }
+    if ($password && !preg_match('/[A-Z]/', $password)) {
+        $errors[] = 'Password must contain at least one uppercase letter.';
+    }
+    if ($password && !preg_match('/[a-z]/', $password)) {
+        $errors[] = 'Password must contain at least one lowercase letter.';
+    }
+    if ($password && !preg_match('/[0-9]/', $password)) {
+        $errors[] = 'Password must contain at least one number.';
+    }
+    if ($password && !preg_match('/[^A-Za-z0-9]/', $password)) {
+        $errors[] = 'Password must contain at least one special character.';
+    }
     if ($password !== $confirm) {
         $errors[] = 'Passwords do not match.';
     }
@@ -69,11 +81,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $db->beginTransaction();
             $hash = password_hash($password, PASSWORD_DEFAULT);
+            $profilePicture = 'assets/images/default-avatar.png';
+
+            if (!empty($_FILES['profile_picture']) && $_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
+                $file = $_FILES['profile_picture'];
+                $allowed = ['image/jpeg','image/png','image/webp'];
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mimeType = finfo_file($finfo, $file['tmp_name']);
+                finfo_close($finfo);
+                if (in_array($mimeType, $allowed, true)) {
+                    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                    $filename = 'user_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+                    $destRel = 'assets/images/profiles/' . $filename;
+                    $destAbs = BASE_PATH . '/' . $destRel;
+                    $dir = dirname($destAbs);
+                    if (!is_dir($dir)) mkdir($dir, 0755, true);
+                    if (move_uploaded_file($file['tmp_name'], $destAbs)) {
+                        $profilePicture = $destRel;
+                    }
+                }
+            }
+
             $stmt = $db->prepare(
-                "INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, status)
-                 VALUES ('nurse', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
+                "INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, profile_picture, status)
+                 VALUES ('nurse', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
             );
-            $stmt->execute([$username, $email, $hash, $firstName, $middleName, $lastName, $gender, $dateOfBirth, $contactNumber]);
+            $stmt->execute([$username, $email, $hash, $firstName, $middleName, $lastName, $gender, $dateOfBirth, $contactNumber, $profilePicture]);
             $userId = $db->lastInsertId();
 
             $stmt = $db->prepare(

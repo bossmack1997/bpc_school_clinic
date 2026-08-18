@@ -8,15 +8,6 @@ ini_set('display_errors', 0);
 
 define('BASE_PATH', dirname(__DIR__));
 define('APP_NAME', 'AI-Powered School Clinic Management System with Health Monitoring and Appointment Assistance');
-define('APP_KEY', getenv('APP_KEY') ?: 'bpc_qr_ph1');
-
-// Theme colors (per client brief)
-define('THEME_PRIMARY', '#0E7A3E');
-define('THEME_SECONDARY', '#FFFFFF');
-define('THEME_ACCENT', '#EAF7EF');
-
-// Remember-me cookie lifetime (30 days)
-define('REMEMBER_ME_DAYS', 30);
 
 // ============================================================
 // .env Loader — environment variables for secrets & API keys
@@ -40,6 +31,36 @@ if (is_file($__envFile)) {
         }
     }
 }
+
+// ============================================================
+// Environment detection
+// ============================================================
+$__appEnv = getenv('APP_ENV') ?: 'production';
+if ($__appEnv === 'local' || $__appEnv === 'development' || $__appEnv === 'dev') {
+    define('APP_ENV', 'local');
+} else {
+    define('APP_ENV', 'production');
+}
+
+// ============================================================
+// APP_KEY — required for QR HMAC and other security features
+// ============================================================
+$__appKey = getenv('APP_KEY');
+if (!$__appKey && APP_ENV === 'production') {
+    // In production, APP_KEY must be explicitly configured.
+    // Generate one with: php -r "echo bin2hex(random_bytes(32));"
+    // and add it to your .env file as APP_KEY=<value>
+    error_log('APP_KEY is not configured. Set APP_KEY in .env for production.');
+}
+define('APP_KEY', $__appKey ?: '');
+
+// Theme colors (per client brief)
+define('THEME_PRIMARY', '#0E7A3E');
+define('THEME_SECONDARY', '#FFFFFF');
+define('THEME_ACCENT', '#EAF7EF');
+
+// Remember-me cookie lifetime (30 days)
+define('REMEMBER_ME_DAYS', 30);
 
 // Resolve the public base URL dynamically so the application works from
 // XAMPP, local dev servers, and subdirectory deployments without hard-coding
@@ -80,6 +101,7 @@ require_once BASE_PATH . '/includes/functions.php';
 require_once BASE_PATH . '/includes/csrf.php';
 require_once BASE_PATH . '/includes/security.php';
 require_once BASE_PATH . '/includes/auth.php';
+require_once BASE_PATH . '/includes/mail.php';
 
 // Initialize session after security functions are loaded
 if (session_status() === PHP_SESSION_NONE) {

@@ -25,36 +25,72 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_SECONDS = 900;
 
 /**
+ * Maximum password reset requests per IP before temporary block.
+ */
+const MAX_RESET_ATTEMPTS = 3;
+
+/**
+ * Password reset lockout duration in seconds (15 minutes).
+ */
+const RESET_LOCKOUT_SECONDS = 900;
+
+/**
  * Check if the current IP is rate-limited from login attempts.
  * Returns the remaining lockout seconds, or 0 if not locked out.
  */
-function login_rate_limit_check(string $ip): int {
+function login_rate_limit_check(string $ip, ?string $identifier = null): int {
     try {
         $db = getDB();
+        $now = time();
 
         // Count recent failed attempts within the lockout window
-        $stmt = $db->prepare("
-            SELECT COUNT(*) FROM login_attempts
-            WHERE ip_address = ?
-              AND attempted_at >= DATE_SUB(NOW(), INTERVAL ? SECOND)
-        ");
-        $stmt->execute([$ip, LOGIN_LOCKOUT_SECONDS]);
-        $attempts = (int)$stmt->fetchColumn();
-
-        if ($attempts >= MAX_LOGIN_ATTEMPTS) {
-            // Check when the last attempt was made
+        // If identifier is provided, check per (IP, identifier) to avoid
+        // locking out unrelated users behind the same NAT/public IP.
+        if ($identifier !== null) {
             $stmt = $db->prepare("
-                SELECT MAX(attempted_at) FROM login_attempts
-                WHERE ip_address = ?
+                SELECT COUNT(*) FROM login_attempts
+                WHERE ip_address = ? AND username = ?
+                  AND UNIX_TIMESTAMP(attempted_at) >= ?
             ");
-            $stmt->execute([$ip]);
-            $lastAttempt = $stmt->fetchColumn();
+            $stmt->execute([$ip, $identifier, $now - LOGIN_LOCKOUT_SECONDS]);
+            $attempts = (int)$stmt->fetchColumn();
 
-            if ($lastAttempt) {
-                $lastTs = strtotime($lastAttempt);
-                $unlockTs = $lastTs + LOGIN_LOCKOUT_SECONDS;
-                $remaining = max(0, $unlockTs - time());
-                return $remaining;
+            if ($attempts >= MAX_LOGIN_ATTEMPTS) {
+                $stmt = $db->prepare("
+                    SELECT MAX(UNIX_TIMESTAMP(attempted_at)) FROM login_attempts
+                    WHERE ip_address = ? AND username = ?
+                      AND UNIX_TIMESTAMP(attempted_at) >= ?
+                ");
+                $stmt->execute([$ip, $identifier, $now - LOGIN_LOCKOUT_SECONDS]);
+                $lastAttempt = $stmt->fetchColumn();
+
+                if ($lastAttempt) {
+                    $unlockTs = (int)$lastAttempt + LOGIN_LOCKOUT_SECONDS;
+                    return max(0, $unlockTs - $now);
+                }
+            }
+        } else {
+            $stmt = $db->prepare("
+                SELECT COUNT(*) FROM login_attempts
+                WHERE ip_address = ?
+                  AND UNIX_TIMESTAMP(attempted_at) >= ?
+            ");
+            $stmt->execute([$ip, $now - LOGIN_LOCKOUT_SECONDS]);
+            $attempts = (int)$stmt->fetchColumn();
+
+            if ($attempts >= MAX_LOGIN_ATTEMPTS) {
+                $stmt = $db->prepare("
+                    SELECT MAX(UNIX_TIMESTAMP(attempted_at)) FROM login_attempts
+                    WHERE ip_address = ?
+                      AND UNIX_TIMESTAMP(attempted_at) >= ?
+                ");
+                $stmt->execute([$ip, $now - LOGIN_LOCKOUT_SECONDS]);
+                $lastAttempt = $stmt->fetchColumn();
+
+                if ($lastAttempt) {
+                    $unlockTs = (int)$lastAttempt + LOGIN_LOCKOUT_SECONDS;
+                    return max(0, $unlockTs - $now);
+                }
             }
         }
 
@@ -119,6 +155,76 @@ function login_rate_limit_increment_user(int $userId): void {
     }
 }
 
+// ================================================================
+// PASSWORD RESET RATE LIMITING
+// ================================================================
+
+/**
+ * Check if the current IP is rate-limited from password reset requests.
+ * Returns the remaining lockout seconds, or 0 if not locked out.
+ */
+function reset_rate_limit_check(string $ip): int {
+    try {
+        $db = getDB();
+        $now = time();
+
+        $stmt = $db->prepare("
+            SELECT COUNT(*) FROM password_reset_attempts
+            WHERE ip_address = ?
+              AND UNIX_TIMESTAMP(attempted_at) >= ?
+        ");
+        $stmt->execute([$ip, $now - RESET_LOCKOUT_SECONDS]);
+        $attempts = (int)$stmt->fetchColumn();
+
+        if ($attempts >= MAX_RESET_ATTEMPTS) {
+            $stmt = $db->prepare("
+                SELECT MAX(UNIX_TIMESTAMP(attempted_at)) FROM password_reset_attempts
+                WHERE ip_address = ?
+                  AND UNIX_TIMESTAMP(attempted_at) >= ?
+            ");
+            $stmt->execute([$ip, $now - RESET_LOCKOUT_SECONDS]);
+            $lastAttempt = $stmt->fetchColumn();
+
+            if ($lastAttempt) {
+                $unlockTs = (int)$lastAttempt + RESET_LOCKOUT_SECONDS;
+                return max(0, $unlockTs - $now);
+            }
+        }
+
+        return 0;
+    } catch (Exception $e) {
+        error_log('reset_rate_limit_check failed: ' . $e->getMessage());
+        return 0;
+    }
+}
+
+/**
+ * Record a password reset request attempt.
+ */
+function reset_rate_limit_record_failure(string $ip): void {
+    try {
+        $db = getDB();
+        $db->prepare("INSERT INTO password_reset_attempts (ip_address) VALUES (?)")
+           ->execute([$ip]);
+    } catch (Exception $e) {
+        error_log('reset_rate_limit_record_failure failed: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Clear password reset attempts for an IP after a successful reset.
+ */
+function reset_rate_limit_clear(string $ip): void {
+    try {
+        $db = getDB();
+        $db->prepare("DELETE FROM password_reset_attempts WHERE ip_address = ?")->execute([$ip]);
+    } catch (Exception $e) {
+        error_log('reset_rate_limit_clear failed: ' . $e->getMessage());
+    }
+}
+
+// ================================================================
+// INPUT VALIDATION
 // ================================================================
 // INPUT VALIDATION
 // ================================================================
@@ -233,7 +339,9 @@ function send_security_headers(): void {
         "base-uri 'self';");
 
     // Permissions policy
-    header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
+    // camera=(self) allows the QR scanner to use the PC/laptop/USB webcam
+    // on the same origin. geolocation and microphone remain blocked.
+    header('Permissions-Policy: geolocation=(), microphone=(), camera=(self)');
 }
 
 // ================================================================

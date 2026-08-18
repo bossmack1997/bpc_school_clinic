@@ -6,8 +6,8 @@ $db = getDB();
 $totalStudents   = $db->query("SELECT COUNT(*) FROM students")->fetchColumn();
 $todaysAppts     = $db->query("SELECT COUNT(*) FROM appointments WHERE appointment_date = CURDATE()")->fetchColumn();
 $totalRecords    = $db->query("SELECT COUNT(*) FROM consultations")->fetchColumn();
-$medicineCount   = $db->query("SELECT COALESCE(SUM(quantity),0) FROM medicines")->fetchColumn();
-$lowStockAlerts  = $db->query("SELECT COUNT(*) FROM medicines WHERE quantity <= reorder_level")->fetchColumn();
+$medicineCount   = $db->query("SELECT COALESCE(SUM(quantity),0) FROM medicines WHERE is_archived = 0")->fetchColumn();
+$lowStockAlerts  = $db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= reorder_level")->fetchColumn();
 $pendingRequests = $db->query("SELECT COUNT(*) FROM appointments WHERE status = 'pending'")->fetchColumn();
 
 $visitsStmt = $db->query("
@@ -25,6 +25,7 @@ $illnesses = $illnessStmt->fetchAll();
 $medConsumeStmt = $db->query("
   SELECT m.medicine_name, COALESCE(SUM(CASE WHEN l.action='stock_out' THEN l.quantity ELSE 0 END),0) used
   FROM medicines m LEFT JOIN medicine_logs l ON l.medicine_id = m.id
+  WHERE m.is_archived = 0
   GROUP BY m.id ORDER BY used DESC LIMIT 6");
 $medConsume = $medConsumeStmt->fetchAll();
 

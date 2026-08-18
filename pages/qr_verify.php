@@ -28,15 +28,15 @@ if ($qrData) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= e($pageTitle) ?> — <?= e(APP_NAME) ?></title>
   <!-- Bootstrap 5 -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="<?= asset_url('css/bootstrap.min.css') ?>">
   <!-- Bootstrap Icons -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="<?= asset_url('css/bootstrap-icons.min.css') ?>">
   <!-- SweetAlert2 -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+  <link rel="stylesheet" href="<?= asset_url('css/sweetalert2.min.css') ?>">
   <!-- App styles -->
-  <link href="<?= APP_URL ?>/assets/css/style.css" rel="stylesheet">
-  <script src="<?= app_url('assets/js/qrcode.min.js') ?>"></script>
-  <script src="<?= app_url('assets/js/html5-qrcode.min.js') ?>"></script>
+  <link href="<?= asset_url('css/style.css') ?>" rel="stylesheet">
+  <script src="<?= asset_url('js/qrcode.min.js') ?>"></script>
+  <script src="<?= asset_url('js/html5-qrcode.min.js') ?>"></script>
   <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
 </head>
 <body class="bg-light">
@@ -122,9 +122,9 @@ if ($qrData) {
     </div>
   </div>
 </div>
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="<?= asset_url('js/jquery.min.js') ?>"></script>
+<script src="<?= asset_url('js/bootstrap.bundle.min.js') ?>"></script>
+<script src="<?= asset_url('js/sweetalert2.all.min.js') ?>"></script>
 <script>
 (function () {
   'use strict';
@@ -141,17 +141,24 @@ if ($qrData) {
     window.location.href = APP + '/pages/qr_verify.php?data=' + encodeURIComponent(data);
   });
 
-  $('#startVerifyScan').on('click', async function () {
+    $('#startVerifyScan').on('click', async function () {
     if (!window.Html5Qrcode) {
       Swal.fire({ icon: 'error', title: 'Scanner Error', text: 'Scanner library not loaded.' });
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      Swal.fire({ icon: 'error', title: 'Camera Error', text: 'This browser does not support camera access required by the QR scanner.' });
       return;
     }
     $(this).prop('disabled', true).text('Scanning…');
     $('#verifyScannerContainer').show();
     try {
       html5QrCode = new Html5Qrcode('verifyVideo');
+      // Desktop-compatible: Html5Qrcode requires the camera config object to
+      // have exactly ONE key (facingMode OR deviceId). { facingMode: "environment" }
+      // lets the browser pick any available camera (built-in, USB, external).
       await html5QrCode.start(
-        { facingMode: 'environment' },
+        { facingMode: "environment" },
         { fps: 10, qrbox: 200 },
         function (decoded) {
           $('#verifyQrInput').val(decoded);
@@ -161,7 +168,22 @@ if ($qrData) {
         function () { /* no error handling */ }
       );
     } catch (e) {
-      Swal.fire({ icon: 'error', title: 'Camera Error', text: e.message || 'Could not access camera.' });
+      console.error('[QR Verify] Camera initialization failed:', e);
+      let msg = e.message || 'Could not access camera.';
+      if (e && e.name === 'NotAllowedError') {
+        msg = 'Camera permission was denied. Please allow camera access and try again.';
+      } else if (e && e.name === 'NotFoundError') {
+        msg = 'No camera was detected. Please connect a webcam.';
+      } else if (e && e.name === 'NotReadableError') {
+        msg = 'The camera is currently being used by another application.';
+      } else if (e && e.name === 'OverconstrainedError') {
+        msg = 'No camera matching the requested settings was found. Please connect a webcam and try again.';
+      } else if (e && e.name === 'AbortError') {
+        msg = 'Camera access was aborted. Please try again.';
+      } else if (e && e.name === 'TypeError') {
+        msg = 'Camera request was invalid. Please refresh the page and try again.';
+      }
+      Swal.fire({ icon: 'error', title: 'Camera Error', text: msg });
       $(this).prop('disabled', false).text('Scan QR Code');
     }
   });

@@ -10,6 +10,10 @@ function csrf_token() {
     return $_SESSION['csrf_token'];
 }
 
+function csrf_regenerate(): void {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 function csrf_field() {
     return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(csrf_token()) . '">';
 }
@@ -22,7 +26,7 @@ function csrf_verify($token) {
 }
 
 function csrf_verify_or_die() {
-    $token = $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? '';
+    $token = $_POST['csrf_token'] ?? '';
     if (!csrf_verify($token)) {
         http_response_code(403);
         die('Invalid CSRF token. Please refresh the page and try again.');

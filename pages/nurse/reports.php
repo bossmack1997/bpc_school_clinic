@@ -138,7 +138,7 @@ $.get(APP_URL + '/api/reports.php', { action: 'history' }, function (res) {
 function printReport() {
   const html = document.getElementById('reportResult').innerHTML;
   const w = window.open('', '', 'width=800,height=600');
-  w.document.write('<html><head><title>Report</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"></head><body><div class="p-4">' + html + '</div></body></html>');
+  w.document.write('<html><head><title>Report</title><link rel="stylesheet" href="' + APP_URL + '/assets/css/bootstrap.min.css"></head><body><div class="p-4">' + html + '</div></body></html>');
   w.document.close();
   w.print();
 }

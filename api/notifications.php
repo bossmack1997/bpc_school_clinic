@@ -131,7 +131,7 @@ if ($action === 'list') {
         SELECT n.*
         FROM notifications n
         $where
-        ORDER BY $order
+        ORDER BY " . ($order === "n.created_at ASC" ? "n.created_at ASC" : "FIELD(n.type, 'emergency') DESC, n.created_at DESC") . "
         LIMIT ? OFFSET ?
     ");
     $params[] = $limit;

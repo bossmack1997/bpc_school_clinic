@@ -35,6 +35,7 @@
       isMinimized: false,
       mode: 'idle',
       recognition: null,
+      recognitionState: 'idle',  // idle | starting | listening | processing | speaking | error
       isListening: false,
       synthQueue: [],
       isPlaying: false,
@@ -1037,12 +1038,16 @@ function escapeHtml(text) {
     }).then(function (r) { console.log('[MICA] History request — HTTP ' + r.status); return r.json(); })
       .then(function (data) {
         if (!data.success) { console.warn('[MICA] History fetch returned success:false:', data.message); return; }
-        if (!data.data.history || data.data.history.length === 0) {
+        // The API returns { success, message, history, stats } — history is
+        // at the top level, NOT nested under data. Guard against both shapes
+        // so an empty/invalid response never throws an uncaught error.
+        var historyData = (data && data.history) || (data && data.data && data.data.history) || [];
+        if (!Array.isArray(historyData) || historyData.length === 0) {
           showPersonalizedGreeting();
           return;
         }
         // Render last 20 messages
-        var history = data.data.history.slice(-20);
+        var history = historyData.slice(-20);
         history.forEach(function (entry) {
           addMessage(entry.role === 'user' ? 'user' : 'ai', entry.content);
         });
@@ -1059,13 +1064,56 @@ function escapeHtml(text) {
   var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   var supportsSpeechRecognition = !!SpeechRecognition;
 
-  function initRecognition() {
-    if (!supportsSpeechRecognition || C.state.recognition) return;
+  // Diagnostic flags — test physical microphone independently from SpeechRecognition
+  var micAccessibilityUnknown = true;
+  var micAccessible = false;
 
+  // Diagnostic: test physical microphone access
+  function testMicrophoneAccess() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn('[MICA] MediaDevices not available');
+      micAccessibilityUnknown = false;
+      micAccessible = false;
+      return Promise.reject(new Error('MediaDevices not available'));
+    }
+    console.log('[MICA] Testing microphone access...');
+    return navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function (stream) {
+        console.log('[MICA] getUserMedia success');
+        micAccessible = true;
+        micAccessibilityUnknown = false;
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        return true;
+      })
+      .catch(function (err) {
+        console.warn('[MICA] getUserMedia failed:', err.name, err.message);
+        micAccessibilityUnknown = false;
+        micAccessible = false;
+        return Promise.reject(err);
+      });
+  }
+
+  // Initialize recognition ONCE — never create duplicate instances
+  function initRecognition() {
+    if (!supportsSpeechRecognition) {
+      console.warn('[MICA] SpeechRecognition not supported in this browser');
+      return;
+    }
+    if (C.state.recognition) return;
+
+    console.log('[MICA] Creating SpeechRecognition instance');
     var recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-PH';
+
+    // STATE PROTECTION: onstart confirms browser-side recognition is live
+    recognition.onstart = function () {
+      console.log('[MICA] Recognition started');
+      C.state.recognitionState = 'listening';
+      if (C.dom.micaInput) C.dom.micaInput.placeholder = '🎤 Listening...';
+      showStatus('🎤 Listening...');
+    };
 
     recognition.onresult = function (event) {
       var finalTranscript = '';
@@ -1076,17 +1124,34 @@ function escapeHtml(text) {
         else interimTranscript += r[0].transcript;
       }
       if (interimTranscript && C.dom.micaInput) C.dom.micaInput.value = interimTranscript;
-      if (finalTranscript) handleVoiceInput(finalTranscript.trim());
+      if (finalTranscript) {
+        console.log('[MICA] Speech result:', finalTranscript.trim());
+        console.log('[MICA] Transcript:', finalTranscript.trim());
+        handleVoiceInput(finalTranscript.trim());
+      }
     };
 
     recognition.onerror = function (event) {
       console.warn('[MICA] Speech recognition error:', event.error);
       C.state.isListening = false;
+      C.state.recognitionState = 'error';
+
       if (event.error === 'not-allowed') {
-        showStatus('🎤 Microphone access denied. Please allow microphone permissions.');
+        // CRITICAL: no retry loop — reset to idle and show clear diagnostics
+        var micInfo = micAccessibilityUnknown ? 'unknown' : (micAccessible ? 'SUCCESS' : 'FAILED');
+        console.warn('[MICA] SpeechRecognition denied');
+        console.warn('[MICA] Microphone access test:', micInfo);
+        console.warn('[MICA] Secure context:', !!window.isSecureContext);
+        console.warn('[MICA] Origin:', window.location.origin);
+
+        if (micAccessible) {
+          showStatus('Speech recognition is blocked by the browser. Please allow microphone access in browser settings.');
+        } else {
+          showStatus('Microphone or speech recognition access was denied. Please check your browser microphone permissions and try again.');
+        }
         setMode('idle');
       } else if (event.error === 'no-speech') {
-        if (C.state.mode === 'listening' && C.config.continuousMode) {
+        if (C.state.mode === 'listening' && C.config.continuousMode && C.state.recognitionState !== 'error') {
           setTimeout(function () {
             if (C.state.mode === 'listening' && !C.state.isListening) startListening();
           }, 500);
@@ -1095,54 +1160,128 @@ function escapeHtml(text) {
           setMode('idle');
         }
       } else if (event.error === 'aborted') {
+        console.log('[MICA] Recognition aborted');
         setMode('idle');
       } else {
-        showStatus('Voice input error. Try typing instead.');
+        console.warn('[MICA] Unexpected speech error:', event.error);
+        showStatus('Voice input error: ' + event.error + '. Try typing instead.');
         setMode('idle');
       }
     };
 
     recognition.onend = function () {
+      console.log('[MICA] Recognition ended');
       C.state.isListening = false;
+      C.state.recognitionState = 'idle';
+      if (C.state.mode === 'listening' && C.config.continuousMode) {
+        setTimeout(function () {
+          if (C.state.mode === 'listening' && C.state.recognitionState === 'idle') {
+            tryRestartRecognition();
+          }
+        }, 200);
+      }
     };
 
     recognition.onsoundstart = function () {
+      console.log('[MICA] Sound detected');
       if (C.state.mode === 'speaking' && C.state.isPlaying) {
         interruptSpeaking();
       }
     };
 
+    recognition.onsoundend = function () {
+      console.log('[MICA] Sound ended');
+    };
+
     C.state.recognition = recognition;
+    C.state.recognitionState = 'idle';
+    console.log('[MICA] SpeechRecognition initialized');
+  }
+
+  // Safely restart recognition after it ends (with state protection)
+  function tryRestartRecognition() {
+    if (!C.state.recognition) return;
+    if (C.state.recognitionState !== 'idle') return;
+    try {
+      C.state.recognition.start();
+      C.state.recognitionState = 'starting';
+      C.state.isListening = true;
+    } catch (e) {
+      console.warn('[MICA] Restart failed:', e.message);
+      C.state.isListening = false;
+      C.state.recognitionState = 'idle';
+      setMode('idle');
+    }
   }
 
   function startListening() {
     if (!supportsSpeechRecognition) {
-      showStatus('Voice input not supported. Please type.');
+      showStatus('Voice input is not supported by this browser. Please use a supported browser.');
       if (C.dom.micaInput) C.dom.micaInput.focus();
       return;
     }
-    if (C.state.isListening) { stopListening(); return; }
 
+    // STATE PROTECTION: never start if already listening or starting
+    if (C.state.isListening || C.state.recognitionState === 'starting' || C.state.recognitionState === 'listening') {
+      console.log('[MICA] Already listening, stopping first');
+      stopListening();
+      return;
+    }
+
+    console.log('[MICA] Starting listening');
+    setMode('listening');
+    if (C.dom.micaInput) C.dom.micaInput.placeholder = 'Starting microphone...';
+    showStatus('🎤 Starting microphone...');
+    C.state.recognitionState = 'starting';
+
+    // Ensure recognition instance exists (creates it once if needed)
     initRecognition();
+
+    if (!C.state.recognition) {
+      showStatus('Voice input is not supported by this browser. Please use a supported browser.');
+      setMode('idle');
+      C.state.recognitionState = 'idle';
+      return;
+    }
+
     try {
       C.state.isListening = true;
       C.state.recognition.start();
-      setMode('listening');
-      if (C.dom.micaInput) C.dom.micaInput.placeholder = '🎤 Listening...';
-      showStatus('🎤 Listening...');
+      console.log('[MICA] recognition.start() called');
+      // onstart handler will update recognitionState to 'listening'
     } catch (e) {
-      console.warn('[MICA] Recognition start failed:', e);
+      console.error('[MICA] Recognition start failed:', e.name, e.message);
       C.state.isListening = false;
+      C.state.recognitionState = 'idle';
       setMode('idle');
-      showStatus('Could not start voice input. Try typing.');
+      if (e.name === 'InvalidStateError') {
+        showStatus('Microphone is already active. Click again to start voice input.');
+      } else {
+        showStatus('Could not start voice input. Try typing.');
+      }
+    }
+
+    // Run microphone diagnostic test on first attempt
+    if (micAccessibilityUnknown) {
+      testMicrophoneAccess().catch(function () { /* already logged */ });
     }
   }
 
   function stopListening() {
-    if (C.state.recognition && C.state.isListening) {
-      try { C.state.recognition.stop(); } catch (e) { /* ignore */ }
+    console.log('[MICA] stopListening called');
+    if (C.state.recognition) {
+      try {
+        if (C.state.recognitionState === 'starting') {
+          C.state.recognition.abort();
+        } else {
+          C.state.recognition.stop();
+        }
+      } catch (e) {
+        console.warn('[MICA] stop failed:', e.message);
+      }
     }
     C.state.isListening = false;
+    C.state.recognitionState = 'idle';
     if (C.state.mode === 'listening') setMode('idle');
     if (C.dom.micaInput) C.dom.micaInput.placeholder = 'Type a message...';
   }
@@ -1169,12 +1308,16 @@ function escapeHtml(text) {
 
   function handleVoiceInput(transcript) {
     C.state.isListening = false;
+    C.state.recognitionState = 'processing';
     if (C.state.recognition) { try { C.state.recognition.stop(); } catch (e) { /* ignore */ } }
     if (!transcript || transcript.trim() === '') {
       showStatus("I didn't catch that. Please try again.");
+      C.state.recognitionState = 'idle';
       setMode('idle');
       return;
     }
+
+    console.log('[MICA] Transcript:', transcript.trim());
 
     // Normalize speech recognition BEFORE sending to the AI.
     // Fixes "Mika" → "MICA", "b p c" → "BPC", etc.
@@ -1415,14 +1558,23 @@ function escapeHtml(text) {
     });
 
     C.dom.micBtn.addEventListener('click', function () {
-      if (C.state.isListening) {
-        stopListening();
+      console.log('[MICA] Microphone button clicked, current mode:', C.state.mode);
+      // If currently speaking, stop first then start listening
+      if (C.state.isPlaying || C.state.mode === 'speaking') {
+        console.log('[MICA] Interrupting speech to start listening');
+        stopSpeaking();
+        setMode('idle');
+        setTimeout(function () { startListening(); }, 150);
         return;
       }
-      // If MICA is currently speaking or processing, stop it and allow a fresh start.
-      if (C.state.isPlaying || C.state.mode === 'speaking' || C.state.mode === 'thinking') {
-        stopSpeaking();
-        if (C.state.mode === 'thinking') setMode('idle');
+      // If thinking, stop and allow fresh start
+      if (C.state.mode === 'thinking') {
+        setMode('idle');
+        return;
+      }
+      // Toggle: stop if listening, start if idle
+      if (C.state.isListening) {
+        stopListening();
         return;
       }
       startListening();
@@ -1525,7 +1677,20 @@ function escapeHtml(text) {
       buildUI();
       bindEvents();
 
+      // Diagnostic: log browser capabilities
+      console.log('[MICA] SpeechRecognition supported:', supportsSpeechRecognition);
+      console.log('[MICA] MediaDevices available:', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
+      console.log('[MICA] Secure context:', !!window.isSecureContext);
+      console.log('[MICA] Origin:', window.location.origin);
+
       try { initRecognition(); } catch (e) { console.warn('[MICA] Recognition init failed:', e); }
+
+      // Test microphone access on init
+      testMicrophoneAccess().then(function () {
+        console.log('[MICA] Microphone diagnostic: PASSED');
+      }).catch(function () {
+        console.warn('[MICA] Microphone diagnostic: FAILED');
+      });
 
       // Restore history (async) — fallback to greeting
       try { loadHistory(); } catch (e) { console.warn('[MICA] History load failed:', e); }

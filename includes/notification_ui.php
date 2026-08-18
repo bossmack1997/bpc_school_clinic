@@ -45,9 +45,16 @@ $typeMeta = [
           <option value="read">Read</option>
           <option value="emergency">🚨 Emergency</option>
           <option value="appointment">Appointment</option>
+          <option value="consultation">Consultation</option>
+          <option value="health">Health</option>
           <option value="medicine">Medicine</option>
           <option value="inventory">Inventory</option>
+          <option value="stock_alert">Stock Alert</option>
           <option value="student">Student</option>
+          <option value="walkin">Walk-in</option>
+          <option value="announcement">Announcement</option>
+          <option value="system">System</option>
+          <option value="account">Account</option>
         </select>
       </div>
       <div class="col-md-4">
@@ -140,7 +147,18 @@ window.__initNotificationUI = function () {
   (function () {
   'use strict';
 
-  const APP = window.APP_URL || '';
+  function getAppBase() {
+    if (typeof APP_URL !== 'undefined' && APP_URL && APP_URL !== 'http://localhost' && APP_URL !== 'http://127.0.0.1') {
+      return APP_URL;
+    }
+    if (window.APP_URL && window.APP_URL !== 'http://localhost' && window.APP_URL !== 'http://127.0.0.1') {
+      return window.APP_URL;
+    }
+    const path = window.location.pathname;
+    const match = path.match(/^(\/[^\/]+\/)/);
+    return window.location.origin + (match ? match[1] : '');
+  }
+  const APP = getAppBase();
   const NOTIFICATION_PAGE_URL = window.NOTIFICATION_PAGE_URL || 'notifications.php';
   const selectedNotificationId = parseInt(new URLSearchParams(window.location.search).get('id') || 0);
   const csrf = $('meta[name="csrf-token"]').attr('content');
@@ -206,8 +224,20 @@ window.__initNotificationUI = function () {
     if (page !== undefined) params.offset = page * 50;
 
     $.get(APP + '/api/notifications.php', params, function (res) {
-      if (!res.success) return;
+      if (!res.success) {
+        const errorHtml = '<tr><td colspan="7" class="text-center text-muted py-4">' + (res.message || 'Failed to load notifications.') + '</td></tr>';
+        if (dt) { dt.destroy(); dt = null; }
+        $('#notifTable tbody').html(errorHtml);
+        return;
+      }
       $('#notifCount').text(res.total + ' notification(s)' + (res.unread_count ? ' · ' + res.unread_count + ' unread' : ''));
+
+      if (!res.data || res.data.length === 0) {
+        const emptyHtml = '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-bell-slash fs-3 d-block mb-2"></i>No notifications yet.</td></tr>';
+        if (dt) { dt.destroy(); dt = null; }
+        $('#notifTable tbody').html(emptyHtml);
+        return;
+      }
 
       const rows = res.data.map(function (n) {
         const tm = typeMeta(n.type);
@@ -265,7 +295,11 @@ window.__initNotificationUI = function () {
           $row.get(0).scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }
-    }, 'json');
+    }, 'json').fail(function () {
+      const failHtml = '<tr><td colspan="7" class="text-center text-muted py-4">Unable to load notifications. Please try again later.</td></tr>';
+      if (dt) { dt.destroy(); dt = null; }
+      $('#notifTable tbody').html(failHtml);
+    });
   };
 
   $('#filterType, #sortNotif').on('change', function () { loadNotifCenter(); });
@@ -489,5 +523,5 @@ window.__initNotificationUI = function () {
   // ============================================================
   loadNotifCenter();
   })();
-})();
+};
 </script>

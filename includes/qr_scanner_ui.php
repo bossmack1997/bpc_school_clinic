@@ -8,6 +8,15 @@
 $scannerMode = isset($scannerMode) ? $scannerMode : 'check_in';
 $scannerTitle = isset($scannerTitle) ? $scannerTitle : 'QR Scanner';
 $visitTypes = ['walk-in' => 'Walk-in', 'appointment' => 'Appointment', 'emergency' => 'Emergency'];
+
+$qrScanLocation = 'Clinic Entrance';
+if (function_exists('get_qr_setting')) {
+    try {
+        $qrScanLocation = get_qr_setting(getDB(), 'scan_location_default', 'Clinic Entrance');
+    } catch (Exception $e) {
+        error_log('QR setting fetch failed: ' . $e->getMessage());
+    }
+}
 ?>
 <div class="card shadow-sm mb-4" id="qrScannerCard">
   <div class="card-header d-flex align-items-center justify-content-between">
@@ -106,41 +115,92 @@ $visitTypes = ['walk-in' => 'Walk-in', 'appointment' => 'Appointment', 'emergenc
       const $overlay = $('#qrScannerOverlay');
       const $frame = $('#qrScanFrame');
 
+      // Prevent duplicate initialization — only one active camera stream.
+      if (scanActive) return;
+
       if (!window.Html5Qrcode) {
         $('#scannerErrorText').text('QR scanner library not loaded. Please refresh the page or contact support.');
         $err.show();
         return;
       }
 
+      // Safe browser camera API detection.
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        $('#scannerErrorText').text('This browser does not support camera access required by the QR scanner.');
+        $err.show();
+        return;
+      }
+
+      console.log('[QR] Camera API available');
+      console.log('[QR] getUserMedia:', typeof navigator.mediaDevices.getUserMedia);
+      console.log('[QR] Secure context:', window.isSecureContext);
+      console.log('[QR] Current URL:', window.location.href);
+
       try {
         html5QrCode = new Html5Qrcode('qrVideo');
         $frame.show();
-        $overlay.find('p').text('Position QR code within the frame');
+        $overlay.find('p').text('Starting camera…');
 
         const config = { fps: 10, qrbox: 250 };
+
+        // Desktop-compatible camera request.
+        // Html5Qrcode requires the camera config object to have exactly ONE key
+        // (facingMode OR deviceId). { facingMode: "environment" } lets the
+        // browser pick any available camera (built-in, USB, external).
+        console.log('[QR] Requesting camera...');
         await html5QrCode.start(
-          { facingMode: 'environment' },
+          { facingMode: "environment" },
           config,
           function (decoded) { onQrScanSuccess(decoded, 'camera'); },
           onQrScanError
         );
 
         scanActive = true;
+        console.log('[QR] Camera stream received');
+        console.log('[QR] Camera started');
+        console.log('[QR] QR scanner initialized');
+
         $('#startCameraBtn').hide();
         $('#stopCameraBtn').show();
         $overlay.hide();
       } catch (err) {
-        $('#scannerErrorText').text('Camera access failed: ' + (err.message || err).substring(0, 200));
+        console.error('[QR] Camera initialization failed:', err);
+        console.error('[QR] Error name:', err && err.name);
+        console.error('[QR] Error message:', err && err.message);
+
+        let msg = 'Camera access failed: ' + ((err && err.message) || err || 'Unknown error').substring(0, 200);
+        const errName = err && err.name;
+
+        if (errName === 'NotAllowedError' || errName === 'SecurityError') {
+          msg = 'Camera permission was denied. Please allow camera access and try again.';
+        } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
+          msg = 'No camera was detected. Please connect a webcam.';
+        } else if (errName === 'NotReadableError' || errName === 'TrackStartError') {
+          msg = 'The camera is currently being used by another application.';
+        } else if (errName === 'OverconstrainedError') {
+          msg = 'No camera matching the requested settings was found. Please connect a webcam and try again.';
+        } else if (errName === 'AbortError') {
+          msg = 'Camera access was aborted. Please try again.';
+        } else if (errName === 'TypeError') {
+          msg = 'Camera request was invalid. Please refresh the page and try again.';
+        }
+
+        $('#scannerErrorText').text(msg);
         $err.show();
+        $overlay.find('p').text('Waiting for camera access...');
+        $frame.hide();
       }
     }
 
     async function stopCamera() {
-      if (html5QrCode && scanActive) {
+      if (html5QrCode) {
         try {
-          await html5QrCode.stop();
-          await html5QrCode.clear();
+          if (scanActive) {
+            await html5QrCode.stop();
+            await html5QrCode.clear();
+          }
         } catch (e) { console.warn('stopCamera error:', e); }
+        html5QrCode = null;
         scanActive = false;
       }
       $('#startCameraBtn').show();
@@ -150,8 +210,10 @@ $visitTypes = ['walk-in' => 'Walk-in', 'appointment' => 'Appointment', 'emergenc
     }
 
     function onQrScanSuccess(decoded, scanMethod) {
-      stopCamera();
-      processQrData(decoded, scanMethod);
+      // Stop the camera stream first, then process the QR data.
+      stopCamera().then(function () {
+        processQrData(decoded, scanMethod);
+      });
     }
 
     function onQrScanError(err) {
@@ -483,6 +545,7 @@ $visitTypes = ['walk-in' => 'Walk-in', 'appointment' => 'Appointment', 'emergenc
     }
 
     function get_qr_setting(key, def) {
+      if (key === 'scan_location_default') return '<?= e($qrScanLocation) ?>';
       return def;
     }
 
@@ -492,8 +555,8 @@ $visitTypes = ['walk-in' => 'Walk-in', 'appointment' => 'Appointment', 'emergenc
       });
     }
 
-    $('#startCameraBtn').on('click', startCamera);
-    $('#stopCameraBtn').on('click', stopCamera);
+    $('#startCameraBtn').off('click').on('click', startCamera);
+    $('#stopCameraBtn').off('click').on('click', stopCamera);
 
     if (!window.Html5Qrcode) {
       const script = document.createElement('script');

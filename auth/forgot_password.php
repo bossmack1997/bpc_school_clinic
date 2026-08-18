@@ -15,28 +15,58 @@ $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
-    $email = trim($_POST['email'] ?? '');
 
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $errors[] = 'Please enter a valid email address.';
+    // Password reset rate limiting — prevent abuse without revealing email existence.
+    $clientIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $resetLockout = reset_rate_limit_check($clientIp);
+    if ($resetLockout > 0) {
+        $minutes = ceil($resetLockout / 60);
+        $errors[] = "Too many password reset requests. Please try again in {$minutes} minute(s).";
     } else {
-        $db = getDB();
-        $stmt = $db->prepare("SELECT id FROM users WHERE email = ? LIMIT 1");
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
+        $email = trim($_POST['email'] ?? '');
 
-        if ($user) {
-            $token = bin2hex(random_bytes(32));
-            $expires = date('Y-m-d H:i:s', time() + 3600);
-            $db->prepare("UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?")
-               ->execute([hash('sha256', $token), $expires, $user['id']]);
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Please enter a valid email address.';
+        } else {
+            $db = getDB();
+            $stmt = $db->prepare("SELECT id, email FROM users WHERE email = ? LIMIT 1");
+            $stmt->execute([$email]);
+            $user = $stmt->fetch();
 
-            $resetLink = APP_URL . '/auth/reset_password.php?token=' . $token . '&uid=' . $user['id'];
-            log_activity($user['id'], 'Requested password reset', 'auth');
+            if ($user) {
+                // Generate a secure random token (256-bit)
+                $token = bin2hex(random_bytes(32));
+                // Store the SHA-256 hash of the token (never the raw token)
+                $tokenHash = hash('sha256', $token);
+               // Token expires 30 minutes from now.
+                  // Use MySQL UTC so token generation and validation use the same clock.
+                  $expires = $db->query(
+                      "SELECT DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 MINUTE)"
+                  )->fetchColumn();
 
-            $_SESSION['demo_reset_link'] = $resetLink;
+                $db->prepare("UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?")
+                   ->execute([$tokenHash, $expires, $user['id']]);
+
+                // Reset link contains ONLY the token — no uid (user is found server-side)
+                $resetLink = APP_URL . '/auth/reset_password.php?token=' . $token;
+                log_activity($user['id'], 'Requested password reset', 'auth');
+
+                // Attempt to send the reset link via email.
+                $emailSent = send_password_reset_email($user['email'], $resetLink);
+                if (!$emailSent) {
+                    // Email is not configured. In local development, store the link
+                    // in session so the developer/user can use it for testing.
+                    // In production, NEVER expose the raw reset token in HTML.
+                    if (defined('APP_ENV') && APP_ENV === 'local') {
+                        $_SESSION['demo_reset_link'] = $resetLink;
+                    }
+                }
+            }
+            // Always show the generic response — do NOT reveal whether the email exists.
+            $sent = true;
+            // Record this attempt for rate limiting (prevents flooding).
+            reset_rate_limit_record_failure($clientIp);
         }
-        $sent = true;
     }
 }
 
@@ -67,9 +97,9 @@ $pageTitle = 'Forgot Password';
       <?php if ($sent): ?>
         <div class="alert alert-success py-2 small d-flex align-items-center gap-2">
           <i class="bi bi-check-circle-fill"></i>
-          <span>If that email exists in our system, a reset link has been sent.</span>
+          <span>If an account exists for that email, a password reset link has been sent.</span>
         </div>
-        <?php if (!empty($_SESSION['demo_reset_link'])): ?>
+        <?php if (defined('APP_ENV') && APP_ENV === 'local' && !empty($_SESSION['demo_reset_link'])): ?>
           <div class="alert alert-warning py-2 small">
             <strong>Demo mode</strong> (email not yet configured): <br>
             <a href="<?= e($_SESSION['demo_reset_link']) ?>" class="text-break"><?= e($_SESSION['demo_reset_link']) ?></a>

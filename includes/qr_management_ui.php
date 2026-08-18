@@ -540,7 +540,7 @@ $(document).on('click', '.qr-react', function () {
     });
   });
   })();
-})();
+};
 </script>
 
 

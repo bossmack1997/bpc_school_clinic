@@ -1,195 +1,468 @@
 <?php
 /**
- * MICA Text-to-Speech API Endpoint
+ * MICA Text-to-Speech API
+ * BPC School Clinic Management System
  *
- * Secure proxy for ElevenLabs TTS — never exposes API key to frontend.
- *
- * Usage: POST /api/mica_tts.php
- * Body: FormData { action: "synthesize", text: "string to speak", csrf_token: "..." }
- *
- * Returns: audio/mpeg binary stream on success
- *          JSON error response on failure
+ * ElevenLabs TTS secure server-side proxy.
  */
+
+declare(strict_types=1);
 
 require_once __DIR__ . '/../config/config.php';
 
-// AJAX-friendly authentication check.
-// Unlike require_login() which redirects (and breaks the audio/JSON
-// response), this returns a proper JSON error when the session has
-// expired or the request is unauthenticated.
-if (!is_logged_in()) {
-    attempt_remember_me_login();
-}
-if (!is_logged_in()) {
-    http_response_code(401);
-    header('Content-Type: application/json');
-    echo json_encode(['success' => false, 'error' => 'Your session has expired. Please log in again.']);
+// ------------------------------------------------------------
+// JSON ERROR HELPER
+// ------------------------------------------------------------
+function mica_tts_error(
+    int $status,
+    string $message,
+    ?string $debug = null
+): never {
+    http_response_code($status);
+
+    // Make sure no previous output corrupts JSON/audio response.
+    if (ob_get_length()) {
+        ob_clean();
+    }
+
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+    $response = [
+        'success' => false,
+        'error'   => $message,
+    ];
+
+    // Only expose technical information when explicitly enabled.
+    if (
+        defined('AI_DEBUG_MODE') &&
+        AI_DEBUG_MODE === true &&
+        $debug !== null
+    ) {
+        $response['debug'] = $debug;
+    }
+
+    echo json_encode($response);
     exit;
 }
-check_session_timeout();
 
-$action = $_REQUEST['action'] ?? 'synthesize';
 
-// ================================================================
-// ACTION: synthesize — Convert text to speech via ElevenLabs
-// ================================================================
+// ------------------------------------------------------------
+// AUTHENTICATION
+// ------------------------------------------------------------
+try {
+
+    if (!is_logged_in()) {
+        attempt_remember_me_login();
+    }
+
+    if (!is_logged_in()) {
+        mica_tts_error(
+            401,
+            'Your session has expired. Please log in again.'
+        );
+    }
+
+    check_session_timeout();
+
+} catch (Throwable $e) {
+
+    error_log(
+        'MICA TTS authentication error: ' . $e->getMessage()
+    );
+
+    mica_tts_error(
+        500,
+        'Authentication service error.',
+        $e->getMessage()
+    );
+}
+
+
+// ------------------------------------------------------------
+// ACTION
+// ------------------------------------------------------------
+$action = $_POST['action']
+    ?? $_GET['action']
+    ?? 'synthesize';
+
+
+// ------------------------------------------------------------
+// SYNTHESIZE
+// ------------------------------------------------------------
 if ($action === 'synthesize') {
-    // JSON-friendly CSRF check instead of csrf_verify_or_die()
-    // which dies with plain text and breaks the response contract.
-    $csrfToken = $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? '';
-    if (!csrf_verify($csrfToken)) {
-        http_response_code(403);
-        header('Content-Type: application/json');
-        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token. Please refresh the page and try again.']);
-        exit;
+
+    // --------------------------------------------------------
+    // CSRF
+    // --------------------------------------------------------
+    $csrfToken = $_POST['csrf_token']
+        ?? $_GET['csrf_token']
+        ?? '';
+
+    if (!function_exists('csrf_verify')) {
+        mica_tts_error(
+            500,
+            'CSRF verification function is unavailable.'
+        );
     }
 
-    $text = trim($_POST['text'] ?? '');
+    try {
+
+        if (!csrf_verify($csrfToken)) {
+            mica_tts_error(
+                403,
+                'Invalid CSRF token. Please refresh the page and try again.'
+            );
+        }
+
+    } catch (Throwable $e) {
+
+        error_log(
+            'MICA TTS CSRF error: ' . $e->getMessage()
+        );
+
+        mica_tts_error(
+            500,
+            'CSRF verification failed.',
+            $e->getMessage()
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // TEXT
+    // --------------------------------------------------------
+    $text = trim((string)($_POST['text'] ?? ''));
+
     if ($text === '') {
-        http_response_code(400);
-        header('Content-Type: application/json');
-        echo json_encode(['success' => false, 'error' => 'Text is required.']);
-        exit;
+        mica_tts_error(
+            400,
+            'Text is required.'
+        );
     }
 
-    // Prevent excessively long text
-    if (mb_strlen($text) > 2000) {
-        $text = mb_substr($text, 0, 2000);
+    // Limit text length.
+    if (mb_strlen($text, 'UTF-8') > 2000) {
+        $text = mb_substr(
+            $text,
+            0,
+            2000,
+            'UTF-8'
+        );
     }
 
-    $apiKey  = defined('ELEVENLABS_API_KEY') ? ELEVENLABS_API_KEY : '';
-    $voiceId = defined('ELEVENLABS_VOICE_ID') ? ELEVENLABS_VOICE_ID : '';
 
-    if (empty($apiKey) || $apiKey === 'your-elevenlabs-api-key-here') {
-        http_response_code(500);
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => false,
-            'error' => 'ElevenLabs API key is not configured.',
-        ]);
-        exit;
+    // --------------------------------------------------------
+    // ELEVENLABS CONFIG
+    // --------------------------------------------------------
+    $apiKey = defined('ELEVENLABS_API_KEY')
+        ? trim((string)ELEVENLABS_API_KEY)
+        : '';
+
+    $voiceId = defined('ELEVENLABS_VOICE_ID')
+        ? trim((string)ELEVENLABS_VOICE_ID)
+        : '';
+
+    if ($apiKey === '') {
+        error_log(
+            'MICA TTS: ELEVENLABS_API_KEY is missing.'
+        );
+
+        mica_tts_error(
+            500,
+            'ElevenLabs API key is not configured.'
+        );
     }
 
-    if (empty($voiceId)) {
-        http_response_code(500);
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => false,
-            'error' => 'ElevenLabs voice ID is not configured.',
-        ]);
-        exit;
+    if (
+        $apiKey === 'your-elevenlabs-api-key-here' ||
+        strtolower($apiKey) === 'your-elevenlabs-api-key-here'
+    ) {
+        error_log(
+            'MICA TTS: Placeholder ElevenLabs API key detected.'
+        );
+
+        mica_tts_error(
+            500,
+            'ElevenLabs API key is not configured.'
+        );
     }
 
+    if ($voiceId === '') {
+        error_log(
+            'MICA TTS: ELEVENLABS_VOICE_ID is missing.'
+        );
+
+        mica_tts_error(
+            500,
+            'ElevenLabs voice ID is not configured.'
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // CURL CHECK
+    // --------------------------------------------------------
+    if (!function_exists('curl_init')) {
+
+        error_log(
+            'MICA TTS: PHP cURL extension is not enabled.'
+        );
+
+        mica_tts_error(
+            500,
+            'PHP cURL extension is not enabled.'
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // ELEVENLABS ENDPOINT
+    // --------------------------------------------------------
     $endpoint = defined('ELEVENLABS_API_ENDPOINT')
-        ? ELEVENLABS_API_ENDPOINT
-        : "https://api.elevenlabs.io/v1/text-to-speech/{$voiceId}";
+        ? trim((string)ELEVENLABS_API_ENDPOINT)
+        : '';
 
-    $payload = json_encode([
-        'text' => $text,
-        'model_id' => 'eleven_multilingual_v2',
-        'voice_settings' => [
-            'stability' => 0.40,
-            'similarity_boost' => 0.85,
-            'style' => 0.50,
-            'use_speaker_boost' => true,
+    if ($endpoint === '') {
+
+        $endpoint =
+            'https://api.elevenlabs.io/v1/text-to-speech/'
+            . rawurlencode($voiceId);
+    }
+
+
+    // --------------------------------------------------------
+    // REQUEST PAYLOAD
+    // --------------------------------------------------------
+    $payload = json_encode(
+        [
+            'text' => $text,
+
+            'model_id' => 'eleven_multilingual_v2',
+
+            'voice_settings' => [
+                'stability' => 0.40,
+                'similarity_boost' => 0.85,
+                'style' => 0.50,
+                'use_speaker_boost' => true,
+            ],
         ],
-    ]);
+        JSON_UNESCAPED_UNICODE |
+        JSON_UNESCAPED_SLASHES
+    );
 
+    if ($payload === false) {
+
+        error_log(
+            'MICA TTS: JSON encoding failed: '
+            . json_last_error_msg()
+        );
+
+        mica_tts_error(
+            500,
+            'Unable to prepare TTS request.',
+            json_last_error_msg()
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // CURL REQUEST
+    // --------------------------------------------------------
     $ch = curl_init($endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $payload,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Accept: audio/mpeg',
-            'xi-api-key: ' . $apiKey,
-        ],
-        CURLOPT_TIMEOUT => 30,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_SSL_VERIFYHOST => 2,
-        CURLOPT_USERAGENT => 'BPC-Clinic-MICA/1.0',
-    ]);
+
+    if ($ch === false) {
+
+        error_log(
+            'MICA TTS: curl_init() failed.'
+        );
+
+        mica_tts_error(
+            500,
+            'Unable to initialize TTS connection.'
+        );
+    }
+
+
+    curl_setopt_array(
+        $ch,
+        [
+            CURLOPT_RETURNTRANSFER => true,
+
+            CURLOPT_POST => true,
+
+            CURLOPT_POSTFIELDS => $payload,
+
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Accept: audio/mpeg',
+                'xi-api-key: ' . $apiKey,
+            ],
+
+            CURLOPT_CONNECTTIMEOUT => 10,
+
+            CURLOPT_TIMEOUT => 30,
+
+            CURLOPT_SSL_VERIFYPEER => true,
+
+            CURLOPT_SSL_VERIFYHOST => 2,
+
+            CURLOPT_USERAGENT =>
+                'BPC-Clinic-MICA/1.0',
+
+            CURLOPT_FOLLOWLOCATION => false,
+        ]
+    );
+
 
     $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+    $httpCode = (int)curl_getinfo(
+        $ch,
+        CURLINFO_HTTP_CODE
+    );
+
     $curlError = curl_error($ch);
+
     $curlErrno = curl_errno($ch);
+
     curl_close($ch);
 
-    // Handle cURL errors
-    if ($curlErrno !== 0) {
-        error_log("MICA TTS cURL error ({$curlErrno}): {$curlError}");
-        http_response_code(500);
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => false,
-            'error' => 'TTS service unavailable. Please try again.',
-            'debug' => AI_DEBUG_MODE ? "cURL error: {$curlError}" : null,
-        ]);
-        exit;
+
+    // --------------------------------------------------------
+    // CURL ERROR
+    // --------------------------------------------------------
+    if ($response === false || $curlErrno !== 0) {
+
+        error_log(
+            "MICA TTS cURL error ({$curlErrno}): {$curlError}"
+        );
+
+        mica_tts_error(
+            502,
+            'TTS service unavailable. Please try again.',
+            "cURL {$curlErrno}: {$curlError}"
+        );
     }
 
-    // Handle HTTP errors
+
+    // --------------------------------------------------------
+    // ELEVENLABS AUTH ERROR
+    // --------------------------------------------------------
     if ($httpCode === 401) {
-        error_log("MICA TTS auth error: Invalid ElevenLabs API key");
-        http_response_code(500);
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => false,
-            'error' => 'TTS authentication failed.',
-        ]);
-        exit;
+
+        error_log(
+            'MICA TTS: ElevenLabs returned HTTP 401.'
+        );
+
+        mica_tts_error(
+            502,
+            'TTS authentication failed. Please check your ElevenLabs API key.'
+        );
     }
 
+
+    // --------------------------------------------------------
+    // ELEVENLABS FORBIDDEN
+    // --------------------------------------------------------
+    if ($httpCode === 403) {
+
+        error_log(
+            'MICA TTS: ElevenLabs returned HTTP 403.'
+        );
+
+        mica_tts_error(
+            502,
+            'TTS request was rejected by ElevenLabs.'
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // RATE LIMIT
+    // --------------------------------------------------------
     if ($httpCode === 429) {
-        error_log("MICA TTS rate limit exceeded");
-        http_response_code(429);
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => false,
-            'error' => 'TTS rate limit exceeded. Please wait a moment.',
-        ]);
-        exit;
+
+        error_log(
+            'MICA TTS: ElevenLabs rate limit exceeded.'
+        );
+
+        mica_tts_error(
+            429,
+            'TTS rate limit exceeded. Please wait a moment.'
+        );
     }
 
-    if ($httpCode !== 200) {
-        error_log("MICA TTS HTTP {$httpCode}: " . mb_substr($response, 0, 200));
-        http_response_code(500);
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => false,
-            'error' => 'TTS service error (HTTP ' . $httpCode . ').',
-            'debug' => AI_DEBUG_MODE ? mb_substr($response, 0, 300) : null,
-        ]);
-        exit;
+
+    // --------------------------------------------------------
+    // OTHER HTTP ERRORS
+    // --------------------------------------------------------
+    if ($httpCode < 200 || $httpCode >= 300) {
+
+        $errorBody = is_string($response)
+            ? mb_substr($response, 0, 500, 'UTF-8')
+            : '';
+
+        error_log(
+            "MICA TTS ElevenLabs HTTP {$httpCode}: "
+            . $errorBody
+        );
+
+        mica_tts_error(
+            502,
+            'TTS service returned an error.',
+            "ElevenLabs HTTP {$httpCode}: {$errorBody}"
+        );
     }
 
-    // Validate we actually got audio back
-    if (empty($response)) {
-        http_response_code(500);
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => false,
-            'error' => 'TTS returned empty response.',
-        ]);
-        exit;
+
+    // --------------------------------------------------------
+    // EMPTY RESPONSE
+    // --------------------------------------------------------
+    if (!is_string($response) || $response === '') {
+
+        error_log(
+            'MICA TTS: ElevenLabs returned an empty response.'
+        );
+
+        mica_tts_error(
+            502,
+            'TTS returned an empty audio response.'
+        );
     }
 
-    // Success — return audio as binary stream
+
+    // --------------------------------------------------------
+    // SUCCESS — RETURN MP3
+    // --------------------------------------------------------
+    if (ob_get_length()) {
+        ob_clean();
+    }
+
     header('Content-Type: audio/mpeg');
-    header('Content-Length: ' . strlen($response));
-    header('Cache-Control: no-cache, no-store, must-revalidate');
+
+    header(
+        'Content-Length: ' . strlen($response)
+    );
+
+    header(
+        'Cache-Control: no-store, no-cache, must-revalidate, max-age=0'
+    );
+
     header('Pragma: no-cache');
+
     header('Expires: 0');
+
     echo $response;
+
     exit;
 }
 
-// ================================================================
-// Invalid action
-// ================================================================
-http_response_code(400);
-header('Content-Type: application/json');
-echo json_encode(['success' => false, 'error' => 'Invalid action.']);
+
+// ------------------------------------------------------------
+// INVALID ACTION
+// ------------------------------------------------------------
+mica_tts_error(
+    400,
+    'Invalid action.'
+);
