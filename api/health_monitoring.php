@@ -57,6 +57,33 @@ if ($action === 'record') {
     json_response(true, ['bmi' => $bmi, 'status' => $status], 'Health record saved.');
 }
 
+if ($action === 'student_record') {
+    csrf_verify_or_die();
+    if ($user['role'] !== 'student') json_response(false, [], 'Not authorized. Only students can record their own BMI.');
+
+    $stmt = $db->prepare("SELECT id FROM students WHERE user_id=?");
+    $stmt->execute([$user['id']]);
+    $studentId = (int)$stmt->fetchColumn();
+    if ($studentId <= 0) json_response(false, [], 'Student record not found.');
+
+    $height = isset($_POST['height_cm']) ? (float)$_POST['height_cm'] : null;
+    $weight = isset($_POST['weight_kg']) ? (float)$_POST['weight_kg'] : null;
+
+    if (!$height || $height <= 0) json_response(false, [], 'Please enter a valid height.');
+    if (!$weight || $weight <= 0) json_response(false, [], 'Please enter a valid weight.');
+
+    $bmi = calculate_bmi($weight, $height);
+    $status = bmi_status($bmi);
+
+    $stmt = $db->prepare("INSERT INTO health_monitoring
+        (student_id, recorded_by, height_cm, weight_kg, bmi, bmi_status)
+        VALUES (?, NULL, ?, ?, ?, ?)");
+    $stmt->execute([$studentId, $height, $weight, $bmi, $status]);
+
+    log_activity($user['id'], 'Recorded own BMI', 'health', "BMI: $bmi ($status)");
+    json_response(true, ['bmi' => $bmi, 'status' => $status], 'BMI saved successfully.');
+}
+
 if ($action === 'history') {
     if ($user['role'] === 'student') {
         $stmt = $db->prepare("SELECT id FROM students WHERE user_id=?");
@@ -67,7 +94,13 @@ if ($action === 'history') {
         $studentId = (int)($_GET['student_id'] ?? 0);
         if ($studentId <= 0) json_response(false, [], 'Invalid student.');
     }
-    $stmt = $db->prepare("SELECT * FROM health_monitoring WHERE student_id=? ORDER BY recorded_at DESC");
+    $stmt = $db->prepare("
+        SELECT *,
+               CASE WHEN recorded_by IS NULL THEN 'self_recorded' ELSE 'nurse_assessment' END AS record_type
+        FROM health_monitoring
+        WHERE student_id=?
+        ORDER BY recorded_at DESC
+    ");
     $stmt->execute([$studentId]);
     json_response(true, ['data' => $stmt->fetchAll()]);
 }

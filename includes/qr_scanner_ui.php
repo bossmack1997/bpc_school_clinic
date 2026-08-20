@@ -367,6 +367,34 @@ if (function_exists('get_qr_setting')) {
         html += scenarioHtml;
         html += emergencyStrip;
 
+        if (data.latest_self_bmi) {
+          const b = data.latest_self_bmi;
+          const statusClass = b.bmi_status === 'Normal' ? 'success' : b.bmi_status === 'Underweight' ? 'warning text-dark' : b.bmi_status === 'Overweight' ? 'warning' : b.bmi_status === 'Obese' ? 'danger' : 'secondary';
+          html += '<div class="alert alert-info py-2 small mb-2">' +
+            '<i class="bi bi-activity me-1"></i> <strong>Latest Self-Recorded BMI</strong><br>' +
+            'BMI: ' + escapeHtml(b.bmi || '—') + ' (' + escapeHtml(b.bmi_status || '—') + ')<br>' +
+            'Height: ' + escapeHtml(b.height_cm || '—') + ' cm · Weight: ' + escapeHtml(b.weight_kg || '—') + ' kg<br>' +
+            '<span class="text-muted">Recorded: ' + escapeHtml(b.recorded_at || '') + ' by Student</span>' +
+            '</div>';
+        }
+
+        if (data.latest_nurse_assessment) {
+          const b = data.latest_nurse_assessment;
+          const statusClass = b.bmi_status === 'Normal' ? 'success' : b.bmi_status === 'Underweight' ? 'warning text-dark' : b.bmi_status === 'Overweight' ? 'warning' : b.bmi_status === 'Obese' ? 'danger' : 'secondary';
+          html += '<div class="alert alert-success py-2 small mb-2">' +
+            '<i class="bi bi-heart-pulse me-1"></i> <strong>Latest Nurse Assessment</strong><br>' +
+            'BMI: ' + escapeHtml(b.bmi || '—') + ' (' + escapeHtml(b.bmi_status || '—') + ')<br>' +
+            'Height: ' + escapeHtml(b.height_cm || '—') + ' cm · Weight: ' + escapeHtml(b.weight_kg || '—') + ' kg<br>' +
+            (b.blood_pressure ? 'Blood Pressure: ' + escapeHtml(b.blood_pressure) + ' mmHg<br>' : '') +
+            (b.heart_rate ? 'Heart Rate: ' + escapeHtml(b.heart_rate) + ' bpm<br>' : '') +
+            '<span class="text-muted">Recorded: ' + escapeHtml(b.recorded_at || '') + ' by Nurse</span>' +
+            '</div>';
+        }
+
+        if (!data.latest_self_bmi && !data.latest_nurse_assessment) {
+          html += '<div class="alert alert-secondary py-2 small mb-2">No BMI records available.</div>';
+        }
+
         html += '<hr class="my-2">';
         html += '<div class="d-grid gap-2">';
 

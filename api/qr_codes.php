@@ -805,11 +805,20 @@ if ($action === 'student_health_pass') {
         LIMIT 3
     ", [$studentId], []);
 
-    // Latest BMI
-    $latestBmi = safe_fetch_one($db, "
+    // Latest Self-Recorded BMI
+    $latestSelfBmi = safe_fetch_one($db, "
         SELECT height_cm, weight_kg, bmi, bmi_status, recorded_at
         FROM health_monitoring
-        WHERE student_id = ? AND bmi IS NOT NULL
+        WHERE student_id = ? AND bmi IS NOT NULL AND recorded_by IS NULL
+        ORDER BY recorded_at DESC
+        LIMIT 1
+    ", [$studentId], null);
+
+    // Latest Nurse Assessment
+    $latestNurseAssessment = safe_fetch_one($db, "
+        SELECT height_cm, weight_kg, bmi, bmi_status, blood_pressure, heart_rate, recorded_at
+        FROM health_monitoring
+        WHERE student_id = ? AND bmi IS NOT NULL AND recorded_by IS NOT NULL
         ORDER BY recorded_at DESC
         LIMIT 1
     ", [$studentId], null);
@@ -860,7 +869,8 @@ if ($action === 'student_health_pass') {
         'current_queue'   => $currentQueue,
         'estimated_wait'  => $estimatedWait,
         'recent_visits'   => $recentVisits,
-        'latest_bmi'      => $latestBmi,
+        'latest_self_bmi'      => $latestSelfBmi,
+        'latest_nurse_assessment' => $latestNurseAssessment,
         'vaccinations'    => $vaccinationStatus,
         'vaccination_count' => count($vaccinations),
         'recent_medicines'=> $recentMedicines,
@@ -1171,6 +1181,24 @@ if ($action === 'smart_scan') {
         'profile_picture'=> $student['profile_picture'],
     ];
 
+    // 4a. Latest Self-Recorded BMI
+    $latestSelfBmi = safe_fetch_one($db, "
+        SELECT height_cm, weight_kg, bmi, bmi_status, recorded_at
+        FROM health_monitoring
+        WHERE student_id = ? AND bmi IS NOT NULL AND recorded_by IS NULL
+        ORDER BY recorded_at DESC
+        LIMIT 1
+    ", [$studentId], null);
+
+    // 4b. Latest Nurse Assessment
+    $latestNurseAssessment = safe_fetch_one($db, "
+        SELECT height_cm, weight_kg, bmi, bmi_status, blood_pressure, heart_rate, recorded_at
+        FROM health_monitoring
+        WHERE student_id = ? AND bmi IS NOT NULL AND recorded_by IS NOT NULL
+        ORDER BY recorded_at DESC
+        LIMIT 1
+    ", [$studentId], null);
+
     // If not performing check-in, just return the verification + workflow
     if (!$performCheckIn) {
         log_qr_scan($db, $studentId, $student['qr_token'], 'smart_scan', $user['id'], 'success', $location, null, [
@@ -1180,6 +1208,8 @@ if ($action === 'smart_scan') {
             'student'  => $studentPayload,
             'workflow' => $workflow,
             'purpose'  => 'smart_scan',
+            'latest_self_bmi' => $latestSelfBmi,
+            'latest_nurse_assessment' => $latestNurseAssessment,
         ]);
     }
 

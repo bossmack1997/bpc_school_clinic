@@ -44,7 +44,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($password !== $confirm) {
         $errors[] = 'Passwords do not match.';
     }
-    // Strong password policy: uppercase, lowercase, number, special char
     if ($password && !preg_match('/[A-Z]/', $password)) {
       $errors[] = 'Password must contain at least one uppercase letter.';
     }
@@ -89,17 +88,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $db->beginTransaction();
             $hash = password_hash($password, PASSWORD_DEFAULT);
+            $profilePicture = 'assets/images/default-avatar.png';
+
+            if (!empty($_FILES['profile_picture']) && $_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
+                $file = $_FILES['profile_picture'];
+                $allowed = ['image/jpeg','image/png','image/webp'];
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mimeType = finfo_file($finfo, $file['tmp_name']);
+                finfo_close($finfo);
+                if (in_array($mimeType, $allowed, true)) {
+                    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                    $filename = 'user_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+                    $destRel = 'assets/images/profiles/' . $filename;
+                    $destAbs = BASE_PATH . '/' . $destRel;
+                    $dir = dirname($destAbs);
+                    if (!is_dir($dir)) mkdir($dir, 0755, true);
+                    if (move_uploaded_file($file['tmp_name'], $destAbs)) {
+                        $profilePicture = $destRel;
+                    }
+                }
+            }
+
+            $validIdPath = null;
+            if (!empty($_FILES['valid_id']) && $_FILES['valid_id']['error'] === UPLOAD_ERR_OK) {
+                $file = $_FILES['valid_id'];
+                $allowed = ['image/jpeg','image/png','image/webp','application/pdf'];
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mimeType = finfo_file($finfo, $file['tmp_name']);
+                finfo_close($finfo);
+                if (in_array($mimeType, $allowed, true)) {
+                    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                    $filename = 'student_id_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+                    $destRel = 'assets/images/student_ids/' . $filename;
+                    $destAbs = BASE_PATH . '/' . $destRel;
+                    $dir = dirname($destAbs);
+                    if (!is_dir($dir)) mkdir($dir, 0755, true);
+                    if (move_uploaded_file($file['tmp_name'], $destAbs)) {
+                        $validIdPath = $destRel;
+                    }
+                }
+            }
+
             $stmt = $db->prepare(
-                "INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, status)
-                 VALUES ('student', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
+                "INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, profile_picture, status)
+                 VALUES ('student', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')"
             );
-            $stmt->execute([$username, $email, $hash, $firstName, $middleName, $lastName, $gender, $dateOfBirth, $contactNumber]);
+            $stmt->execute([$username, $email, $hash, $firstName, $middleName, $lastName, $gender, $dateOfBirth, $contactNumber, $profilePicture]);
             $userId = $db->lastInsertId();
 
-$stmt = $db->prepare(
-                "INSERT INTO students (user_id, student_number, course, year_level, section) VALUES (?, ?, ?, ?, ?)"
+            $stmt = $db->prepare(
+                "INSERT INTO students (user_id, student_number, course, year_level, section, valid_id_path) VALUES (?, ?, ?, ?, ?, ?)"
             );
-            $stmt->execute([$userId, $studentNo, $course, $yearLevel, $section]);
+            $stmt->execute([$userId, $studentNo, $course, $yearLevel, $section, $validIdPath]);
             $studentId = $db->lastInsertId();
 
             // Auto-generate a permanent, secure QR for the new student.
@@ -147,7 +187,7 @@ $pageTitle = 'Register';
         </div>
       <?php endif; ?>
 
-      <form method="POST" novalidate>
+      <form method="POST" novalidate enctype="multipart/form-data">
         <?= csrf_field() ?>
         <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary)"><i class="bi bi-person-vcard me-1"></i> Personal Information</h6>
         <div class="row g-2 mb-2">
@@ -208,7 +248,7 @@ $pageTitle = 'Register';
         </div>
 
         <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-shield-lock-fill me-1"></i> Account Credentials</h6>
-        <div class="row g-2">
+        <div class="row g-2 mb-2">
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Email *</label>
             <input type="email" name="email" class="form-control" required value="<?= e($old['email'] ?? '') ?>">
@@ -224,6 +264,18 @@ $pageTitle = 'Register';
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Confirm Password *</label>
             <input type="password" name="confirm_password" class="form-control" required minlength="8">
+          </div>
+        </div>
+
+        <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-card-image me-1"></i> Student Information & Uploads</h6>
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Profile Picture *</label>
+            <input type="file" name="profile_picture" class="form-control" accept="image/*" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Student ID / Valid ID *</label>
+            <input type="file" name="valid_id" class="form-control" accept="image/*,.pdf" required>
           </div>
         </div>
 

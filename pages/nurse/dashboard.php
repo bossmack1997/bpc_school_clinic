@@ -65,6 +65,19 @@ $pageTitle = 'Nurse Dashboard';
         </div>
       </div>
 
+      <?php if (getenv('FIREBASE_PROJECT_ID')): ?>
+      <div class="alert alert-success d-flex align-items-center gap-3 fade-in" data-aos="fade-up" data-aos-delay="200">
+        <div class="fs-3"><i class="bi bi-bell"></i></div>
+        <div class="flex-grow-1">
+          <strong>Enable Push Notifications</strong>
+          <div class="small text-muted">Receive SOS alerts and clinic updates directly on your device.</div>
+        </div>
+        <button class="btn btn-success" id="enableFcmBtn">
+          <i class="bi bi-bell-fill me-1"></i> Enable Notifications
+        </button>
+      </div>
+      <?php endif; ?>
+
       <!-- Medical Stat Cards -->
       <div class="row g-3 mb-4" data-aos="fade-up" data-aos-delay="100">
         <div class="col-md-6 col-xl-3">
@@ -202,5 +215,23 @@ $pageTitle = 'Nurse Dashboard';
   </div>
 </div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+<script>
+(function () {
+  'use strict';
+  const btn = document.getElementById('enableFcmBtn');
+  if (btn && typeof window.enableFCMNotifications === 'function') {
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Requesting...';
+      window.enableFCMNotifications();
+      setTimeout(function () {
+        btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Enabled';
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-outline-success');
+      }, 2000);
+    });
+  }
+})();
+</script>
 </body>
 </html>

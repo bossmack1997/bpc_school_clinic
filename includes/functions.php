@@ -1073,3 +1073,46 @@ function qr_export_csv($rows, $filename) {
     fclose($out);
     exit;
 }
+
+/**
+ * Send an emergency FCM push notification to all active clinic staff
+ * (nurses + admins) who have registered FCM tokens.
+ *
+ * @param PDO    $db
+ * @param string $title
+ * @param string $body
+ * @param array  $data
+ *
+ * @return bool
+ */
+function send_emergency_fcm($db, string $title, string $body, array $data = []): bool {
+    if (!function_exists('send_fcm_push')) {
+        require_once __DIR__ . '/fcm.php';
+    }
+    if (!function_exists('send_fcm_push')) {
+        return false;
+    }
+
+    $userIds = [];
+    $nurseStmt = $db->query("SELECT user_id FROM nurses");
+    foreach ($nurseStmt->fetchAll() as $n) {
+        $userIds[] = (int)$n['user_id'];
+    }
+    $adminStmt = $db->query("SELECT id FROM users WHERE role = 'admin'");
+    foreach ($adminStmt->fetchAll() as $a) {
+        $userIds[] = (int)$a['id'];
+    }
+    if (!$userIds) {
+        return false;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($userIds), '?'));
+    $stmt = $db->prepare("SELECT token FROM fcm_tokens WHERE user_id IN ($placeholders)");
+    $stmt->execute($userIds);
+    $tokens = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (!$tokens) {
+        return false;
+    }
+
+    return send_fcm_push($tokens, $title, $body, $data);
+}

@@ -85,6 +85,7 @@ $sbNav = [
             ],
             'Updates' => [
                 ['bell-fill', 'Notifications', 'notifications.php'],
+                ['megaphone-fill', 'Announcements', 'announcements.php'],
             ],
             'Account' => [
                 ['person-circle', 'Profile', 'profile.php'],

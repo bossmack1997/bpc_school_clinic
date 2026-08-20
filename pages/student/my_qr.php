@@ -321,13 +321,22 @@ $pageTitle = 'Smart Health Pass';
       $('#cardWaitTime').text('— min');
     }
 
-    // Latest BMI
-    if (res.latest_bmi) {
-      const b = res.latest_bmi;
+    // Latest Self-Recorded BMI
+    if (res.latest_self_bmi) {
+      const b = res.latest_self_bmi;
       const statusClass = b.bmi_status === 'Normal' ? 'success' : b.bmi_status === 'Underweight' ? 'warning text-dark' : b.bmi_status === 'Overweight' ? 'warning' : 'danger';
       $('#cardBmi').html(
         '<div class="fw-bold">' + escapeHtml(b.bmi || '—') + '</div>' +
-        '<span class="badge bg-' + statusClass + ' small">' + escapeHtml(b.bmi_status || '—') + '</span>'
+        '<span class="badge bg-' + statusClass + ' small">' + escapeHtml(b.bmi_status || '—') + '</span>' +
+        (res.latest_nurse_assessment ? '<div class="small text-muted mt-1">Nurse assessment also available</div>' : '')
+      );
+    } else if (res.latest_nurse_assessment) {
+      const b = res.latest_nurse_assessment;
+      const statusClass = b.bmi_status === 'Normal' ? 'success' : b.bmi_status === 'Underweight' ? 'warning text-dark' : b.bmi_status === 'Overweight' ? 'warning' : 'danger';
+      $('#cardBmi').html(
+        '<div class="fw-bold">' + escapeHtml(b.bmi || '—') + '</div>' +
+        '<span class="badge bg-' + statusClass + ' small">' + escapeHtml(b.bmi_status || '—') + '</span>' +
+        '<div class="small text-muted mt-1">From nurse assessment</div>'
       );
     } else {
       $('#cardBmi').text('No records');

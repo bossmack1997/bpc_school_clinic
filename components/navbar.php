@@ -19,16 +19,6 @@ $navRoleDir = in_array($u['role'] ?? '', ['admin', 'nurse'], true) ? $u['role'] 
 
 <div class="topbar">
   <div class="topbar-left">
-    <!-- Brand (hidden on mobile — sidebar shows brand) -->
-    <div class="topbar-brand">
-      <div class="topbar-brand-img">
-        <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Logo">
-      </div>
-      <div class="topbar-brand-text">
-        <span class="topbar-brand-title">BPC School Clinic</span>
-        <span class="topbar-brand-sub">Health Monitoring & Appointment System</span>
-      </div>
-    </div>
     <!-- Mobile Toggle -->
     <button id="sidebarToggle" class="btn btn-secondary btn-icon d-xl-none">
       <i class="bi bi-list"></i>

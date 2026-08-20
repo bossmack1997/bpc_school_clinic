@@ -8,6 +8,21 @@
 <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
 <title><?= isset($pageTitle) ? e($pageTitle) . ' — ' : '' ?><?= APP_NAME ?></title>
 
+<?php if (getenv('FIREBASE_PROJECT_ID')): ?>
+<script>
+window.FIREBASE_CONFIG = {
+  apiKey: "<?= e(getenv('FIREBASE_API_KEY')) ?>",
+  authDomain: "<?= e(getenv('FIREBASE_AUTH_DOMAIN') ?: getenv('FIREBASE_PROJECT_ID') . '.firebaseapp.com') ?>",
+  projectId: "<?= e(getenv('FIREBASE_PROJECT_ID')) ?>",
+  storageBucket: "<?= e(getenv('FIREBASE_STORAGE_BUCKET') ?: getenv('FIREBASE_PROJECT_ID') . '.firebasestorage.app') ?>",
+  messagingSenderId: "<?= e(getenv('FIREBASE_MESSAGING_SENDER_ID')) ?>",
+  appId: "<?= e(getenv('FIREBASE_APP_ID')) ?>",
+  measurementId: "<?= e(getenv('FIREBASE_MEASUREMENT_ID')) ?>",
+  vapidKey: "<?= e(getenv('FIREBASE_VAPID_KEY')) ?>"
+};
+</script>
+<?php endif; ?>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 

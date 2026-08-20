@@ -357,6 +357,22 @@ if ($action === 'sos_emergency') {
         );
     }
 
+    // FCM push notification to staff (non-blocking)
+    try {
+        $sosUrl = APP_URL . '/pages/nurse/dashboard.php';
+        $fcmTitle = '🚨 SOS ALERT';
+        $fcmBody  = 'Emergency assistance has been requested. Tap to view the SOS request.';
+        $fcmData  = [
+            'sos_id'      => (string)$emergencyId,
+            'sos_url'     => $sosUrl,
+            'type'        => 'emergency',
+            'emergency_type' => $emergencyType,
+        ];
+        send_emergency_fcm($db, $fcmTitle, $fcmBody, $fcmData);
+    } catch (Throwable $e) {
+        error_log('[MICA SOS] FCM send failed (non-blocking): ' . $e->getMessage());
+    }
+
     json_response(true, [
         'emergency_id'     => $emergencyId,
         'message'          => 'Your emergency request has been successfully sent to the School Clinic. Please remain where you are while waiting for assistance.',

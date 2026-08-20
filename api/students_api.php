@@ -193,7 +193,7 @@ if ($action === 'patient_history') {
     $stmt->execute([$studentId]);
     $consultations = $stmt->fetchAll();
 
-    $stmt2 = $db->prepare("SELECT * FROM health_monitoring WHERE student_id=? ORDER BY recorded_at DESC LIMIT 10");
+    $stmt2 = $db->prepare("SELECT *, CASE WHEN recorded_by IS NULL THEN 'self_recorded' ELSE 'nurse_assessment' END AS record_type FROM health_monitoring WHERE student_id=? ORDER BY recorded_at DESC LIMIT 10");
     $stmt2->execute([$studentId]);
     $health = $stmt2->fetchAll();
 

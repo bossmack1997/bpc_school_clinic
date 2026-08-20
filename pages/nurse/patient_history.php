@@ -44,7 +44,7 @@ $pageTitle = 'Patient History';
             <h6 class="section-title mb-3">Health Monitoring</h6>
             <div class="table-responsive">
               <table class="table table-hover align-middle" id="healthTable" style="width:100%">
-                <thead><tr><th>Date</th><th>BMI</th><th>Status</th><th>BP</th><th>Heart Rate</th><th>Temp</th></tr></thead>
+                 <thead><tr><th>Date</th><th>BMI</th><th>Status</th><th>Record Type</th><th>BP</th><th>Heart Rate</th><th>Temp</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
@@ -99,8 +99,11 @@ function loadPatientHistory(id) {
 
     if (res.health_monitoring.length) {
       $('#healthCard').show();
-      const rows = res.health_monitoring.map(h => [h.recorded_at, h.bmi || '—', h.bmi_status || '—', h.blood_pressure || '—', h.heart_rate || '—', h.temperature || '—']);
-      $('#healthTable').DataTable({ data: rows, columns:[{},{},{},{},{},{}], destroy:true, pageLength:5 });
+      const rows = res.health_monitoring.map(h => {
+        const typeLabel = h.record_type === 'nurse_assessment' ? 'Nurse Assessment' : 'Self-Recorded BMI';
+        return [h.recorded_at, h.bmi || '—', h.bmi_status || '—', typeLabel, h.blood_pressure || '—', h.heart_rate || '—', h.temperature || '—'];
+      });
+      $('#healthTable').DataTable({ data: rows, columns:[{},{},{},{},{},{},{}], destroy:true, pageLength:5 });
     } else { $('#healthCard').hide(); }
 
     if (res.vaccinations.length) {
