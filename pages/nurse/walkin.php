@@ -272,14 +272,14 @@ $u = current_user();
     </div>
   </div>
   
-  <!-- AI Summary -->
+  <!-- Consultation Summary -->
   <hr>
   <div class="d-flex justify-content-between align-items-center mb-2">
-    <h6 class="fw-semibold mb-0"><i class="bi bi-robot me-1 text-primary"></i> AI Consultation Summary</h6>
+    <h6 class="fw-semibold mb-0"><i class="bi bi-file-text me-1 text-primary"></i> Consultation Summary</h6>
     <button class="btn btn-sm btn-outline-primary" id="genAISummaryBtn" type="button"><i class="bi bi-magic me-1"></i> Generate</button>
   </div>
-  <textarea class="form-control" name="ai_summary" id="aiSummary" rows="4" placeholder="Click 'Generate' to create AI consultation summary..."></textarea>
-  <div id="aiSummaryLoading" class="d-none text-center py-2"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Generating AI summary...</div>
+  <textarea class="form-control" name="ai_summary" id="aiSummary" rows="4" placeholder="Click 'Generate' to create consultation summary..."></textarea>
+  <div id="aiSummaryLoading" class="d-none text-center py-2"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Generating summary...</div>
 </form>
 </div>
 <div class="modal-footer border-0 justify-content-between">
@@ -750,7 +750,7 @@ $('#genAISummaryBtn').on('click', function () {
   $.post(APP_URL + '/api/walkin.php', { action: 'generate_ai_summary', id, csrf_token: csrfToken }, function (res) {
     if (res.success) {
       $('#aiSummary').val(res.summary);
-      toastSuccess('AI summary generated!');
+      toastSuccess('Consultation summary generated!');
     } else toastError(res.message);
   }).always(function () {
     $('#aiSummaryLoading').addClass('d-none');

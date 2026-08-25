@@ -14,7 +14,7 @@ if ($search !== '') {
 }
 
 $stmt = $db->prepare("
-  SELECT u.*, s.student_number, s.course, s.year_level, s.section
+  SELECT u.*, s.id AS student_id, s.student_number, s.course, s.year_level, s.section
   FROM users u
   JOIN students s ON s.user_id = u.id
   $where
@@ -22,6 +22,9 @@ $stmt = $db->prepare("
 ");
 $stmt->execute($params);
 $students = $stmt->fetchAll();
+
+// Get active sections for modal dropdown
+$sectionsList = $db->query("SELECT name, course, year_level FROM sections WHERE status = 'active' ORDER BY course, name")->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -32,70 +35,30 @@ $students = $stmt->fetchAll();
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area">
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-        <h6 class="section-title mb-0">Student Management</h6>
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+          <h6 class="section-title mb-0"><i class="bi bi-people-fill text-success me-1"></i> Student Management</h6>
+          <small class="text-muted">Manage student accounts, course assignments, and section enrollments.</small>
+        </div>
         <div class="d-flex flex-wrap gap-2">
-          <button class="btn btn-sm btn-success" id="importStudentsBtn"><i class="bi bi-file-earmark-arrow-up me-1"></i> Import Students</button>
           <div class="input-group" style="width:300px;">
             <input type="text" id="searchInput" class="form-control" placeholder="Search students..." value="<?= e($search) ?>">
             <button class="btn btn-outline-primary" onclick="searchStudents()"><i class="bi bi-search"></i></button>
           </div>
         </div>
       </div>
-
-      <!-- Import Students Modal -->
-      <div class="modal fade" id="importStudentsModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-          <div class="modal-content border-0 rounded-4">
-            <div class="modal-header border-0 bg-success text-white rounded-top-4">
-              <h5 class="modal-title"><i class="bi bi-people-fill me-2"></i> Import Students (CSV)</h5>
-              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-              <p class="small text-muted">Upload a CSV file to bulk-register students. A permanent QR code is automatically generated for each successfully imported student.</p>
-              <div class="alert alert-info small py-2">
-                <strong>Required columns (in order):</strong>
-                <code>Student Number, First Name, Last Name, Course, Year Level, Section, Email, Username, Password, Gender, Birthdate, Phone</code>
-                <br>Password must be at least 8 characters.
-              </div>
-              <div class="mb-3">
-                <label class="form-label fw-semibold">CSV File</label>
-                <input type="file" class="form-control" id="importFile" accept=".csv,text/csv">
-              </div>
-              <div id="importResult" class="d-none">
-                <hr>
-                <h6 class="text-success"><i class="bi bi-clipboard-check me-1"></i> Import Report</h6>
-                <div class="row g-2 text-center small">
-                  <div class="col-3"><div class="border rounded p-2 bg-light"><div class="fw-bold fs-5" id="impTotal">0</div><div class="text-muted">Total</div></div></div>
-                  <div class="col-3"><div class="border rounded p-2 bg-success-light"><div class="fw-bold fs-5 text-success" id="impInserted">0</div><div class="text-muted">Imported</div></div></div>
-                  <div class="col-3"><div class="border rounded p-2 bg-warning-light"><div class="fw-bold fs-5 text-warning" id="impDuplicates">0</div><div class="text-muted">Skipped</div></div></div>
-                  <div class="col-3"><div class="border rounded p-2 bg-danger-light"><div class="fw-bold fs-5 text-danger" id="impErrors">0</div><div class="text-muted">Errors</div></div></div>
-                </div>
-                <div id="importDetails" class="mt-2 small"></div>
-              </div>
-            </div>
-            <div class="modal-footer border-0 justify-content-between">
-              <button type="button" class="btn btn-outline-secondary" id="downloadTemplateBtn"><i class="bi bi-download me-1"></i> Download Template</button>
-              <div>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-success" id="importSubmitBtn"><i class="bi bi-upload me-1"></i> Import</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="card p-3">
+      <div class="card p-3 shadow-sm">
         <div class="table-responsive">
           <table class="table table-hover align-middle" id="studentsTable" style="width:100%">
             <thead><tr><th>Name</th><th>Student No.</th><th>Course</th><th>Year</th><th>Section</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               <?php foreach ($students as $s): ?>
               <tr>
-                <td><?= e($s['first_name'] . ' ' . $s['last_name']) ?></td>
+                <td class="fw-medium"><?= e($s['first_name'] . ' ' . $s['last_name']) ?></td>
                 <td><?= e($s['student_number']) ?></td>
                 <td><?= e($s['course'] ?? '—') ?></td>
                 <td><?= e($s['year_level'] ?? '—') ?></td>
-                <td><?= e($s['section'] ?? '—') ?></td>
+                <td><span class="badge bg-light text-dark border"><?= e($s['section'] ?? '—') ?></span></td>
                 <td><?= e($s['email']) ?></td>
                 <td>
                   <?php if ($s['status'] === 'active'): ?>
@@ -107,7 +70,19 @@ $students = $stmt->fetchAll();
                   <?php endif; ?>
                 </td>
                 <td>
-                  <button class="btn btn-sm btn-outline-danger deactivate-btn" data-id="<?= $s['id'] ?>" data-role="student">Deactivate</button>
+                  <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-primary edit-enrollment-btn"
+                            data-student-id="<?= $s['student_id'] ?>"
+                            data-name="<?= e($s['first_name'] . ' ' . $s['last_name']) ?>"
+                            data-student-no="<?= e($s['student_number']) ?>"
+                            data-course="<?= e($s['course'] ?? '') ?>"
+                            data-year="<?= e($s['year_level'] ?? '') ?>"
+                            data-section="<?= e($s['section'] ?? '') ?>"
+                            title="Edit Enrollment">
+                      <i class="bi bi-pencil-square me-1"></i> Edit
+                    </button>
+                    <button class="btn btn-outline-danger deactivate-btn" data-id="<?= $s['id'] ?>" data-role="student" title="Deactivate Account">Deactivate</button>
+                  </div>
                 </td>
               </tr>
               <?php endforeach; ?>
@@ -121,6 +96,72 @@ $students = $stmt->fetchAll();
     </div>
   </div>
 </div>
+
+<!-- Edit Student Enrollment Modal -->
+<div class="modal fade" id="enrollmentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-mortarboard-fill me-2"></i> Edit Student Enrollment</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="enrollmentForm">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="update_enrollment">
+        <input type="hidden" name="student_id" id="editStudentId" value="">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Student Name</label>
+            <input type="text" id="editStudentName" class="form-control" readonly disabled>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Student Number *</label>
+            <input type="text" name="student_number" id="editStudentNo" class="form-control" required>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Course / Program</label>
+              <input type="text" name="course" id="editCourse" class="form-control" placeholder="e.g. BSIS" list="courseList">
+              <datalist id="courseList">
+                <option value="BSIS">
+                <option value="BSIT">
+                <option value="BSOM">
+                <option value="BSED">
+                <option value="BEED">
+                <option value="BSHM">
+              </datalist>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Year Level</label>
+              <select name="year_level" id="editYear" class="form-select">
+                <option value="">Select Year</option>
+                <option value="1st Year">1st Year</option>
+                <option value="2nd Year">2nd Year</option>
+                <option value="3rd Year">3rd Year</option>
+                <option value="4th Year">4th Year</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Section</label>
+            <input type="text" name="section" id="editSection" class="form-control" placeholder="e.g. A, B, 4A, or BSIS 4A" list="sectionsSuggest">
+            <datalist id="sectionsSuggest">
+              <?php foreach ($sectionsList as $sl): ?>
+                <option value="<?= e($sl['name']) ?>"><?= e(($sl['course'] ? $sl['course'].' ' : '').$sl['name']) ?></option>
+              <?php endforeach; ?>
+            </datalist>
+            <small class="text-muted">Enter section letter (e.g. B) or full section name (e.g. BSIS 4B).</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success fw-semibold" id="saveEnrollmentBtn"><i class="bi bi-check-lg me-1"></i> Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
@@ -134,6 +175,35 @@ $('#searchInput').on('keyup', function (e) {
   if (e.key === 'Enter') searchStudents();
 });
 
+$('.edit-enrollment-btn').on('click', function () {
+  const $btn = $(this);
+  $('#editStudentId').val($btn.data('student-id'));
+  $('#editStudentName').val($btn.data('name'));
+  $('#editStudentNo').val($btn.data('student-no'));
+  $('#editCourse').val($btn.data('course'));
+  $('#editYear').val($btn.data('year'));
+  $('#editSection').val($btn.data('section'));
+  const modal = new bootstrap.Modal(document.getElementById('enrollmentModal'));
+  modal.show();
+});
+
+$('#enrollmentForm').on('submit', function (e) {
+  e.preventDefault();
+  const $btn = $('#saveEnrollmentBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Saving...');
+  $.post(APP_URL + '/api/students_api.php', $(this).serialize(), function (res) {
+    if (res.success) {
+      toastSuccess(res.message);
+      setTimeout(function () { location.reload(); }, 600);
+    } else {
+      toastError(res.message);
+    }
+  }, 'json').fail(function () {
+    toastError('Server error occurred.');
+  }).always(function () {
+    $btn.prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i> Save Changes');
+  });
+});
+
 $('.deactivate-btn').on('click', function () {
   const id = $(this).data('id');
   confirmAction('Deactivate this student account?', function () {
@@ -141,82 +211,6 @@ $('.deactivate-btn').on('click', function () {
       if (res.success) { toastSuccess(res.message); location.reload(); }
       else toastError(res.message);
     }, 'json');
-  });
-});
-
-// ============================================================
-// Import Students (CSV) — auto-generates QR codes
-// ============================================================
-$('#importStudentsBtn').on('click', function () {
-  $('#importResult').addClass('d-none');
-  $('#importFile').val('');
-  new bootstrap.Modal(document.getElementById('importStudentsModal')).show();
-});
-
-// Download template
-$('#downloadTemplateBtn').on('click', function () {
-  const header = 'Student Number,First Name,Last Name,Course,Year Level,Section,Email,Username,Password,Gender,Birthdate,Phone';
-  const sample = '2024-00001,Juan,Dela Cruz,BSIT,1,A,juan@bpc.edu.ph,juan2024,Password123,Male,2005-01-15,09171234567';
-  const csv = header + '\n' + sample + '\n';
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'student_import_template.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(a.href);
-});
-
-// Submit import
-$('#importSubmitBtn').on('click', function () {
-  const fileInput = document.getElementById('importFile');
-  if (!fileInput.files.length) { toastError('Please choose a CSV file.'); return; }
-
-  const fd = new FormData();
-  fd.append('file', fileInput.files[0]);
-  fd.append('action', 'import_students');
-  fd.append('csrf_token', csrfToken);
-
-  const $btn = $(this);
-  $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Importing...');
-
-  $.ajax({
-    url: APP_URL + '/api/students_api.php',
-    type: 'POST',
-    data: fd,
-    processData: false,
-    contentType: false,
-    dataType: 'json',
-    success: function (res) {
-      $btn.prop('disabled', false).html('<i class="bi bi-upload me-1"></i> Import');
-      if (!res.success) { toastError(res.message); return; }
-
-      $('#impTotal').text(res.total);
-      $('#impInserted').text(res.inserted);
-      $('#impDuplicates').text(res.duplicates);
-      $('#impErrors').text((res.errors || []).length);
-      $('#importResult').removeClass('d-none');
-
-      let html = '';
-      if (res.skipped && res.skipped.length) {
-        html += '<div class="mt-2"><strong>Skipped:</strong><ul class="mb-0">' + res.skipped.slice(0, 10).map(s =>
-          '<li>Line ' + s.line + ' (' + s.student + '): ' + escapeHtml(s.reason) + '</li>').join('') + '</ul></div>';
-      }
-      if (res.errors && res.errors.length) {
-        html += '<div class="mt-2 text-danger"><strong>Errors:</strong><ul class="mb-0">' + res.errors.slice(0, 10).map(er =>
-          '<li>Line ' + er.line + ': ' + escapeHtml(er.reason) + '</li>').join('') + '</ul></div>';
-      }
-      $('#importDetails').html(html);
-
-      toastSuccess(res.message);
-      // Refresh the table after a short delay
-      setTimeout(function () { location.reload(); }, 1800);
-    },
-    error: function () {
-      $btn.prop('disabled', false).html('<i class="bi bi-upload me-1"></i> Import');
-      toastError('Upload failed.');
-    },
   });
 });
 </script>

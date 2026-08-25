@@ -1,17 +1,15 @@
 <?php
+/**
+ * auth/register_nurse.php
+ * ------------------------------------------------------------------
+ * Direct access wrapper for Nurse Registration.
+ * Redirects seamlessly to the unified registration interface.
+ * ------------------------------------------------------------------
+ */
 require_once __DIR__ . '/../config/config.php';
+header('Location: ' . APP_URL . '/auth/register.php?role=nurse');
+exit;
 
-// Prevent caching of authentication pages
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Pragma: no-cache');
-header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
-
-if (is_logged_in()) {
-    redirect(dashboard_url_for(current_user()['role']));
-}
-
-$errors = [];
-$old = $_POST ?? [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
@@ -248,7 +246,10 @@ $pageTitle = 'Register as Nurse';
         </div>
 
         <button type="submit" class="btn btn-primary w-100 mt-3 mb-2 py-2 fw-semibold">Register Nurse Account</button>
-        <p class="text-center small text-muted mb-0">Already have an account? <a href="login.php" class="fw-medium">Sign in</a></p>
+        <p class="text-center small text-muted mb-0">
+          <a href="register_hub.php" class="fw-medium"><i class="bi bi-arrow-left me-1"></i>Back to account types</a>
+          &nbsp;·&nbsp; Already have an account? <a href="login.php" class="fw-medium">Sign in</a>
+        </p>
       </form>
     </div>
   </div>

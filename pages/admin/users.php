@@ -14,13 +14,23 @@ if ($roleFilter === 'student') {
     $where = "WHERE u.role = 'nurse'";
 } elseif ($roleFilter === 'admin') {
     $where = "WHERE u.role = 'admin'";
+} elseif ($roleFilter === 'adviser') {
+    $where = "WHERE u.role = 'adviser'";
+} elseif ($roleFilter === 'guidance') {
+    $where = "WHERE u.role = 'guidance'";
 }
 
 $users = $db->prepare("
-  SELECT u.*, s.student_number, s.valid_id_path, n.employee_id, n.license_number
+  SELECT u.*,
+         s.student_number,
+         COALESCE(s.valid_id_path, n.valid_id_path) AS valid_id_path,
+         COALESCE(n.employee_id, t.employee_id, trr.teacher_id_number) AS employee_id,
+         n.license_number
   FROM users u
   LEFT JOIN students s ON s.user_id = u.id
   LEFT JOIN nurses n ON n.user_id = u.id
+  LEFT JOIN teachers t ON t.user_id = u.id
+  LEFT JOIN teacher_registration_requests trr ON trr.user_id = u.id AND trr.status = 'pending'
   $where
   ORDER BY u.created_at DESC
 ");
@@ -42,6 +52,8 @@ $users = $users->fetchAll();
           <a href="?role=all" class="btn btn-outline-primary <?= $roleFilter === 'all' ? 'active' : '' ?>">All</a>
           <a href="?role=student" class="btn btn-outline-primary <?= $roleFilter === 'student' ? 'active' : '' ?>">Students</a>
           <a href="?role=nurse" class="btn btn-outline-primary <?= $roleFilter === 'nurse' ? 'active' : '' ?>">Nurses</a>
+          <a href="?role=adviser" class="btn btn-outline-primary <?= $roleFilter === 'adviser' ? 'active' : '' ?>">Teachers</a>
+          <a href="?role=guidance" class="btn btn-outline-primary <?= $roleFilter === 'guidance' ? 'active' : '' ?>">Counselors</a>
         </div>
       </div>
       <div class="d-flex justify-content-between align-items-center mb-2">

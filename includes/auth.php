@@ -38,7 +38,8 @@ function check_session_timeout() {
 function require_role($roles) {
     require_login();
     $roles = is_array($roles) ? $roles : [$roles];
-    if (!in_array(current_user()['role'], $roles, true)) {
+    $userRole = current_user()['role'] ?? '';
+    if (!in_array($userRole, $roles, true)) {
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
             http_response_code(403);
             echo json_encode(['success' => false, 'message' => 'Access denied.']);
@@ -169,6 +170,261 @@ function dashboard_url_for($role) {
         'admin'   => APP_URL . '/pages/admin/dashboard.php',
         'nurse'   => APP_URL . '/pages/nurse/dashboard.php',
         'student' => APP_URL . '/pages/student/dashboard.php',
+        'adviser' => APP_URL . '/pages/adviser/dashboard.php',
+        'guidance' => APP_URL . '/pages/guidance/dashboard.php',
         default   => APP_URL . '/auth/login.php',
     };
+}
+
+// ================================================================
+// ADVISORY ASSIGNMENT ACCESS CONTROL
+// ================================================================
+
+/**
+ * Return the active advisory assignment rows for a teacher (adviser), or [].
+ * A teacher may have up to 3 active sections. "Active" = status='active' and
+ * (end_date IS NULL OR end_date >= CURDATE()) and start_date IS NULL OR start_date <= CURDATE().
+ */
+function get_adviser_active_assignment($db, $userId) {
+    $stmt = $db->prepare("
+        SELECT aa.*, s.name AS section_name, s.course, s.year_level
+        FROM advisory_assignments aa
+        JOIN sections s ON s.id = aa.section_id
+        WHERE aa.teacher_id = ? AND aa.status = 'active'
+          AND (aa.start_date IS NULL OR aa.start_date <= CURDATE())
+          AND (aa.end_date IS NULL OR aa.end_date >= CURDATE())
+        ORDER BY aa.created_at DESC
+    ");
+    $stmt->execute([(int)$userId]);
+    return $stmt->fetchAll();
+}
+
+/**
+ * Return ALL currently-active advisory section names for a teacher (array of strings).
+ */
+function get_adviser_active_sections($db, $userId) {
+    $rows = get_adviser_active_assignment($db, $userId);
+    return array_map(fn($r) => $r['section_name'], $rows);
+}
+
+/**
+ * Return the section name the adviser currently manages, or null if none.
+ * (Kept for single-section compatibility; first active section is returned.)
+ */
+function get_adviser_current_section($db, $userId) {
+    $rows = get_adviser_active_assignment($db, $userId);
+    return $rows ? $rows[0]['section_name'] : null;
+}
+
+/**
+ * Count of currently-active advisory assignments for a teacher (for max-3 enforcement).
+ */
+function count_active_advisory_assignments($db, $userId) {
+    $stmt = $db->prepare("
+        SELECT COUNT(*) FROM advisory_assignments
+        WHERE teacher_id = ? AND status = 'active'
+          AND (start_date IS NULL OR start_date <= CURDATE())
+          AND (end_date IS NULL OR end_date >= CURDATE())
+    ");
+    $stmt->execute([(int)$userId]);
+    return (int)$stmt->fetchColumn();
+}
+
+/**
+ * Return all student rows for a teacher's active advisory assignment(s).
+ * Robustly matches students by section name, course, year level, and letter/suffix
+ * regardless of casing, spacing, or punctuation variations.
+ * Returns array of enriched student objects with assigned_section_name & assigned_section_id.
+ */
+function get_adviser_students($db, $userId) {
+    $assignments = get_adviser_active_assignment($db, $userId);
+    if (empty($assignments)) {
+        return [];
+    }
+
+    $whereClauses = [];
+    $params = [];
+
+    foreach ($assignments as $a) {
+        $secName = trim((string)$a['section_name']);
+        $secCourse = trim((string)($a['course'] ?? ''));
+        $secYear = trim((string)($a['year_level'] ?? ''));
+
+        $letter = $secName;
+        $yearLetter = '';
+        $yearDigit = '';
+
+        if (preg_match('/(\d+)/', $secYear, $ym)) {
+            $yearDigit = $ym[1];
+        }
+
+        // Deconstruct section name like "BSIS 4A", "BSIS 4-B", "4A", "A"
+        if (preg_match('/(?:^|[\s\-_])(?:(\d+)\s*[\-_]?\s*)?([a-zA-Z0-9]+)$/i', $secName, $m)) {
+            if (!empty($m[1])) {
+                $yearDigit = $yearDigit ?: $m[1];
+                $yearLetter = $m[1] . $m[2];
+            }
+            $letter = $m[2];
+        }
+
+        if (empty($secCourse) && preg_match('/^([a-zA-Z]+)/', $secName, $cm)) {
+            $secCourse = strtoupper($cm[1]);
+        }
+
+        // Section conditions:
+        $secConds = [
+            "TRIM(LOWER(s.section)) = TRIM(LOWER(?))",
+            "REPLACE(REPLACE(LOWER(s.section), ' ', ''), '-', '') = REPLACE(REPLACE(LOWER(?), ' ', ''), '-', '')"
+        ];
+        $secParams = [$secName, $secName];
+
+        if ($letter !== '' && strcasecmp($letter, $secName) !== 0) {
+            $secConds[] = "TRIM(LOWER(s.section)) = TRIM(LOWER(?))";
+            $secParams[] = $letter;
+        }
+        if ($yearLetter !== '' && strcasecmp($yearLetter, $secName) !== 0) {
+            $secConds[] = "TRIM(LOWER(s.section)) = TRIM(LOWER(?))";
+            $secParams[] = $yearLetter;
+        }
+
+        $secCondSql = '(' . implode(' OR ', $secConds) . ')';
+
+        // Course condition
+        $courseCondSql = "1=1";
+        $courseParams = [];
+        if (!empty($secCourse)) {
+            $courseCondSql = "(s.course IS NULL OR s.course = '' OR TRIM(LOWER(s.course)) = TRIM(LOWER(?)))";
+            $courseParams[] = $secCourse;
+        }
+
+        // Year condition
+        $yearCondSql = "1=1";
+        $yearParams = [];
+        if (!empty($secYear)) {
+            $yearCondSql = "(s.year_level IS NULL OR s.year_level = '' OR TRIM(LOWER(s.year_level)) = TRIM(LOWER(?)) OR s.year_level LIKE ?)";
+            $yearParams[] = $secYear;
+            $yearParams[] = '%' . ($yearDigit ?: $secYear) . '%';
+        }
+
+        // Combined for this section assignment
+        $assignmentClause = "(
+            (TRIM(LOWER(s.section)) = TRIM(LOWER(?)) OR REPLACE(REPLACE(LOWER(s.section), ' ', ''), '-', '') = REPLACE(REPLACE(LOWER(?), ' ', ''), '-', ''))
+            OR
+            ($secCondSql AND $courseCondSql AND $yearCondSql)
+        )";
+
+        $whereClauses[] = $assignmentClause;
+        $params[] = $secName;
+        $params[] = $secName;
+        $params = array_merge($params, $secParams, $courseParams, $yearParams);
+    }
+
+    $whereSql = implode(' OR ', $whereClauses);
+
+    $sql = "SELECT DISTINCT s.id, s.user_id, s.student_number, s.course, s.year_level, s.section, s.gender, s.blood_type,
+                   s.emergency_contact_name, s.emergency_contact_number, s.allergies,
+                   u.first_name, u.middle_name, u.last_name, u.email, u.phone, u.status, u.profile_picture
+            FROM students s
+            JOIN users u ON u.id = s.user_id
+            WHERE u.status = 'active' AND ($whereSql)
+            ORDER BY u.last_name, u.first_name";
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
+
+    // Enrich each student with their specific assigned section information
+    foreach ($rows as &$st) {
+        $st['assigned_section_name'] = $st['section'];
+        $st['assigned_section_id'] = 0;
+        foreach ($assignments as $a) {
+            $secName = trim((string)$a['section_name']);
+            $normSt = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', (string)$st['section']));
+            $normSec = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $secName));
+
+            if (strcasecmp($st['section'], $secName) === 0 ||
+                $normSt === $normSec ||
+                (!empty($normSt) && str_ends_with($normSec, $normSt) && strlen($normSt) <= 3)) {
+                $st['assigned_section_name'] = $a['section_name'];
+                $st['assigned_section_id'] = (int)$a['section_id'];
+                break;
+            }
+        }
+    }
+    unset($st);
+
+    return $rows;
+}
+
+/**
+ * Server-side: does the given adviser have access to this student?
+ * Access is granted ONLY when the student belongs to ONE of the teacher's
+ * CURRENT active advisory assignments.
+ */
+function adviser_can_access_student($db, $userId, $studentId) {
+    $students = get_adviser_students($db, $userId);
+    if (empty($students)) return false;
+    foreach ($students as $st) {
+        if ((int)$st['id'] === (int)$studentId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Enforce that the current adviser may only view their current-section students.
+ * Kills the request (403) if not permitted. Students may view only themselves,
+ * handled elsewhere.
+ */
+function require_adviser_student_access($db, $studentId) {
+    $u = current_user();
+    if (!$u) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Access denied.']);
+        exit;
+    }
+    if (($u['role'] ?? '') === 'adviser') {
+        if (!adviser_can_access_student($db, $u['id'], $studentId)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'You do not have access to this student.']);
+            exit;
+        }
+    }
+}
+
+// ================================================================
+// SENSITIVE WELL-BEING ACCESS CONTROL
+// ================================================================
+
+/**
+ * May the current user view a student's DETAILED well-being (mental-health) info?
+ *  - The student themselves: yes (own record)
+ *  - Nurse: yes (clinical care)
+ *  - Guidance / authorized support: yes
+ *  - Adviser: NO (safety/emergency only — never detailed psychological records)
+ *  - Admin: NO by default (must be explicitly authorized; not auto-granted)
+ *  - Others: no
+ */
+function can_view_detailed_wellbeing($db, $viewerUserId, $viewerRole, $studentId, $ownerStudentId = null) {
+    if ($viewerRole === 'nurse' || $viewerRole === 'guidance') {
+        return true;
+    }
+    if ($viewerRole === 'student') {
+        // Students may only view their own well-being record.
+        if ($ownerStudentId === null) {
+            $stmt = $db->prepare("SELECT id FROM students WHERE user_id = ?");
+            $stmt->execute([(int)$viewerUserId]);
+            $ownerStudentId = $stmt->fetchColumn();
+        }
+        return $ownerStudentId !== false && (int)$ownerStudentId === (int)$studentId;
+    }
+    return false;
+}
+
+/**
+ * Roles allowed to create/manage support referrals.
+ */
+function can_manage_referrals($role) {
+    return in_array($role, ['nurse', 'guidance'], true);
 }

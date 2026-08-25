@@ -46,10 +46,12 @@ $pageTitle = 'My Dashboard';
           <div class="welcome-sub">BPC Student Health Portal</div>
           <div class="welcome-desc">Student No. <?= e($student['student_number']) ?> · <?= e($student['course'] ?: '—') ?> <?= e($student['year_level'] ?: '') ?></div>
           <div class="welcome-actions">
-            <a href="appointments.php" class="btn btn-white"><i class="bi bi-calendar-plus me-1"></i> Book Appointment</a>
-            <a href="health_monitoring.php" class="btn btn-outline-white"><i class="bi bi-heart-pulse me-1"></i> View Health</a>
+            <a href="my_qr.php" class="btn btn-white"><i class="bi bi-qr-code-scan me-1"></i> Visit Clinic / Check-in</a>
+            <a href="wellbeing.php" class="btn btn-outline-white"><i class="bi bi-emoji-smile-heart-eyes me-1"></i> My Health &amp; Well-being</a>
             <a href="#" class="btn btn-outline-white" onclick="if(typeof MICA!=='undefined'&&MICA.open)MICA.open();return false;"><i class="bi bi-robot me-1"></i> Ask MICA</a>
+            <button type="button" class="btn btn-danger shadow-sm" data-bs-toggle="modal" data-bs-target="#sosModal"><i class="bi bi-shield-fill-exclamation me-1"></i> 🚨 SOS Emergency</button>
           </div>
+          <div class="welcome-note mt-2 small"><i class="bi bi-info-circle me-1"></i> No appointment is required for a normal clinic visit — just walk in or scan your QR at the clinic.</div>
         </div>
         <div class="welcome-visual">
           <div class="welcome-icon"><i class="bi bi-person-circle"></i></div>
@@ -105,25 +107,25 @@ $pageTitle = 'My Dashboard';
       <!-- Quick Actions — Large Interactive Cards -->
       <h6 class="section-title mb-3" data-aos="fade-up"><i class="bi bi-lightning-fill"></i> Quick Actions</h6>
       <div class="quick-actions-grid" data-aos="fade-up" data-aos-delay="50">
-        <a href="appointments.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-calendar-plus-fill"></i></div>
-          <div class="qa-title-lg">Book Appointment</div>
-          <div class="qa-sub-lg">Schedule a clinic visit</div>
+        <a href="my_qr.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-qr-code-scan"></i></div>
+          <div class="qa-title-lg">Visit Clinic / Check-in</div>
+          <div class="qa-sub-lg">Walk in or scan your QR</div>
         </a>
-        <a href="health_monitoring.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-heart-pulse-fill"></i></div>
-          <div class="qa-title-lg">Health Declaration</div>
-          <div class="qa-sub-lg">View health records</div>
+        <a href="wellbeing.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-emoji-smile-heart-eyes"></i></div>
+          <div class="qa-title-lg">Health &amp; Well-being</div>
+          <div class="qa-sub-lg">Share info voluntarily</div>
         </a>
         <a href="medical_record.php" class="quick-action-card-lg text-decoration-none">
           <div class="qa-icon-lg"><i class="bi bi-file-earmark-medical-fill"></i></div>
           <div class="qa-title-lg">Medical Records</div>
           <div class="qa-sub-lg">View your health files</div>
         </a>
-        <a href="vaccination.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-shield-check"></i></div>
-          <div class="qa-title-lg">Vaccination Record</div>
-          <div class="qa-sub-lg">Check vaccine history</div>
+        <a href="appointments.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-calendar-check-fill"></i></div>
+          <div class="qa-title-lg">Scheduled Services</div>
+          <div class="qa-sub-lg">Optional follow-ups, etc.</div>
         </a>
         <a href="certificates.php" class="quick-action-card-lg text-decoration-none">
           <div class="qa-icon-lg"><i class="bi bi-file-medical-fill"></i></div>
@@ -135,6 +137,11 @@ $pageTitle = 'My Dashboard';
           <div class="qa-title-lg">Ask MICA</div>
           <div class="qa-sub-lg">Get wellness guidance</div>
         </a>
+      </div>
+
+      <div class="alert alert-light border d-flex align-items-center gap-2 mb-4" role="alert">
+        <i class="bi bi-info-circle-fill text-primary"></i>
+        <div class="small"><strong>No appointment is required for normal clinic visits.</strong> You can go directly to the school clinic whenever you need care. Scheduled Services are optional and intended for follow-ups, vaccinations, screenings, and other non-urgent services.</div>
       </div>
 
       <!-- BMI & Announcements Row -->

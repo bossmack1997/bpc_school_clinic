@@ -29,7 +29,7 @@ function send_fcm_push($tokens, string $title, string $body, array $data = [], s
     }
 
     $tokens = (array)$tokens;
-    $tokens = array_values(array_filter(array_map('trim', $tokens)));
+    $tokens = array_values(array_filter(array_map(function ($t) { return trim((string)$t); }, $tokens)));
     if (!$tokens) {
         return false;
     }

@@ -168,7 +168,7 @@ $pageTitle = 'Nurse Dashboard';
         <a href="#" class="quick-action-card-lg text-decoration-none" onclick="if(typeof MICA!=='undefined'&&MICA.open)MICA.open();return false;">
           <div class="qa-icon-lg"><i class="bi bi-robot"></i></div>
           <div class="qa-title-lg">Ask MICA</div>
-          <div class="qa-sub-lg">Get AI health guidance</div>
+          <div class="qa-sub-lg">Health assistant guidance</div>
         </a>
       </div>
 
@@ -211,10 +211,394 @@ $pageTitle = 'Nurse Dashboard';
         </div>
       </div>
 
+      <!-- Emergency Requests -->
+      <div class="card mb-4 border-0 shadow-sm" data-aos="fade-up" data-aos-delay="200">
+        <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between flex-wrap gap-2 border-bottom">
+          <div class="d-flex align-items-center gap-2">
+            <span class="p-2 bg-danger-subtle text-danger rounded-3 d-inline-flex align-items-center justify-content-center">
+              <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+            </span>
+            <div>
+              <h6 class="mb-0 fw-bold text-dark">Active Emergency Requests & Live SOS</h6>
+              <small class="text-muted">Real-time student GPS tracking and adviser emergency reports</small>
+            </div>
+          </div>
+          <span class="badge bg-danger fs-6 px-3 py-2" id="emgCountBadge" style="display:none">0 Active</span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" id="emgTable" style="width:100%">
+              <thead class="table-light">
+                <tr>
+                  <th>Student</th>
+                  <th>Section</th>
+                  <th>Source</th>
+                  <th>Emergency Type</th>
+                  <th>Location / GPS Coordinates</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="emgEmpty" class="text-center text-muted py-5" style="display:none;">
+            <i class="bi bi-shield-check text-success fs-1 d-block mb-2"></i>
+            No active emergencies at this time.
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
+
+<!-- ================================================================ -->
+<!-- Nurse Live Emergency & Location Map Modal                        -->
+<!-- ================================================================ -->
+<div class="modal fade" id="nurseEmergencyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content border-0 rounded-4 shadow-lg">
+      <div class="modal-header border-0 bg-danger text-white rounded-top-4 py-3">
+        <h5 class="modal-title d-flex align-items-center gap-2">
+          <i class="bi bi-shield-exclamation"></i>
+          <span id="nemgModalTitle">Emergency Details & Location</span>
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <div class="p-3 bg-light rounded-3">
+              <div class="text-muted small">Student Name</div>
+              <div class="fw-bold fs-6" id="nemgStudentName">—</div>
+              <div class="text-muted small mt-1" id="nemgStudentMeta">—</div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="p-3 bg-light rounded-3">
+              <div class="text-muted small">Emergency Type / Priority</div>
+              <div class="fw-bold fs-6 text-danger" id="nemgType">—</div>
+              <div class="text-muted small mt-1" id="nemgStatusBadge">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Location Box -->
+        <div class="card border-danger mb-3">
+          <div class="card-header bg-danger-subtle text-danger py-2 fw-semibold d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-geo-alt-fill me-1"></i> Location Information</span>
+            <span id="nemgSourceBadge" class="badge bg-danger">GPS Live</span>
+          </div>
+          <div class="card-body">
+            <div id="nemgLocationText" class="fs-6 fw-bold mb-2">—</div>
+            <div id="nemgLocationSubtext" class="small text-muted mb-3">—</div>
+
+            <!-- Interactive Map Container for GPS SOS -->
+            <div id="nemgMapContainer" style="display:none;">
+              <div id="nurseTrackingMap" style="height: 320px; width: 100%; border-radius: 12px;" class="border shadow-sm mb-2"></div>
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <small class="text-muted"><i class="bi bi-broadcast text-danger me-1"></i> Map auto-updates in real time while tracking is active.</small>
+                <a id="nemgGoogleMapsLink" href="#" target="_blank" class="btn btn-sm btn-outline-danger">
+                  <i class="bi bi-box-arrow-up-right me-1"></i> Open in Google Maps
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Description & Notes -->
+        <div class="p-3 bg-light rounded-3 mb-2">
+          <div class="text-muted small">Description / Notes</div>
+          <div id="nemgDescription" class="mt-1" style="white-space: pre-line;">—</div>
+        </div>
+      </div>
+      <div class="modal-footer border-0 bg-light rounded-bottom-4 justify-content-between">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <div class="d-flex gap-2" id="nemgActionButtons"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Leaflet CSS & JS for OpenStreetMap -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+<script>
+// -------- Emergency Requests (unified: SOS + Adviser) --------
+(function () {
+  'use strict';
+  const emgStatusLabels = {
+    new: 'New', active: 'New', acknowledged: 'Acknowledged', responding: 'Responding',
+    responded: 'Responded', resolved: 'Resolved', cancelled: 'Cancelled', false_alarm: 'False Alarm'
+  };
+  const emgStatusColors = {
+    new: 'danger', active: 'danger', acknowledged: 'warning text-dark', responding: 'info',
+    responded: 'warning text-dark', resolved: 'success', cancelled: 'secondary', false_alarm: 'secondary'
+  };
+  let emgDt = null;
+  let activeModalEmgId = null;
+  let modalPollInterval = null;
+  let leafletMap = null;
+  let leafletMarker = null;
+  let leafletPolyline = null;
+  let leafletCircle = null;
+
+  function timeAgo(dateString) {
+    if (!dateString) return 'Just now';
+    const d = new Date(dateString.replace(/-/g, '/'));
+    const seconds = Math.floor((new Date() - d) / 1000);
+    if (isNaN(seconds) || seconds < 10) return 'Just now';
+    if (seconds < 60) return seconds + 's ago';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes + 'm ago';
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + 'h ago';
+    return dateString.split(' ')[0];
+  }
+
+  function escapeHtml(str) {
+    return $('<div>').text(str || '').html();
+  }
+
+  function renderLocationCell(e) {
+    if (e.source === 'adviser' || e.location_source === 'manual') {
+      return `<div>
+                <div class="fw-bold text-dark"><i class="bi bi-geo-alt-fill text-danger me-1"></i>${escapeHtml(e.location || 'Reported by Adviser')}</div>
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle mt-1"><i class="bi bi-person-workspace me-1"></i>Adviser Manual</span>
+              </div>`;
+    }
+
+    if (e.latitude && e.longitude) {
+      const lat = Number(e.latitude).toFixed(5);
+      const lng = Number(e.longitude).toFixed(5);
+      const acc = e.location_accuracy ? `<span class="badge bg-light text-secondary border ms-1">±${escapeHtml(e.location_accuracy)}</span>` : '';
+      const updated = timeAgo(e.location_updated_at || e.created_at);
+      return `<div>
+                <div class="fw-bold text-danger"><i class="bi bi-crosshair text-danger me-1"></i>${lat}, ${lng}${acc}</div>
+                <div class="small text-muted mt-1 d-flex align-items-center gap-1">
+                  <span class="spinner-grow spinner-grow-sm text-danger" style="width: 8px; height: 8px;"></span>
+                  <span>Live GPS · Updated ${updated}</span>
+                </div>
+              </div>`;
+    }
+
+    return `<span class="badge bg-warning-subtle text-dark border border-warning"><i class="bi bi-geo-alt me-1"></i>GPS Unavailable</span>`;
+  }
+
+  function loadEmergencies() {
+    $.get(APP_URL + '/api/emergencies.php', { action: 'list' }, function (res) {
+      if (!res.success) return;
+      const data = res.data || [];
+      const active = data.filter(e => !['resolved','cancelled','false_alarm'].includes(e.status));
+      $('#emgCountBadge').text(active.length + ' Active').toggle(active.length > 0);
+      $('#emgEmpty').toggle(data.length === 0);
+
+      const rows = data.map(function (e) {
+        const name = (e.first_name ? (e.first_name + ' ' + e.last_name) : 'Student #' + e.student_id);
+        const studentCol = `<div>
+                              <div class="fw-bold text-dark">${escapeHtml(name)}</div>
+                              <div class="small text-muted">${escapeHtml(e.student_number || 'No Student No.')}</div>
+                            </div>`;
+        const reporter = e.source === 'adviser'
+          ? `<span class="badge bg-info-subtle text-info-emphasis border"><i class="bi bi-person-fill me-1"></i>Adviser</span>`
+          : `<span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-broadcast me-1"></i>Student SOS</span>`;
+
+        const status = e.status;
+        const isOpen = !['resolved','cancelled','false_alarm'].includes(status);
+        const btns = `
+          <div class="d-flex gap-1 flex-wrap">
+            <button class="btn btn-sm btn-danger emg-view-loc" data-id="${e.id}" title="View Live Location & Details">
+              <i class="bi bi-geo-alt-fill me-1"></i>${e.source === 'sos' && e.latitude ? 'Live Map' : 'Details'}
+            </button>
+            ${isOpen ? `
+              <button class="btn btn-sm btn-outline-warning emg-act" data-id="${e.id}" data-op="acknowledge" title="Acknowledge">Ack</button>
+              <button class="btn btn-sm btn-info text-white emg-act" data-id="${e.id}" data-op="respond" title="Mark as Responding">Respond</button>
+              <button class="btn btn-sm btn-success emg-act" data-id="${e.id}" data-op="resolve" title="Mark as Resolved">Resolve</button>
+            ` : `<span class="text-muted small align-self-center ms-1">Closed</span>`}
+          </div>`;
+
+        return [
+          studentCol,
+          e.section_name || e.section || '—',
+          reporter,
+          `<strong>${escapeHtml(e.emergency_type || 'Emergency')}</strong>`,
+          renderLocationCell(e),
+          `<span class="badge bg-${emgStatusColors[status] || 'secondary'}">${emgStatusLabels[status] || status}</span>`,
+          btns
+        ];
+      });
+
+      if (emgDt) emgDt.destroy();
+      emgDt = $('#emgTable').DataTable({
+        data: rows,
+        columns: [{},{},{},{},{},{},{}],
+        destroy: true,
+        pageLength: 10,
+        order: [],
+        language: { emptyTable: "No active emergencies." }
+      });
+    }, 'json');
+  }
+
+  // Handle opening Live Location / Emergency Modal
+  $(document).on('click', '.emg-view-loc', function () {
+    const id = $(this).data('id');
+    openEmergencyModal(id);
+  });
+
+  function openEmergencyModal(id) {
+    activeModalEmgId = id;
+    $('#nurseEmergencyModal').modal('show');
+    fetchEmergencyDetails(id, true);
+
+    if (modalPollInterval) clearInterval(modalPollInterval);
+    modalPollInterval = setInterval(function () {
+      if (activeModalEmgId && $('#nurseEmergencyModal').is(':visible')) {
+        fetchEmergencyDetails(activeModalEmgId, false);
+      }
+    }, 3500);
+  }
+
+  $('#nurseEmergencyModal').on('hidden.bs.modal', function () {
+    activeModalEmgId = null;
+    if (modalPollInterval) {
+      clearInterval(modalPollInterval);
+      modalPollInterval = null;
+    }
+  });
+
+  function fetchEmergencyDetails(id, fitMap) {
+    $.get(APP_URL + '/api/emergencies.php', { action: 'live_tracking', emergency_id: id }, function (res) {
+      if (!res.success || !res.emergency) return;
+      const emg = res.emergency;
+      const history = res.history || [];
+      const studentName = emg.first_name ? (emg.first_name + ' ' + emg.last_name) : 'Student #' + emg.student_id;
+
+      $('#nemgModalTitle').text(`Emergency #${emg.id} — ${studentName}`);
+      $('#nemgStudentName').text(studentName);
+      $('#nemgStudentMeta').text(`${emg.student_number || 'N/A'} · ${emg.section_name || emg.section || 'No Section'} ${emg.phone ? '· ' + emg.phone : ''}`);
+      $('#nemgType').text(emg.emergency_type || 'Emergency');
+      $('#nemgStatusBadge').html(`<span class="badge bg-${emgStatusColors[emg.status] || 'secondary'}">${emgStatusLabels[emg.status] || emg.status}</span> · Priority: <span class="text-uppercase fw-bold">${emg.priority || 'urgent'}</span>`);
+      $('#nemgDescription').text(emg.description || 'No additional description provided.');
+
+      // Action buttons in modal
+      const isOpen = !['resolved','cancelled','false_alarm'].includes(emg.status);
+      let actHtml = '';
+      if (isOpen) {
+        actHtml = `
+          <button class="btn btn-outline-warning emg-act" data-id="${emg.id}" data-op="acknowledge"><i class="bi bi-check-lg me-1"></i> Acknowledge</button>
+          <button class="btn btn-info text-white emg-act" data-id="${emg.id}" data-op="respond"><i class="bi bi-person-walking me-1"></i> Respond</button>
+          <button class="btn btn-success emg-act" data-id="${emg.id}" data-op="resolve"><i class="bi bi-check-circle-fill me-1"></i> Mark Resolved</button>
+        `;
+      }
+      $('#nemgActionButtons').html(actHtml);
+
+      // Handle Location Presentation
+      if (emg.source === 'adviser' || emg.location_source === 'manual') {
+        $('#nemgSourceBadge').removeClass('bg-danger').addClass('bg-primary').text('Adviser Manual Location');
+        $('#nemgLocationText').html(`<i class="bi bi-geo-alt-fill text-danger me-2"></i>${escapeHtml(emg.location || 'Reported Location')}`);
+        $('#nemgLocationSubtext').html(`Manually reported by Adviser · ${emg.created_at || ''}`);
+        $('#nemgMapContainer').hide();
+      } else {
+        // Student GPS SOS
+        $('#nemgSourceBadge').removeClass('bg-primary').addClass('bg-danger').text('Student SOS GPS Tracking');
+        if (emg.latitude && emg.longitude) {
+          const lat = parseFloat(emg.latitude);
+          const lng = parseFloat(emg.longitude);
+          const acc = emg.location_accuracy ? ` (±${escapeHtml(emg.location_accuracy)})` : '';
+          const updated = timeAgo(emg.location_updated_at || emg.created_at);
+
+          $('#nemgLocationText').html(`<i class="bi bi-crosshair text-danger me-2"></i>GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}${acc}`);
+          $('#nemgLocationSubtext').html(`Real-Time Device GPS · Last updated: <strong>${updated}</strong> (${emg.location_updated_at || emg.created_at})`);
+          $('#nemgGoogleMapsLink').attr('href', `https://www.google.com/maps?q=${lat},${lng}`);
+          $('#nemgMapContainer').show();
+
+          // Render / Update Leaflet Map
+          renderLeafletMap(lat, lng, emg.location_accuracy, studentName, emg.emergency_type, history, fitMap);
+        } else {
+          $('#nemgLocationText').html('<span class="text-warning"><i class="bi bi-exclamation-triangle me-2"></i>GPS Location Unavailable</span>');
+          $('#nemgLocationSubtext').text('Student initiated SOS without granting device GPS access.');
+          $('#nemgMapContainer').hide();
+        }
+      }
+    }, 'json');
+  }
+
+  function renderLeafletMap(lat, lng, accuracy, name, type, history, fitMap) {
+    const mapEl = document.getElementById('nurseTrackingMap');
+    if (!mapEl || typeof L === 'undefined') return;
+
+    if (!leafletMap) {
+      leafletMap = L.map('nurseTrackingMap').setView([lat, lng], 17);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(leafletMap);
+    } else {
+      if (fitMap) {
+        leafletMap.setView([lat, lng], 17);
+      }
+      setTimeout(() => leafletMap.invalidateSize(), 200);
+    }
+
+    // Red Pulsing Marker
+    const markerHtml = `<div style="background-color:#dc3545;width:20px;height:20px;border-radius:50%;border:3px solid white;box-shadow:0 0 10px rgba(220,53,69,0.8);animation:pulse 1.5s infinite;"></div>`;
+    const icon = L.divIcon({ html: markerHtml, className: 'sos-map-marker', iconSize: [20, 20], iconAnchor: [10, 10] });
+
+    if (leafletMarker) {
+      leafletMarker.setLatLng([lat, lng]);
+      leafletMarker.setPopupContent(`<strong>${escapeHtml(name)}</strong><br>${escapeHtml(type)}<br><small class="text-muted">${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
+    } else {
+      leafletMarker = L.marker([lat, lng], { icon: icon }).addTo(leafletMap);
+      leafletMarker.bindPopup(`<strong>${escapeHtml(name)}</strong><br>${escapeHtml(type)}<br><small class="text-muted">${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`).openPopup();
+    }
+
+    // Accuracy Circle
+    const accMeters = accuracy ? parseFloat(accuracy) : 15;
+    if (leafletCircle) {
+      leafletCircle.setLatLng([lat, lng]).setRadius(accMeters);
+    } else {
+      leafletCircle = L.circle([lat, lng], { radius: accMeters, color: '#dc3545', fillOpacity: 0.15 }).addTo(leafletMap);
+    }
+
+    // Movement History Polyline
+    if (history && history.length > 1) {
+      const latlngs = history.map(h => [parseFloat(h.latitude), parseFloat(h.longitude)]);
+      if (leafletPolyline) {
+        leafletPolyline.setLatLngs(latlngs);
+      } else {
+        leafletPolyline = L.polyline(latlngs, { color: '#dc3545', dashArray: '5, 8', weight: 3 }).addTo(leafletMap);
+      }
+    }
+  }
+
+  // Update Status Actions
+  $(document).on('click', '.emg-act', function () {
+    const id = $(this).data('id');
+    const op = $(this).data('op');
+    const data = { action: 'update_status', emergency_id: id, op: op, csrf_token: $('meta[name="csrf-token"]').attr('content') };
+    if (op === 'resolve') {
+      const notes = prompt('Resolution notes (optional):');
+      data.resolution_notes = notes || '';
+    }
+    $.post(APP_URL + '/api/emergencies.php', data, function (res) {
+      if (res.success) {
+        toastSuccess(res.message);
+        loadEmergencies();
+        if (activeModalEmgId === id) fetchEmergencyDetails(id, false);
+      } else {
+        toastError(res.message);
+      }
+    }, 'json');
+  });
+
+  loadEmergencies();
+  setInterval(loadEmergencies, 5000);
+})();
+</script>
 <script>
 (function () {
   'use strict';
@@ -235,3 +619,4 @@ $pageTitle = 'Nurse Dashboard';
 </script>
 </body>
 </html>
+

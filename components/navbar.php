@@ -10,7 +10,8 @@
 $u = current_user();
 // Role directory used for absolute links (works on every page, including
 // the consolidated pages/ai_assistant.php at the pages/ root).
-$navRoleDir = in_array($u['role'] ?? '', ['admin', 'nurse'], true) ? $u['role'] : 'student';
+$validRoleDirs = ['admin', 'nurse', 'student', 'adviser', 'guidance'];
+$navRoleDir = in_array($u['role'] ?? '', $validRoleDirs, true) ? $u['role'] : 'student';
 ?>
 <!-- Page Loader Overlay -->
 <div class="page-loader">
@@ -70,7 +71,7 @@ $navRoleDir = in_array($u['role'] ?? '', ['admin', 'nurse'], true) ? $u['role'] 
       <ul class="dropdown-menu dropdown-menu-end shadow">
         <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/profile.php"><i class="bi bi-person me-2"></i>My Profile</a></li>
         <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/notifications.php"><i class="bi bi-bell me-2"></i>Notifications</a></li>
-        <?php if ($u['role'] !== 'student'): ?>
+        <?php if (in_array($u['role'] ?? '', ['admin', 'nurse'], true)): ?>
           <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/reports.php"><i class="bi bi-file-earmark-bar-graph me-2"></i>Reports</a></li>
         <?php endif; ?>
         <li><hr class="dropdown-divider"></li>

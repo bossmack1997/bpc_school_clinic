@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
 require_role('student');
-$pageTitle = 'Appointment Booking';
+$pageTitle = 'Scheduled Services';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -13,10 +13,15 @@ $pageTitle = 'Appointment Booking';
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area">
 
+      <div class="alert alert-light border d-flex align-items-center gap-2 mb-3" role="alert">
+        <i class="bi bi-info-circle-fill text-primary"></i>
+        <div class="small"><strong>Scheduled Services are optional.</strong> For normal clinic visits (feeling sick, needing care), you can simply walk in or scan your QR — no appointment needed. Use Scheduled Services for follow-ups, vaccinations, screenings, counseling, and other non-urgent services.</div>
+      </div>
+
       <div class="row g-3">
         <div class="col-lg-4">
           <div class="card p-3">
-            <h6 class="section-title mb-3"><i class="bi bi-calendar-plus text-success me-1"></i> Book an Appointment</h6>
+            <h6 class="section-title mb-3"><i class="bi bi-calendar-plus text-success me-1"></i> Request a Scheduled Service</h6>
             <form id="bookForm">
               <div class="mb-3">
                 <label class="form-label small fw-semibold">Date</label>
@@ -36,7 +41,7 @@ $pageTitle = 'Appointment Booking';
         </div>
         <div class="col-lg-8">
           <div class="card p-3">
-            <h6 class="section-title mb-3">My Appointments</h6>
+            <h6 class="section-title mb-3">My Scheduled Services</h6>
             <div class="table-responsive">
               <table class="table table-hover align-middle" id="apptTable" style="width:100%">
                 <thead><tr><th>Date</th><th>Time</th><th>Reason</th><th>Nurse</th><th>Status</th></tr></thead>

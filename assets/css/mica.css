@@ -165,15 +165,17 @@
   bottom: 96px;
   right: 24px;
   z-index: 2147482990 !important;
-  width: 380px;
-  max-width: calc(100vw - 48px);
-  max-height: 560px;
+  width: 450px;
+  max-width: calc(100vw - 32px);
+  height: 640px;
+  max-height: calc(100vh - 115px);
+  max-height: calc(100dvh - 115px);
   background: var(--mica-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--mica-border);
-  border-radius: var(--mica-radius);
-  box-shadow: var(--mica-shadow);
+  border-radius: 20px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18), 0 4px 16px rgba(0, 0, 0, 0.08);
   display: none;
   flex-direction: column;
   overflow: hidden;
@@ -249,26 +251,27 @@
 
 /* Widget Body */
 .mica-widget-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 200px;
   overflow-y: auto;
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   scroll-behavior: smooth;
 }
 
 .mica-widget-body::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 
 .mica-widget-body::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
 }
 
 [data-theme="dark"] .mica-widget-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* ------------------------------------------------------------------ */
@@ -523,32 +526,89 @@
 }
 
 .mica-bubble {
-  max-width: 85%;
-  padding: 10px 14px;
-  border-radius: 14px;
-  font-size: 0.82rem;
-  line-height: 1.55;
+  max-width: 90%;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 0.90rem;
+  line-height: 1.6;
   word-wrap: break-word;
+  box-sizing: border-box;
 }
 
 .mica-user .mica-bubble {
   background: var(--mica-primary);
   color: #fff;
   border-bottom-right-radius: 4px;
+  box-shadow: 0 2px 8px rgba(11, 107, 58, 0.2);
 }
 
 .mica-ai .mica-bubble {
-  background: rgba(0, 0, 0, 0.06);
+  max-width: 98%;
+  background: rgba(0, 0, 0, 0.035);
   color: var(--mica-text);
+  border: 1px solid rgba(0, 0, 0, 0.05);
   border-bottom-left-radius: 4px;
 }
 
 [data-theme="dark"] .mica-ai .mica-bubble {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--mica-text);
+}
+
+.mica-bubble .mica-line {
+  margin-bottom: 4px;
+}
+
+.mica-bubble .mica-line:last-child {
+  margin-bottom: 0;
+}
+
+.mica-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0;
+  line-height: 1.55;
+}
+
+.mica-list-num {
+  font-weight: 700;
+  color: var(--mica-primary);
+  min-width: 18px;
+  flex-shrink: 0;
+}
+
+.mica-list-bullet {
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--mica-primary);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.mica-list-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.mica-h4, .mica-h5, .mica-h6 {
+  font-weight: 700;
+  color: var(--mica-text);
+  margin: 10px 0 4px;
+  line-height: 1.35;
+}
+
+.mica-h4 { font-size: 1.05rem; }
+.mica-h5 { font-size: 0.95rem; }
+.mica-h6 { font-size: 0.88rem; }
+
+.mica-p-gap {
+  height: 10px;
 }
 
 .mica-bubble p {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .mica-bubble p:last-child {
@@ -557,13 +617,14 @@
 
 .mica-bubble strong {
   font-weight: 600;
+  color: inherit;
 }
 
 .mica-bubble-time {
-  font-size: 0.6rem;
+  font-size: 0.65rem;
   color: var(--mica-text-secondary);
-  opacity: 0.7;
-  margin-top: 4px;
+  opacity: 0.75;
+  margin-top: 6px;
   text-align: right;
 }
 
@@ -601,6 +662,23 @@
     opacity: 1;
     transform: scale(1.2);
   }
+}
+
+.mica-msg-speak-btn {
+  background: transparent;
+  border: none;
+  color: var(--mica-text-secondary);
+  font-size: 0.8rem;
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: all 0.2s ease;
+  vertical-align: middle;
+}
+.mica-msg-speak-btn:hover {
+  opacity: 1;
+  color: var(--mica-primary);
+  transform: scale(1.15);
 }
 
 /* ------------------------------------------------------------------ */
@@ -657,12 +735,21 @@
   background: var(--mica-primary);
   color: #fff;
   font-size: 1.1rem;
-  cursor: pointer;
+  cursor: pointer !important;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
   flex-shrink: 0;
+  pointer-events: auto !important;
+  position: relative !important;
+  z-index: 100 !important;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.mica-mic-btn * {
+  pointer-events: none !important;
 }
 
 .mica-mic-btn:hover {
@@ -777,49 +864,83 @@
 /* ------------------------------------------------------------------ */
 /* Responsive                                                         */
 /* ------------------------------------------------------------------ */
-@media (max-width: 480px) {
+@media (max-width: 576px) {
   .mica-fab {
     bottom: 16px;
     right: 16px;
-    height: 44px;
-    font-size: 1.2rem;
+    height: 46px;
+    font-size: 1.15rem;
     padding: 0 14px;
-    gap: 4px;
+    gap: 5px;
   }
 
   .mica-fab-text {
-    font-size: 0.75rem;
+    font-size: 0.78rem;
   }
 
   .mica-widget {
-    bottom: 78px;
-    right: 12px;
-    width: calc(100vw - 24px);
-    max-height: 480px;
+    bottom: 74px !important;
+    right: 10px !important;
+    left: 10px !important;
+    width: auto !important;
+    max-width: none !important;
+    height: calc(100dvh - 88px) !important;
+    max-height: calc(100vh - 88px) !important;
+    border-radius: 18px;
   }
 
   .mica-avatar {
-    width: 64px;
-    height: 64px;
-    font-size: 1.8rem;
+    width: 48px;
+    height: 48px;
+    font-size: 1.5rem;
+  }
+
+  .mica-widget-header {
+    padding: 12px 14px;
   }
 
   .mica-widget-body {
     padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .mica-bubble {
+    max-width: 96%;
+    padding: 10px 14px;
+    font-size: 0.88rem;
+  }
+
+  .mica-widget-footer {
+    padding: 10px 12px 12px;
+  }
+
+  .mica-input {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+  }
+
+  .mica-mic-btn, .mica-send-btn {
+    width: 38px;
+    height: 38px;
+    font-size: 0.95rem;
   }
 }
 
-/* When sidebar is open on mobile, adjust */
+@media (min-width: 577px) and (max-width: 991.98px) {
+  .mica-widget {
+    bottom: 84px;
+    right: 16px;
+    width: min(440px, calc(100vw - 32px));
+    height: min(600px, calc(100vh - 100px));
+  }
+}
+
 @media (max-width: 1199.98px) {
   .mica-fab {
     bottom: 20px;
     right: 20px;
   }
-   .mica-widget {
-     bottom: 88px;
-     right: 20px;
-   }
- }
+}
 
 /* ------------------------------------------------------------------ */
 /* Notification Badge                                                 */
@@ -879,50 +1000,66 @@
 /* ------------------------------------------------------------------ */
 .mica-quick-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 16px 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 8px 14px;
   flex-shrink: 0;
+  border-top: 1px solid var(--mica-border);
+  background: rgba(0, 0, 0, 0.015);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.mica-quick-actions::-webkit-scrollbar {
+  display: none;
 }
 
 .mica-qa-btn {
-  flex: 1 0 calc(50% - 6px);
-  min-width: 0;
-  padding: 10px 8px;
-  border-radius: 12px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 6px 12px;
+  border-radius: 18px;
   border: 1px solid var(--mica-border);
-  background: transparent;
+  background: var(--mica-bg);
   color: var(--mica-text);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 500;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  transition: all 0.2s;
+  gap: 5px;
+  transition: all 0.2s ease;
 }
 
 .mica-qa-btn:hover {
   background: var(--mica-primary-light);
+  border-color: var(--mica-primary);
   color: var(--mica-primary);
   transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(11, 107, 58, 0.15);
 }
 
 .mica-qa-btn-danger {
   color: #DC3545;
-  border-color: #FECACA;
+  border-color: #FCA5A5;
+  background: #FEF2F2;
+}
+
+[data-theme="dark"] .mica-qa-btn-danger {
+  color: #F87171;
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .mica-qa-btn-danger:hover {
-  background: rgba(220, 53, 69, 0.1);
-  color: #DC3545;
+  background: #DC3545;
+  color: #fff;
+  border-color: #DC3545;
 }
 
-/* Hide quick actions when widget is open and messages exist */
 .mica-widget.open .mica-quick-actions {
   border-top: 1px solid var(--mica-border);
-  border-bottom: 1px solid var(--mica-border);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1022,6 +1159,44 @@
   opacity: 0.9;
   transform: scale(1.05);
 }
+
+/* ------------------------------------------------------------------ */
+/* Student Active SOS Live Tracking Card / Banner                    */
+/* ------------------------------------------------------------------ */
+.student-sos-active-card {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  right: 24px;
+  max-width: 680px;
+  margin: 0 auto;
+  z-index: 1060;
+  background: #ffffff;
+  border-left: 6px solid #dc3545;
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 12px 36px rgba(220, 53, 69, 0.25), 0 4px 16px rgba(0, 0, 0, 0.1);
+  animation: slideUpSosBanner 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="dark"] .student-sos-active-card {
+  background: #1f2937;
+  color: #f3f4f6;
+  border-left-color: #ef4444;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes slideUpSosBanner {
+  from {
+    opacity: 0;
+    transform: translateY(40px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 
 /* ------------------------------------------------------------------ */
 /* NEW: Widget body scrollbar (webkit) refined                        */

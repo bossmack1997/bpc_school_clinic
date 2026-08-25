@@ -523,26 +523,78 @@ function escapeHtml(text) {
     if (C.dom.micaBody) C.dom.micaBody.scrollTop = C.dom.micaBody.scrollHeight;
   }
 
-  // Tinymark — tiny markdown renderer (bold, italic, lists, code, links, line breaks)
+  // Tinymark — structured markdown renderer (headings, bold, italic, numbered & bullet lists, code, links, paragraphs)
   function renderMarkdown(text) {
+    if (!text) return '';
+    // Strip accidental non-currency leading dollar signs before markdown processing
+    var clean = String(text)
+      .replace(/^\s*\$\s+/gm, '')
+      .replace(/(?:^|\n)\s*\$\s*([A-Za-z0-9])/g, '\n$1');
+
+    var lines = clean.split('\n');
+    var html = [];
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var trimmed = line.trim();
+
+      // Blank line -> Paragraph spacing
+      if (trimmed === '') {
+        html.push('<div class="mica-p-gap"></div>');
+        continue;
+      }
+
+      // Headings: ###, ##, #
+      var h3Match = trimmed.match(/^###\s+(.+)$/);
+      if (h3Match) {
+        html.push('<h6 class="mica-h6">' + formatInline(h3Match[1]) + '</h6>');
+        continue;
+      }
+      var h2Match = trimmed.match(/^##\s+(.+)$/);
+      if (h2Match) {
+        html.push('<h5 class="mica-h5">' + formatInline(h2Match[1]) + '</h5>');
+        continue;
+      }
+      var h1Match = trimmed.match(/^#\s+(.+)$/);
+      if (h1Match) {
+        html.push('<h4 class="mica-h4">' + formatInline(h1Match[1]) + '</h4>');
+        continue;
+      }
+
+      // Numbered list: 1. Item, 2. Item
+      var numMatch = trimmed.match(/^(\d+)[.)]\s+(.+)$/);
+      if (numMatch) {
+        html.push('<div class="mica-list-item"><span class="mica-list-num">' + escapeHtml(numMatch[1]) + '.</span><span class="mica-list-text">' + formatInline(numMatch[2]) + '</span></div>');
+        continue;
+      }
+
+      // Bullet list: - Item, * Item, • Item, + Item
+      var bulletMatch = trimmed.match(/^[-*•+]\s+(.+)$/);
+      if (bulletMatch) {
+        html.push('<div class="mica-list-item"><span class="mica-list-bullet">&bull;</span><span class="mica-list-text">' + formatInline(bulletMatch[1]) + '</span></div>');
+        continue;
+      }
+
+      // Standard text line
+      html.push('<div class="mica-line">' + formatInline(line) + '</div>');
+    }
+
+    return html.join('');
+  }
+
+  function formatInline(text) {
+    if (!text) return '';
     var h = escapeHtml(text);
-    // code blocks
-    h = h.replace(/```([\s\S]*?)```/g, function (m, c) {
-      return '<pre class="mica-code">' + c + '</pre>';
-    });
-    // inline code
+    // code blocks / inline code
     h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
     // bold
     h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     // italic
     h = h.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-    // links
+    // markdown links: [label](url)
     h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-    h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
-    // line breaks
-    h = h.replace(/\n/g, '<br>');
-    // lists (simple)
-    h = h.replace(/(?:^|<br>)\s*[•*]\s+/g, '$1&bull; ');
+    // raw URLs (if not already inside an anchor)
+    h = h.replace(/(^|[^"'>])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
     return h;
   }
 
@@ -668,8 +720,8 @@ function escapeHtml(text) {
       '<div class="mica-widget-footer">' +
         '<div class="mica-input-wrapper">' +
           '<input type="text" class="mica-input" id="micaInput" placeholder="Type a message..." autocomplete="off" maxlength="' + C.config.maxTextLength + '">' +
-          '<button class="mica-mic-btn" id="micaMicBtn" aria-label="Voice input"><i class="bi bi-mic"></i></button>' +
-          '<button class="mica-send-btn" id="micaSendBtn" aria-label="Send message"><i class="bi bi-send-fill"></i></button>' +
+          '<button class="mica-mic-btn" id="micaMicBtn" type="button" aria-label="Voice input"><i class="bi bi-mic"></i></button>' +
+          '<button class="mica-send-btn" id="micaSendBtn" type="button" aria-label="Send message"><i class="bi bi-send-fill"></i></button>' +
         '</div>' +
       '</div>'
     );
@@ -680,38 +732,40 @@ function escapeHtml(text) {
   // ================================================================
   function makeDraggable(el, handle) {
     var isDown = false;
-    var offsetX = 0;
-    var offsetY = 0;
+    var startX = 0, startY = 0;
+    var offsetX = 0, offsetY = 0;
 
     function onDown(e) {
-      if (e.target.closest('.mica-fab-icon') || e.target.closest('.mica-notif-badge')) {
-        // allow click-through to toggle for icon/notif badge? we still allow drag from text/background
-      }
       isDown = true;
-      C.state.isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
       var rect = el.getBoundingClientRect();
       offsetX = e.clientX - rect.left;
       offsetY = e.clientY - rect.top;
-      e.preventDefault();
     }
 
     function onMove(e) {
       if (!isDown) return;
-      var x = e.clientX - offsetX;
-      var y = e.clientY - offsetY;
-      var maxX = window.innerWidth - el.offsetWidth - 8;
-      var maxY = window.innerHeight - el.offsetHeight - 8;
-      x = Math.max(8, Math.min(x, maxX));
-      y = Math.max(8, Math.min(y, maxY));
-      el.style.left = x + 'px';
-      el.style.top = y + 'px';
-      el.style.right = 'auto';
-      el.style.bottom = 'auto';
+      var dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+      if (dist > 5) {
+        C.state.isDragging = true;
+        el.classList.add('dragging');
+        var x = e.clientX - offsetX;
+        var y = e.clientY - offsetY;
+        var maxX = window.innerWidth - el.offsetWidth - 8;
+        var maxY = window.innerHeight - el.offsetHeight - 8;
+        x = Math.max(8, Math.min(x, maxX));
+        y = Math.max(8, Math.min(y, maxY));
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.right = 'auto';
+        el.style.bottom = 'auto';
+      }
     }
 
     function onUp() {
       isDown = false;
-      C.state.isDragging = false;
+      setTimeout(function () { C.state.isDragging = false; el.classList.remove('dragging'); }, 100);
     }
 
     (handle || el).addEventListener('pointerdown', onDown);
@@ -738,10 +792,17 @@ function escapeHtml(text) {
       ? '<div class="mica-speaking-indicator"><span></span><span></span><span></span></div>'
       : '';
 
+    var speakBtn = role === 'ai'
+      ? '<button class="mica-msg-speak-btn" type="button" title="Speak this response" aria-label="Speak response"><i class="bi bi-volume-up"></i></button>'
+      : '';
+
     msgDiv.innerHTML =
       '<div class="mica-bubble">' +
         '<div>' + renderMarkdown(displayContent) + speakingIndicator + '</div>' +
-        '<div class="mica-bubble-time">' + time + '</div>' +
+        '<div class="d-flex justify-content-between align-items-center mt-1">' +
+          '<div class="mica-bubble-time">' + time + '</div>' +
+          speakBtn +
+        '</div>' +
       '</div>';
 
     C.dom.micaBody.appendChild(msgDiv);
@@ -897,16 +958,13 @@ function escapeHtml(text) {
             setMode('idle');
           }
         } else {
-          addMessage('ai', data.message || 'I encountered an error. Please try again.');
+          addMessage('ai', data.message || 'Sorry, I am having trouble connecting right now. Please try again.');
           if (!C.state.isPlaying) setMode('idle');
         }
       })
       .catch(function (err) {
         console.error('[MICA] Chat error:', err);
-        console.log('[MICA] Error message:', err && err.message ? err.message : String(err));
-        addMessage('ai', (err && err.message)
-          ? ('MICA: ' + err.message + '. Please try again or refresh the page.')
-          : 'Connection error. Please check your network and try again. The clinic AI is temporarily unavailable.');
+        addMessage('ai', 'Sorry, I am having trouble connecting right now. Please try again.');
         if (!C.state.isPlaying) setMode('idle');
       })
       .finally(function () {
@@ -984,18 +1042,35 @@ function escapeHtml(text) {
   }
 
   function activateSOS(type, description, lat, lng) {
-    var formData = new FormData();
-    formData.append('action', 'sos_emergency');
-    formData.append('emergency_type', type);
-    formData.append('description', description || type + ' - Emergency via MICA');
-    formData.append('csrf_token', C.config.csrfToken);
-    if (lat) formData.append('latitude', lat);
-    if (lng) formData.append('longitude', lng);
+    var proceed = function (coords) {
+      var finalLat = (coords && coords.lat !== undefined) ? coords.lat : lat;
+      var finalLng = (coords && coords.lng !== undefined) ? coords.lng : lng;
+      var finalAcc = (coords && coords.accuracy !== undefined) ? coords.accuracy : null;
 
-    return fetch(C.config.appUrl + '/api/ai_assistant.php', {
-      method: 'POST',
-      body: formData,
-    }).then(function (r) { return r.json(); });
+      var formData = new FormData();
+      formData.append('action', 'sos_emergency');
+      formData.append('emergency_type', type);
+      formData.append('description', description || type + ' - Emergency via MICA');
+      formData.append('csrf_token', C.config.csrfToken);
+      if (finalLat !== null && finalLat !== undefined) formData.append('latitude', finalLat);
+      if (finalLng !== null && finalLng !== undefined) formData.append('longitude', finalLng);
+      if (finalAcc !== null && finalAcc !== undefined) formData.append('accuracy', finalAcc);
+
+      return fetch(C.config.appUrl + '/api/ai_assistant.php', {
+        method: 'POST',
+        body: formData,
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res && res.success && res.emergency_id && typeof window.startSosLocationTracking === 'function') {
+          window.startSosLocationTracking(res.emergency_id, finalLat, finalLng, finalAcc);
+        }
+        return res;
+      });
+    };
+
+    if ((lat === undefined || lat === null) && typeof window.getLocation === 'function') {
+      return window.getLocation().then(proceed);
+    }
+    return proceed({ lat: lat, lng: lng });
   }
 
   // ================================================================
@@ -1103,14 +1178,15 @@ function escapeHtml(text) {
 
     console.log('[MICA] Creating SpeechRecognition instance');
     var recognition = new SpeechRecognition();
-    recognition.continuous = true;
+    recognition.continuous = false;
     recognition.interimResults = true;
-    recognition.lang = 'en-PH';
+    recognition.lang = 'en-US';
 
-    // STATE PROTECTION: onstart confirms browser-side recognition is live
+    // onstart confirms browser-side recognition is live
     recognition.onstart = function () {
       console.log('[MICA] Recognition started');
       C.state.recognitionState = 'listening';
+      C.state.isListening = true;
       if (C.dom.micaInput) C.dom.micaInput.placeholder = '🎤 Listening...';
       showStatus('🎤 Listening...');
     };
@@ -1123,10 +1199,12 @@ function escapeHtml(text) {
         if (r.isFinal) finalTranscript += r[0].transcript;
         else interimTranscript += r[0].transcript;
       }
-      if (interimTranscript && C.dom.micaInput) C.dom.micaInput.value = interimTranscript;
+      if (interimTranscript && C.dom.micaInput) {
+        C.dom.micaInput.value = interimTranscript;
+        showStatus('🎤 ' + interimTranscript);
+      }
       if (finalTranscript) {
-        console.log('[MICA] Speech result:', finalTranscript.trim());
-        console.log('[MICA] Transcript:', finalTranscript.trim());
+        console.log('[MICA] Final transcript:', finalTranscript.trim());
         handleVoiceInput(finalTranscript.trim());
       }
     };
@@ -1137,33 +1215,28 @@ function escapeHtml(text) {
       C.state.recognitionState = 'error';
 
       if (event.error === 'not-allowed') {
-        // CRITICAL: no retry loop — reset to idle and show clear diagnostics
-        var micInfo = micAccessibilityUnknown ? 'unknown' : (micAccessible ? 'SUCCESS' : 'FAILED');
-        console.warn('[MICA] SpeechRecognition denied');
-        console.warn('[MICA] Microphone access test:', micInfo);
-        console.warn('[MICA] Secure context:', !!window.isSecureContext);
-        console.warn('[MICA] Origin:', window.location.origin);
-
-        if (micAccessible) {
-          showStatus('Speech recognition is blocked by the browser. Please allow microphone access in browser settings.');
-        } else {
-          showStatus('Microphone or speech recognition access was denied. Please check your browser microphone permissions and try again.');
-        }
+        showStatus('Microphone permission was denied. Please allow microphone access in your browser settings.');
+        setMode('idle');
+      } else if (event.error === 'audio-capture') {
+        showStatus('Could not access your microphone. Please check your audio hardware and try again.');
+        setMode('idle');
+      } else if (event.error === 'network') {
+        showStatus('Voice recognition requires an active internet connection.');
         setMode('idle');
       } else if (event.error === 'no-speech') {
-        if (C.state.mode === 'listening' && C.config.continuousMode && C.state.recognitionState !== 'error') {
+        if (C.config.continuousMode && C.state.isOpen) {
           setTimeout(function () {
-            if (C.state.mode === 'listening' && !C.state.isListening) startListening();
-          }, 500);
+            if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying && !C.state.isListening) {
+              startListening();
+            }
+          }, 400);
         } else {
-          showStatus('No speech detected. Try again.');
+          showStatus('No speech detected. Tap the mic to try again.');
           setMode('idle');
         }
       } else if (event.error === 'aborted') {
-        console.log('[MICA] Recognition aborted');
         setMode('idle');
       } else {
-        console.warn('[MICA] Unexpected speech error:', event.error);
         showStatus('Voice input error: ' + event.error + '. Try typing instead.');
         setMode('idle');
       }
@@ -1173,24 +1246,18 @@ function escapeHtml(text) {
       console.log('[MICA] Recognition ended');
       C.state.isListening = false;
       C.state.recognitionState = 'idle';
-      if (C.state.mode === 'listening' && C.config.continuousMode) {
-        setTimeout(function () {
-          if (C.state.mode === 'listening' && C.state.recognitionState === 'idle') {
-            tryRestartRecognition();
-          }
-        }, 200);
+      if (C.state.mode === 'listening') {
+        if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying) {
+          setTimeout(function () {
+            if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying && !C.state.isListening) {
+              startListening();
+            }
+          }, 300);
+        } else {
+          setMode('idle');
+          if (C.dom.micaInput) C.dom.micaInput.placeholder = 'Type a message...';
+        }
       }
-    };
-
-    recognition.onsoundstart = function () {
-      console.log('[MICA] Sound detected');
-      if (C.state.mode === 'speaking' && C.state.isPlaying) {
-        interruptSpeaking();
-      }
-    };
-
-    recognition.onsoundend = function () {
-      console.log('[MICA] Sound ended');
     };
 
     C.state.recognition = recognition;
@@ -1216,9 +1283,15 @@ function escapeHtml(text) {
 
   function startListening() {
     if (!supportsSpeechRecognition) {
-      showStatus('Voice input is not supported by this browser. Please use a supported browser.');
+      showStatus('Voice recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
       if (C.dom.micaInput) C.dom.micaInput.focus();
       return;
+    }
+
+    // SELF-HEARING PREVENTION: Stop speaking if MICA is currently outputting audio
+    if (C.state.isPlaying || ('speechSynthesis' in window && window.speechSynthesis.speaking)) {
+      console.log('[MICA] MICA is currently speaking. Pausing speech before listening.');
+      stopSpeaking();
     }
 
     // STATE PROTECTION: never start if already listening or starting
@@ -1230,17 +1303,43 @@ function escapeHtml(text) {
 
     console.log('[MICA] Starting listening');
     setMode('listening');
-    if (C.dom.micaInput) C.dom.micaInput.placeholder = 'Starting microphone...';
-    showStatus('🎤 Starting microphone...');
+    if (C.dom.micaInput) C.dom.micaInput.placeholder = '🎤 Listening...';
+    showStatus('🎤 Listening...');
     C.state.recognitionState = 'starting';
 
     // Ensure recognition instance exists (creates it once if needed)
     initRecognition();
 
     if (!C.state.recognition) {
-      showStatus('Voice input is not supported by this browser. Please use a supported browser.');
+      showStatus('Voice input is not supported by this browser. Please use Google Chrome or Microsoft Edge.');
       setMode('idle');
       C.state.recognitionState = 'idle';
+      return;
+    }
+
+    // Request getUserMedia on first attempt to trigger browser permission dialog seamlessly
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && micAccessibilityUnknown) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(function (stream) {
+          micAccessible = true;
+          micAccessibilityUnknown = false;
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          try {
+            C.state.isListening = true;
+            C.state.recognition.start();
+          } catch (e) {
+            console.warn('[MICA] Recognition start after gUM:', e);
+          }
+        })
+        .catch(function (err) {
+          micAccessible = false;
+          micAccessibilityUnknown = false;
+          console.warn('[MICA] getUserMedia denied:', err);
+          showStatus('Microphone permission was denied. Please allow microphone access in your browser settings.');
+          setMode('idle');
+          C.state.recognitionState = 'idle';
+          C.state.isListening = false;
+        });
       return;
     }
 
@@ -1248,7 +1347,6 @@ function escapeHtml(text) {
       C.state.isListening = true;
       C.state.recognition.start();
       console.log('[MICA] recognition.start() called');
-      // onstart handler will update recognitionState to 'listening'
     } catch (e) {
       console.error('[MICA] Recognition start failed:', e.name, e.message);
       C.state.isListening = false;
@@ -1259,11 +1357,6 @@ function escapeHtml(text) {
       } else {
         showStatus('Could not start voice input. Try typing.');
       }
-    }
-
-    // Run microphone diagnostic test on first attempt
-    if (micAccessibilityUnknown) {
-      testMicrophoneAccess().catch(function () { /* already logged */ });
     }
   }
 
@@ -1299,6 +1392,9 @@ function escapeHtml(text) {
   function normalizeForDisplay(text) {
     if (!text) return text;
     var out = String(text);
+    // Strip accidental non-currency '$' artifacts
+    out = out.replace(/^\s*\$\s+/gm, '');
+    out = out.replace(/(?:^|\n)\s*\$\s*([A-Za-z0-9])/gm, '\n$1');
     var neverDisplay = ['Mika', 'mika', 'Mica', 'mica', 'Meeka', 'meeka'];
     for (var i = 0; i < neverDisplay.length; i++) {
       out = out.replace(new RegExp('\\b' + neverDisplay[i] + '\\b', 'g'), 'MICA');
@@ -1343,12 +1439,23 @@ function escapeHtml(text) {
   }
 
   function processSynthQueue() {
+    // SELF-HEARING PREVENTION: Always stop microphone before MICA speaks!
+    stopListening();
+
     if (C.state.synthQueue.length === 0) {
-      // HYBRID RULE: after finishing speech, ALWAYS return to Idle.
-      // Never auto-relisten, never continue speaking without user action.
       C.state.isPlaying = false;
       C.state.currentAudio = null;
-      setMode('idle');
+      if (C.config.continuousMode && C.state.isOpen) {
+        setMode('idle');
+        showStatus('🎤 Listening...');
+        setTimeout(function () {
+          if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying) {
+            startListening();
+          }
+        }, 500);
+      } else {
+        setMode('idle');
+      }
       return;
     }
 
@@ -1537,6 +1644,35 @@ function escapeHtml(text) {
     hideChips();
   }
 
+  var _lastMicClick = 0;
+  function handleMicBtnClick() {
+    var now = Date.now();
+    if (now - _lastMicClick < 350) return;
+    _lastMicClick = now;
+
+    console.log('[MICA] Microphone button activated, current mode:', C.state.mode);
+
+    // If currently speaking, stop first then start listening
+    if (C.state.isPlaying || C.state.mode === 'speaking') {
+      console.log('[MICA] Interrupting speech to start listening');
+      stopSpeaking();
+      setMode('idle');
+      setTimeout(function () { startListening(); }, 150);
+      return;
+    }
+    // If thinking, stop and allow fresh start
+    if (C.state.mode === 'thinking') {
+      setMode('idle');
+      return;
+    }
+    // Toggle: stop if listening, start if idle
+    if (C.state.isListening) {
+      stopListening();
+      return;
+    }
+    startListening();
+  }
+
   // ================================================================
   // Event binding
   // ================================================================
@@ -1557,28 +1693,33 @@ function escapeHtml(text) {
       }
     });
 
-    C.dom.micBtn.addEventListener('click', function () {
-      console.log('[MICA] Microphone button clicked, current mode:', C.state.mode);
-      // If currently speaking, stop first then start listening
-      if (C.state.isPlaying || C.state.mode === 'speaking') {
-        console.log('[MICA] Interrupting speech to start listening');
-        stopSpeaking();
-        setMode('idle');
-        setTimeout(function () { startListening(); }, 150);
-        return;
-      }
-      // If thinking, stop and allow fresh start
-      if (C.state.mode === 'thinking') {
-        setMode('idle');
-        return;
-      }
-      // Toggle: stop if listening, start if idle
-      if (C.state.isListening) {
-        stopListening();
-        return;
-      }
-      startListening();
-    });
+    if (C.dom.micBtn) {
+      C.dom.micBtn.type = 'button';
+      C.dom.micBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleMicBtnClick();
+      });
+    }
+
+    if (C.dom.micaBody) {
+      C.dom.micaBody.addEventListener('click', function (e) {
+        var speakBtn = e.target.closest('.mica-msg-speak-btn');
+        if (speakBtn) {
+          e.preventDefault();
+          var bubble = speakBtn.closest('.mica-bubble');
+          if (bubble) {
+            var textEl = bubble.querySelector('div:first-child');
+            var rawText = textEl ? textEl.innerText.replace(/MICA is speaking\.\.\./g, '') : '';
+            if (rawText.trim()) {
+              stopSpeaking();
+              speakQueued(rawText.trim());
+            }
+          }
+        }
+      });
+    }
+
     if (C.dom.replayBtn) {
       C.dom.replayBtn.addEventListener('click', function () {
         if (C.state.lastResponse) {
@@ -1717,6 +1858,23 @@ function escapeHtml(text) {
 
     getMode: function () { return C.state.mode; },
 
+    stopSpeaking: function () {
+      stopSpeaking();
+      setMode('idle');
+    },
+
+    replay: function () {
+      if (C.state.lastResponse) {
+        stopSpeaking();
+        speakQueued(C.state.lastResponse);
+      }
+    },
+
+    startListening: function () { startListening(); },
+    stopListening: function () { stopListening(); },
+    setVolume: function (v) { setVolume(v); },
+    setSpeed: function (s) { setSpeed(s); },
+
     setContinuousMode: function (enabled) {
       C.config.continuousMode = !!enabled;
       if (C.dom.continuousIndicator) {
@@ -1729,6 +1887,15 @@ function escapeHtml(text) {
     },
 
     toggle: function () { toggleWidget(); },
+
+    speak: function (text) {
+      stopSpeaking();
+      speakQueued(text);
+    },
+
+    isListening: function () {
+      return C.state.isListening;
+    },
 
     // Voice test — exposed for a "Test Voice" button
     testVoice: function () { testVoice(); },

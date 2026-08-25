@@ -637,7 +637,7 @@ if ($action === 'generate_ai_summary') {
         }
     }
     
-    $summary = "**AI-Generated Consultation Summary**\n\n";
+    $summary = "**Consultation Summary**\n\n";
     $summary .= "{$name} visited the BPC School Clinic as a **Walk-in Patient** on " . date('F d, Y') . ".\n\n";
     $summary .= "**Chief Complaint:** {$complaint}\n";
     $summary .= "**Diagnosis:** {$diagnosis}\n";

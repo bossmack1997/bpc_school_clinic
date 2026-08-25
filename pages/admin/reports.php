@@ -37,10 +37,7 @@ $pageTitle = 'Reports';
               </div>
               <div class="d-grid gap-2">
                 <button class="btn btn-primary w-100" type="submit"><i class="bi bi-download me-1"></i> Generate</button>
-                <div class="btn-group w-100" role="group">
-                  <button class="btn btn-outline-success btn-sm" type="button" id="exportCsvBtn"><i class="bi bi-filetype-csv me-1"></i> Export CSV</button>
-                  <button class="btn btn-outline-success btn-sm" type="button" id="exportExcelBtn"><i class="bi bi-file-earmark-excel me-1"></i> Export Excel</button>
-                </div>
+                <button class="btn btn-outline-success w-100 btn-sm" type="button" id="exportCsvBtn"><i class="bi bi-filetype-csv me-1"></i> Export CSV</button>
               </div>
             </form>
           </div>
@@ -115,18 +112,6 @@ $('#exportCsvBtn').on('click', function () {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(a.href);
-});
-
-// ============================================================
-// Export current report as Excel (client-side SheetJS)
-// ============================================================
-$('#exportExcelBtn').on('click', function () {
-  if (!currentReportData.length) { toastError('Generate a report first.'); return; }
-  if (!window.XLSX) { toastError('Excel library not loaded.'); return; }
-  const ws = XLSX.utils.json_to_sheet(currentReportData);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Report');
-  XLSX.writeFile(wb, currentReportTitle.replace(/[^a-z0-9]+/gi, '_').toLowerCase() + '.xlsx');
 });
 
 $.get(APP_URL + '/api/reports.php', { action: 'history' }, function (res) {

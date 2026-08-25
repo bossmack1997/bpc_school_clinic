@@ -145,7 +145,18 @@ $(function () {
   // ================================================================
   // Notification service
   // ================================================================
-  const NOTIFICATION_PAGE_URL = window.NOTIFICATION_PAGE_URL || 'notifications.php';
+  function getNotificationPageUrl() {
+    if (window.NOTIFICATION_PAGE_URL && typeof window.NOTIFICATION_PAGE_URL === 'string') {
+      return window.NOTIFICATION_PAGE_URL;
+    }
+    var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : '';
+    var role = (window.MICA_USER && window.MICA_USER.role) || 'nurse';
+    if (base) {
+      return base + '/pages/' + role + '/notifications.php';
+    }
+    return 'notifications.php';
+  }
+
   const NOTIFICATION_POLL_INTERVAL = 30000;
   let notificationPollTimer = null;
 
@@ -196,52 +207,21 @@ $(function () {
     notificationPollTimer = setInterval(loadNotifications, NOTIFICATION_POLL_INTERVAL);
   }
 
-  $(document).on('click', '#notifList a.notif-link', function (e) {
+  $(document).on('click', '#notifList a.notif-dropdown-item, #notifList a.notif-link, #notifList a.sos-notif-item', function (e) {
     e.preventDefault();
-    const id = $(this).data('id');
-    markNotificationRead(id, function () {
-      window.location.href = `${NOTIFICATION_PAGE_URL}?id=${id}`;
-    });
-  });
+    var $el = $(this);
+    var id = $el.data('id');
+    var targetUrl = getNotificationPageUrl() + (id ? '?id=' + id : '');
 
-  // ================================================================
-  // SOS Emergency — Open Details Modal (nurse/admin only)
-  // ================================================================
-  $(document).on('click', '.sos-notif-item', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-
-    var $item = $(this);
-    var sos = $item.data('sos') || {};
-
-    // data-sos is URI-encoded JSON for safe attribute embedding
-    if (typeof sos === 'string') {
-      try { sos = JSON.parse(decodeURIComponent(sos)); }
-      catch (err) { sos = {}; }
-    }
-
-    var emergencyId = sos.emergency_id;
-
-    if (!emergencyId) return;
-
-    // Mark the underlying notification as read
-    var notifId = $item.data('id');
-    if (notifId) {
+    if (id) {
       $.post(APP_URL + '/api/notifications.php', {
         action: 'mark_read',
-        id: notifId,
+        id: id,
         csrf_token: $('meta[name="csrf-token"]').attr('content')
-      }, function () {
-        if (typeof window.loadNotifications === 'function') {
-          window.loadNotifications();
-        }
-        if (typeof window.loadNotifCenter === 'function') {
-          window.loadNotifCenter();
-        }
-      }, 'json');
+      });
     }
 
-    openSosDetailsModal(sos);
+    window.location.href = targetUrl;
   });
 
   // Accept SOS
@@ -415,7 +395,7 @@ const link = n.link || '#';
 
       // Always show a "View all notifications" link to the full Notification Center.
       $list.append('<li><hr class="dropdown-divider"></li>');
-      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${NOTIFICATION_PAGE_URL}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
+      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${getNotificationPageUrl()}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
     }
   }, 'json').fail(function (xhr, status, err) {
     // Silent failure — the polling loop continues but never spams the
@@ -435,20 +415,35 @@ function openSosDetailsModal(sos) {
   var isStaff = (window.MICA_USER && (window.MICA_USER.role === 'nurse' || window.MICA_USER.role === 'admin'));
 
   var studentName = [sos.first_name, sos.last_name].filter(Boolean).join(' ') || 'Unknown Student';
-  var contact = sos.phone || 'N/A';
-  var hasLocation = sos.latitude != null && sos.longitude != null;
-  var mapsUrl = hasLocation ? 'https://www.google.com/maps?q=' + sos.latitude + ',' + sos.longitude : '#';
+  var hasGps = sos.latitude != null && sos.longitude != null && sos.latitude !== '' && sos.longitude !== '';
+  var mapsUrl = hasGps ? 'https://www.google.com/maps?q=' + encodeURIComponent(sos.latitude + ',' + sos.longitude) : '#';
+  var isManual = sos.location_source === 'manual' || (!hasGps && sos.location);
 
-  var statusBadge = {
-    active: '<span class="badge bg-danger">Active</span>',
-    responded: '<span class="badge bg-warning">Responded</span>',
-    resolved: '<span class="badge bg-success">Resolved</span>',
-    false_alarm: '<span class="badge bg-secondary">False Alarm</span>',
-  }[sos.sos_status] || '<span class="badge bg-secondary">' + (sos.sos_status || 'Unknown') + '</span>';
-
-  var dateTime = sos.sos_created_at ? new Date(sos.sos_created_at.replace(' ', 'T')) : null;
-  var dateLabel = dateTime ? dateTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
-  var timeLabel = dateTime ? dateTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'N/A';
+  var locationHtml = '';
+  if (hasGps) {
+    var latF = Number(sos.latitude).toFixed(6);
+    var lngF = Number(sos.longitude).toFixed(6);
+    var accLabel = sos.location_accuracy ? 'Accuracy: ±' + escapeHtml(sos.location_accuracy) : 'Accuracy: ±8 meters';
+    locationHtml =
+      '<div class="p-3 bg-light rounded-3 border border-danger-subtle">' +
+        '<div class="fw-bold text-danger mb-1"><i class="bi bi-crosshair me-1"></i> Current Location (Live GPS):</div>' +
+        '<div class="fs-6 fw-bold text-dark mb-1">' + latF + ', ' + lngF + '</div>' +
+        '<div class="small text-muted mb-2">' + accLabel + ' · Updated: ' + (timeLabel || 'Just now') + '</div>' +
+        '<a href="' + mapsUrl + '" target="_blank" rel="noopener" class="btn btn-sm btn-danger">' +
+          '<i class="bi bi-box-arrow-up-right me-1"></i> View on Map' +
+        '</a>' +
+      '</div>';
+  } else if (isManual && sos.location) {
+    var repName = [sos.reporter_first_name, sos.reporter_last_name].filter(Boolean).join(' ');
+    locationHtml =
+      '<div class="p-3 bg-light rounded-3 border border-primary-subtle">' +
+        '<div class="fw-bold text-primary mb-1"><i class="bi bi-geo-alt-fill text-danger me-1"></i> Reported Location:</div>' +
+        '<div class="fs-6 fw-bold text-dark mb-1">' + escapeHtml(sos.location) + '</div>' +
+        '<div class="small text-muted">Manually reported by Adviser' + (repName ? ' (' + escapeHtml(repName) + ')' : '') + '</div>' +
+      '</div>';
+  } else {
+    locationHtml = '<div class="p-2 rounded-3 bg-light text-muted small"><i class="bi bi-info-circle me-1"></i>Location unavailable.</div>';
+  }
 
   var html =
     '<div class="mb-3 text-center">' +
@@ -468,15 +463,9 @@ function openSosDetailsModal(sos) {
       '<div class="col-6"><div class="text-muted">Time</div><div class="fw-semibold">' + timeLabel + '</div></div>' +
     '</div>' +
     '<hr>' +
-    '<div class="small">' +
-      '<div class="text-muted mb-1">Location</div>' +
-      (hasLocation
-        ? '<div class="d-flex flex-wrap gap-2 align-items-center">' +
-            '<span class="fw-semibold">Lat: ' + sos.latitude + '</span>' +
-            '<span class="fw-semibold">Lng: ' + sos.longitude + '</span>' +
-            '<a href="' + mapsUrl + '" target="_blank" rel="noopener" class="btn btn-sm btn-primary"><i class="bi bi-geo-alt-fill me-1"></i> View Location</a>' +
-          '</div>'
-        : '<span class="text-muted"><i class="bi bi-info-circle me-1"></i>Location unavailable.</span>') +
+    '<div>' +
+      '<div class="text-muted small mb-1 fw-semibold">Location</div>' +
+      locationHtml +
     '</div>';
 
   $('#sosDetailsBody').html(html);

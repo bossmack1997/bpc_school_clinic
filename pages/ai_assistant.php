@@ -13,7 +13,7 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
-require_role(['admin', 'nurse', 'student']);
+require_role(['admin', 'nurse', 'student', 'adviser', 'guidance']);
 $db   = getDB();
 $user = current_user();
 $role = $user['role'] ?? 'student';
@@ -40,6 +40,19 @@ $quickActions = match ($role) {
         ['📢', 'Announcements', 'Latest clinic announcements', 'text-warning'],
         ['👥', 'Student Overview', 'Show student statistics', 'text-info'],
         ['🚨', 'SOS Status', 'Show active SOS emergencies', 'text-danger'],
+        ['🎤', 'Talk to MICA', '__open__', 'text-primary'],
+    ],
+    'adviser' => [
+        ['👥', 'My Advisory Class', 'Show my advisory class', 'text-primary'],
+        ['🚨', 'Emergency Reports', 'Show emergency reports', 'text-danger'],
+        ['📢', 'Announcements', 'Latest clinic announcements', 'text-warning'],
+        ['📋', 'My Consultations', 'Show my clinic consultations', 'text-info'],
+        ['🎤', 'Talk to MICA', '__open__', 'text-primary'],
+    ],
+    'guidance' => [
+        ['📩', 'Support Referrals', 'Show support referrals', 'text-primary'],
+        ['🏥', 'Clinic Info', 'Show clinic information', 'text-success'],
+        ['📢', 'Announcements', 'Latest clinic announcements', 'text-warning'],
         ['🎤', 'Talk to MICA', '__open__', 'text-primary'],
     ],
     default => [

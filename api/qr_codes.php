@@ -25,7 +25,7 @@ $action = $_REQUEST['action'] ?? '';
 if ($role === 'student' && !in_array($action, ['my_qr', 'student_health_pass', 'student_qr_timeline', 'student_qr_notifications'])) {
     json_response(false, [], 'Access denied.');
 }
-if (!in_array($role, ['student', 'nurse', 'admin'], true)) {
+if (!in_array($role, ['student', 'nurse', 'admin', 'adviser'], true)) {
     json_response(false, [], 'Access denied.');
 }
 
@@ -420,17 +420,72 @@ if ($action === 'check_in') {
 
     if (strlen($qrData) < 10) json_response(false, [], 'Invalid QR data.');
 
-    $result = verify_student_qr($db, $qrData);
+    $result = resolve_patient_qr($db, $qrData);
     if (!$result['valid']) {
         $scanMethod = strtolower(trim($_POST['scan_method'] ?? $_GET['scan_method'] ?? 'unknown'));
         $scanMethod = in_array($scanMethod, ['camera', 'upload', 'walk_in'], true) ? $scanMethod : 'unknown';
         log_qr_scan($db, null, '', 'check_in', $user['id'], 'failed', $location, null, ['reason' => $result['reason']], $scanMethod);
-        json_response(false, [], 'QR verification failed: ' . $result['reason']);
+        json_response(false, [], 'QR verification failed: ' . ($result['reason'] ?? 'invalid'));
     }
 
-    $studentId = $result['student_id'];
+    $patientType = $result['patient_type'];
+    $studentId   = $patientType === 'student' ? (int)$result['id'] : null;
+    $teacherId   = $patientType === 'teacher' ? (int)$result['id'] : null;
+    $record      = $result['record'];
+    $qrToken     = $record['qr_token'] ?? '';
     $scanMethod = strtolower(trim($_POST['scan_method'] ?? $_GET['scan_method'] ?? 'unknown'));
     $scanMethod = in_array($scanMethod, ['camera', 'upload', 'walk_in'], true) ? $scanMethod : 'unknown';
+
+    // ---- Teacher/Staff patient check-in (separate, safe path) ----
+    if ($patientType === 'teacher') {
+        if (is_duplicate_scan($db, $qrToken, 30)) {
+            log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
+            json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
+        }
+        $queueNumber = generate_queue_number($db);
+        try {
+            $db->beginTransaction();
+            $stmt = $db->prepare("
+                INSERT INTO queue_numbers (teacher_id, patient_type, queue_number, visit_type, qr_token, created_at)
+                VALUES (?, 'teacher', ?, ?, ?, NOW())
+            ");
+            $stmt->execute([$teacherId, $queueNumber, $visitType, $qrToken]);
+            $queueId = $db->lastInsertId();
+            log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'success', $location, $teacherId, [
+                'queue_id' => $queueId, 'queue_number' => $queueNumber, 'visit_type' => $visitType,
+            ], $scanMethod);
+            $db->commit();
+
+            // Notify the teacher
+            if (!empty($record['user_id'])) {
+                push_notification($record['user_id'], 'qr_checkin', 'Check-in Successful',
+                    'Your QR was scanned at the clinic. Queue number: ' . $queueNumber . '. Please proceed to the waiting area.',
+                    APP_URL . '/pages/adviser/my_qr.php', null, 'medium', $studentId);
+            }
+            // Notify nurses
+            foreach ($db->query("SELECT user_id FROM nurses")->fetchAll() as $nurse) {
+                push_notification($nurse['user_id'], 'qr_checkin', 'Staff Checked In',
+                    ($record['first_name'] ?? '') . ' ' . ($record['last_name'] ?? '') . ' (Teacher/Staff) — Queue: ' . $queueNumber,
+                    APP_URL . '/pages/nurse/dashboard.php', null, 'medium', null);
+            }
+            log_activity($user['id'], 'QR Check-in (Staff)', 'qr_checkin', "Teacher #{$teacherId}, Queue: {$queueNumber}");
+            json_response(true, [
+                'queue_number' => $queueNumber,
+                'queue_id'     => $queueId,
+                'student'      => [
+                    'id'             => $teacherId,
+                    'student_number' => $record['employee_id'] ?? 'STAFF',
+                    'name'           => ($record['first_name'] ?? '') . ' ' . ($record['last_name'] ?? ''),
+                    'course'         => $record['department'] ?? 'Staff',
+                    'year_level'     => '',
+                    'section'        => 'Teacher/Staff',
+                ],
+            ], 'Staff check-in successful. Queue number issued: ' . $queueNumber);
+        } catch (Exception $e) {
+            $db->rollBack();
+            json_response(false, [], 'Check-in failed: ' . $e->getMessage());
+        }
+    }
 
     if (is_duplicate_scan($db, $result['student']['qr_token'], 30)) {
         log_qr_scan($db, $studentId, $result['student']['qr_token'], 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
@@ -619,11 +674,57 @@ if ($action === 'verify') {
         $result['student'] = $student;
         json_response(true, $result);
     } else {
-        // Handles BOTH legacy JSON student QR and the new token-only format.
-        $result = verify_student_qr($db, $qrData);
-        if (!$result['valid']) json_response(false, [], 'QR verification failed: ' . $result['reason']);
-        json_response(true, ['valid' => true, 'student_id' => $result['student_id'], 'student' => $result['student']]);
+        // Resolve to a Student OR a Teacher/Staff patient.
+        $result = resolve_patient_qr($db, $qrData);
+        if (!$result['valid']) json_response(false, [], 'QR verification failed: ' . ($result['reason'] ?? 'invalid'));
+        if ($result['patient_type'] === 'teacher') {
+            json_response(true, ['valid' => true, 'patient_type' => 'teacher', 'teacher_id' => $result['id'], 'student' => $result['record']]);
+        }
+        json_response(true, ['valid' => true, 'patient_type' => 'student', 'student_id' => $result['id'], 'student' => $result['record']]);
     }
+}
+
+// ================================================================
+// TEACHER_QR — a teacher/staff member's own permanent QR (My Clinic)
+// ================================================================
+if ($action === 'teacher_qr') {
+    if (!in_array($role, ['adviser', 'admin', 'nurse'], true)) json_response(false, [], 'Access denied.');
+    // Resolve the teacher record for the current user (adviser) or a provided teacher_id (admin/nurse)
+    $teacherId = 0;
+    if ($role === 'adviser') {
+        $stmt = $db->prepare("SELECT id FROM teachers WHERE user_id = ? LIMIT 1");
+        $stmt->execute([$user['id']]);
+        $teacherId = (int)$stmt->fetchColumn();
+    } else {
+        $teacherId = (int)($_GET['teacher_id'] ?? 0);
+        if ($teacherId <= 0) json_response(false, [], 'Teacher ID required.');
+    }
+    if ($teacherId <= 0) json_response(false, [], 'No staff record found for your account.');
+
+    $qr = ensure_teacher_qr($db, $teacherId, $user['id']);
+    if (!$qr) json_response(false, [], 'Unable to generate your QR code.');
+
+    $stmt = $db->prepare("SELECT t.*, u.first_name, u.last_name, u.email, u.profile_picture FROM teachers t JOIN users u ON u.id=t.user_id WHERE t.id=?");
+    $stmt->execute([$teacherId]);
+    $teacher = $stmt->fetch();
+
+    // Recent scan history (best-effort)
+    $scanHistory = [];
+    try {
+        $scanHistory = $db->prepare("
+            SELECT scan_time, purpose, status, scanner_name
+            FROM qr_scan_logs
+            WHERE teacher_id = ? ORDER BY scan_time DESC LIMIT 10
+        ");
+        $scanHistory->execute([$teacherId]);
+        $scanHistory = $scanHistory->fetchAll();
+    } catch (Throwable $e) { $scanHistory = []; }
+
+    json_response(true, [
+        'qr'        => ['qr_data' => $qr['qr_data'], 'status' => $qr['status'], 'generated_at' => $qr['generated_at']],
+        'teacher'   => $teacher,
+        'scan_history' => $scanHistory,
+    ]);
 }
 
 // ================================================================
@@ -1147,19 +1248,68 @@ if ($action === 'smart_scan') {
 
     if (strlen($qrData) < 10) json_response(false, [], 'Invalid QR data.');
 
-    // 1. Verify the permanent student QR
-    $result = verify_student_qr($db, $qrData);
+    // 1. Verify the QR (Student OR Teacher/Staff)
+    $result = resolve_patient_qr($db, $qrData);
     if (!$result['valid']) {
         log_qr_scan($db, null, '', 'smart_scan', $user['id'], 'invalid', $location, null, ['reason' => $result['reason']], $scanMethod);
-        json_response(false, [], 'QR verification failed: ' . $result['reason']);
+        json_response(false, [], 'QR verification failed: ' . ($result['reason'] ?? 'invalid'));
     }
 
-    $studentId = $result['student_id'];
-    $student   = $result['student'];
+    $patientType = $result['patient_type'];
+    $studentId   = $patientType === 'student' ? (int)$result['id'] : null;
+    $teacherId   = $patientType === 'teacher' ? (int)$result['id'] : null;
+    $student     = $result['record'];
+    $qrToken     = $student['qr_token'] ?? '';
+
+    // Teacher/Staff smart scan: verify + (optional) check-in, no student-only workflow
+    if ($patientType === 'teacher') {
+        if (is_duplicate_scan($db, $qrToken, get_qr_setting($db, 'duplicate_scan_window', 30))) {
+            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'duplicate', $location, $teacherId, null, $scanMethod);
+            json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
+        }
+        $studentPayload = [
+            'id'             => (int)$teacherId,
+            'student_number' => $student['employee_id'] ?? 'STAFF',
+            'name'           => ($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? ''),
+            'first_name'     => $student['first_name'] ?? '',
+            'last_name'     => $student['last_name'] ?? '',
+            'course'         => $student['department'] ?? 'Staff',
+            'year_level'     => '',
+            'section'        => 'Teacher/Staff',
+            'gender'         => '',
+            'email'          => $student['email'] ?? '',
+            'profile_picture'=> $student['profile_picture'] ?? '',
+        ];
+        if (!$performCheckIn) {
+            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'success', $location, $teacherId, ['scan_intent' => 'walk_in'], $scanMethod);
+            json_response(true, ['student' => $studentPayload, 'workflow' => ['scenario' => 'walk_in'], 'purpose' => 'smart_scan']);
+        }
+        $queueNumber = generate_queue_number($db);
+        try {
+            $db->beginTransaction();
+            $stmt = $db->prepare("INSERT INTO queue_numbers (teacher_id, patient_type, queue_number, visit_type, qr_token, status, created_at) VALUES (?, 'teacher', ?, 'walk-in', ?, 'waiting', NOW())");
+            $stmt->execute([$teacherId, $queueNumber, $qrToken]);
+            $queueId = $db->lastInsertId();
+            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'success', $location, $teacherId, ['queue_id' => $queueId, 'queue_number' => $queueNumber, 'scan_intent' => 'walk_in'], $scanMethod);
+            $db->commit();
+            if (!empty($student['user_id'])) {
+                push_notification($student['user_id'], 'qr_checkin', 'Check-in Successful',
+                    'Your QR was scanned at the clinic. Queue number: ' . $queueNumber . '.', APP_URL . '/pages/adviser/my_qr.php', null, 'medium', null);
+            }
+            foreach ($db->query("SELECT user_id FROM nurses")->fetchAll() as $nurse) {
+                push_notification($nurse['user_id'], 'qr_checkin', 'Staff Checked In',
+                    ($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? '') . ' (Teacher/Staff) — Queue: ' . $queueNumber, APP_URL . '/pages/nurse/dashboard.php', null, 'medium', null);
+            }
+            json_response(true, ['queue_number' => $queueNumber, 'student' => ['name' => $studentPayload['name'], 'student_number' => $studentPayload['student_number']]]);
+        } catch (Exception $e) {
+            $db->rollBack();
+            json_response(false, [], 'Smart check-in failed: ' . $e->getMessage());
+        }
+    }
 
     // 2. Duplicate scan prevention (30-second cooldown)
-    if (is_duplicate_scan($db, $student['qr_token'], get_qr_setting($db, 'duplicate_scan_window', 30))) {
-        log_qr_scan($db, $studentId, $student['qr_token'], 'smart_scan', $user['id'], 'duplicate', $location, null, null, $scanMethod);
+    if (is_duplicate_scan($db, $qrToken, get_qr_setting($db, 'duplicate_scan_window', 30))) {
+        log_qr_scan($db, $studentId, $qrToken, 'smart_scan', $user['id'], 'duplicate', $location, null, null, $scanMethod);
         json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
     }
 

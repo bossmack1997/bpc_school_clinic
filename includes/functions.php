@@ -61,6 +61,10 @@ function handle_error($severity, $message, $file, $line) {
     if (!(error_reporting() & $severity)) {
         return false;
     }
+    if ($severity === E_DEPRECATED || $severity === E_USER_DEPRECATED) {
+        error_log("[Deprecated] $message in $file on line $line");
+        return true;
+    }
     throw new ErrorException($message, 0, $severity, $file, $line);
 }
 
@@ -104,6 +108,26 @@ function push_notification($userId, $type, $title, $message, $link = null, $sosE
             $stmt->execute([$userId, $type, $title, $message, $link]);
         }
     }
+
+    // Automatically attempt Web Push / FCM if emergency notification
+    if ($type === 'emergency' || $priority === 'emergency') {
+        try {
+            if (!function_exists('send_fcm_to_user')) {
+                @require_once __DIR__ . '/fcm.php';
+            }
+            if (function_exists('send_fcm_to_user')) {
+                send_fcm_to_user((int)$userId, $title, $message, [
+                    'type' => 'emergency',
+                    'sos_id' => (string)($sosEmergencyId ?? ''),
+                    'link' => (string)($link ?? '')
+                ]);
+            }
+        } catch (Throwable $fcmE) {
+            error_log('[FCM] push_notification push trigger failed: ' . $fcmE->getMessage());
+        }
+    }
+
+    return (int)$db->lastInsertId();
 }
 
 function notification_type_meta($type) {
@@ -634,6 +658,95 @@ function verify_student_qr($db, $payload) {
     }
 
     return ['valid' => true, 'student_id' => (int)$qr['student_id'], 'student' => $qr, 'reason' => null];
+}
+
+/**
+ * Ensure a teacher/staff member has exactly ONE active permanent QR record.
+ * Returns the teacher_qrs row (creating it if missing).
+ */
+function ensure_teacher_qr($db, $teacherId, $generatedBy = null) {
+    $stmt = $db->prepare("SELECT * FROM teacher_qrs WHERE teacher_id = ? LIMIT 1");
+    $stmt->execute([$teacherId]);
+    $qr = $stmt->fetch();
+    if ($qr) return $qr;
+
+    // Look up employee id / name for token context (token stays PII-free)
+    $stmt = $db->prepare("SELECT employee_id FROM teachers WHERE id = ?");
+    $stmt->execute([$teacherId]);
+    $emp = $stmt->fetchColumn();
+
+    $prefix = 'BPC-';
+    $length = 40;
+    try {
+        $prefix = (string)get_qr_setting($db, 'qr_token_prefix', 'BPC-');
+        $length = max(16, (int)get_qr_setting($db, 'qr_token_length', 40));
+    } catch (Exception $e) { /* default */ }
+
+    $token = $prefix . strtoupper(bin2hex(random_bytes((int)ceil($length / 2))));
+    $token = substr($token, 0, strlen($prefix) + $length);
+    $payload = $token;
+
+    $stmt = $db->prepare(
+        "INSERT INTO teacher_qrs (teacher_id, qr_token, qr_data, status, generated_by)
+         VALUES (?, ?, ?, 'active', ?)"
+    );
+    $stmt->execute([$teacherId, $token, $payload, $generatedBy]);
+
+    $stmt = $db->prepare("UPDATE teachers SET qr_token = ? WHERE id = ? AND (qr_token IS NULL OR qr_token = '')");
+    try { $stmt->execute([$token, $teacherId]); } catch (Exception $e) { /* ignore */ }
+
+    $stmt = $db->prepare("SELECT * FROM teacher_qrs WHERE teacher_id = ? LIMIT 1");
+    $stmt->execute([$teacherId]);
+    return $stmt->fetch();
+}
+
+/**
+ * Verify a permanent Teacher/Staff QR payload (token-only format).
+ * Returns ['valid' => bool, 'teacher_id' => int|null, 'teacher' => array|null, 'reason' => string|null].
+ */
+function verify_teacher_qr($db, $payload) {
+    $raw = trim((string)$payload);
+    if ($raw === '') return ['valid' => false, 'teacher_id' => null, 'teacher' => null, 'reason' => 'empty'];
+
+    $stmt = $db->prepare("
+        SELECT tq.*, t.employee_id, t.first_name, t.last_name, t.department, t.email, u.id AS user_id, u.profile_picture
+        FROM teacher_qrs tq
+        JOIN teachers t ON t.id = tq.teacher_id
+        JOIN users u ON u.id = t.user_id
+        WHERE tq.qr_token = ? AND tq.status IN ('active', 'regenerated')
+        LIMIT 1
+    ");
+    $stmt->execute([$raw]);
+    $qr = $stmt->fetch();
+    if (!$qr) return ['valid' => false, 'teacher_id' => null, 'teacher' => null, 'reason' => 'invalid_token'];
+    return ['valid' => true, 'teacher_id' => (int)$qr['teacher_id'], 'teacher' => $qr, 'reason' => null];
+}
+
+/**
+ * Resolve a scanned QR payload to EITHER a student or a teacher/staff patient.
+ * Always tries student first (to preserve existing behavior), then teacher.
+ * Returns ['valid', 'patient_type' => 'student'|'teacher', 'id' => int, 'record' => array].
+ */
+function resolve_patient_qr($db, $payload) {
+    $studentRes = verify_student_qr($db, $payload);
+    if ($studentRes['valid']) {
+        return [
+            'valid'       => true,
+            'patient_type' => 'student',
+            'id'          => (int)$studentRes['student_id'],
+            'record'      => $studentRes['student'],
+        ];
+    }
+    $teacherRes = verify_teacher_qr($db, $payload);
+    if ($teacherRes['valid']) {
+        return [
+            'valid'       => true,
+            'patient_type' => 'teacher',
+            'id'          => (int)$teacherRes['teacher_id'],
+            'record'      => $teacherRes['teacher'],
+        ];
+    }
+    return ['valid' => false, 'patient_type' => null, 'id' => null, 'record' => null, 'reason' => $studentRes['reason'] ?? 'invalid_token'];
 }
 
 /**

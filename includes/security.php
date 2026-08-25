@@ -288,7 +288,7 @@ function validate_date(string $date): bool {
  * Validate a role value.
  */
 function validate_role(string $role): bool {
-    return in_array($role, ['student', 'nurse', 'admin'], true);
+    return in_array($role, ['student', 'nurse', 'admin', 'adviser', 'guidance'], true);
 }
 
 /**

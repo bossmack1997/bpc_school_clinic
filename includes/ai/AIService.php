@@ -1,16 +1,19 @@
 <?php
 /**
  * AIService.php
- * Main orchestrator for the AI Health Assistant.
+ * Main orchestrator for the MICA AI Health Assistant.
  *
  * Workflow:
  * 1. Receive user message
- * 2. Detect intent via IntentDetector (returns string)
- * 3. Fetch database context via DatabaseContext
- * 4. Build prompt via PromptBuilder
- * 5. Send to OpenRouter API (with fallback to rule-based)
- * 6. Store in ChatHistory
- * 7. Return response
+ * 2. Check for emergency or mental health crisis safety
+ * 3. Retrieve multi-turn conversation history
+ * 4. Detect intent via IntentDetector
+ * 5. Fetch comprehensive live database context via DatabaseContext
+ * 6. Build structured system prompt + messages via PromptBuilder
+ * 7. Call OpenRouter API with multi-turn context
+ * 8. If API fails/offline, fallback to factual database reply / rule-based reply
+ * 9. Store exchange in ChatHistory
+ * 10. Return clean response
  */
 
 require_once __DIR__ . '/IntentDetector.php';
@@ -30,18 +33,6 @@ class AIService
     private array $user;
     private string $page = '';
 
-    /** Intents that can be answered directly from database records (DB-first) */
-    private const DATA_INTENTS = [
-        'appointment',
-        'bmi',
-        'medical_record',
-        'health_monitoring',
-        'vaccination',
-        'medicine_availability',
-        'announcements',
-        'clinic_schedule',
-    ];
-
     public function __construct(PDO $db, array $user, array $config = [])
     {
         $this->db = $db;
@@ -52,6 +43,16 @@ class AIService
         $this->promptBuilder = new PromptBuilder();
         $this->openRouter = new OpenRouter($config);
         $this->chatHistory = new ChatHistory();
+    }
+
+    public function getOpenRouter(): OpenRouter
+    {
+        return $this->openRouter;
+    }
+
+    public function getChatHistory(): ChatHistory
+    {
+        return $this->chatHistory;
     }
 
     /**
@@ -73,65 +74,86 @@ class AIService
             ];
         }
 
-        // 1. Emergency check — fastest path
+        // 1. High-risk crisis / acute emergency check
         if (IntentDetector::isEmergency($message)) {
-            $reply = "⚠️ **EMERGENCY DETECTED**\n\nThis sounds like a medical emergency. Please stop chatting and seek immediate help:\n\n";
-            $reply .= "• **Go to the BPC Clinic** right now\n";
-            $reply .= "• If the clinic is closed, call **emergency services**\n";
-            $reply .= "• Contact **campus security** for assistance\n\n";
-            $reply .= "Don't wait for a reply — get help now! 🚨";
+            $lower = mb_strtolower($message);
+            $isCrisis = str_contains($lower, 'die') || str_contains($lower, 'hurt myself')
+                || str_contains($lower, 'suicide') || str_contains($lower, 'kill myself')
+                || str_contains($lower, 'end my life') || str_contains($lower, 'better without me')
+                || str_contains($lower, 'mamatay') || str_contains($lower, 'ayoko na mabuhay');
 
-            return [
-                'success' => true,
-                'reply' => $reply,
-                'intent' => 'emergency',
-                'model' => null,
-                'source' => 'emergency_detector',
-            ];
-        }
+            if ($isCrisis) {
+                $name = $this->firstName();
+                $reply = "I hear how much pain you are going through, {$name}, and I want you to know that you are not alone. Please stay safe right now.\n\n";
+                $reply .= "There are people who genuinely care and want to support you. Please reach out to these free, confidential hotlines:\n\n";
+                $reply .= "• **National Center for Mental Health (NCMH) Crisis Hotline**:\n";
+                $reply .= "  📞 **1553** (Luzon-wide toll-free)\n";
+                $reply .= "  📱 **0917-899-8727** / **0966-351-4518** / **0908-639-2672**\n\n";
+                $reply .= "• **Hopeline Philippines**:\n";
+                $reply .= "  📞 **2919** (Globe/TM) | **(02) 8804-4673**\n\n";
+                $reply .= "You can also visit the **BPC School Clinic** or talk to a guidance counselor, teacher, family member, or trusted friend right now. Please reach out to someone who can be with you.";
 
-        // 2. Detect intent — returns string directly
-        $recentHistory = $this->chatHistory->getRecent(4);
-        $intent = $this->intentDetector->detect($message, $recentHistory);
+                $this->chatHistory->addMessage('user', $message, 'emergency');
+                $this->chatHistory->addMessage('assistant', $reply);
+                $this->logInteraction($message, $reply, 'emergency', 'crisis_safety');
 
-        // 2b. DB-FIRST: For data intents, try to answer from live records
-        // before calling the LLM/rule-based fallback. This guarantees real,
-        // personalized data is used and never fabricated.
-        if ($this->hasDataRecords($intent)) {
-            $dbReply = $this->buildDataDrivenReply($intent, $message, $recentHistory);
-            if ($dbReply !== null) {
-                $this->chatHistory->addMessage('user', $message, $intent);
-                $this->chatHistory->addMessage('assistant', $dbReply);
-                $this->logInteraction($message, $dbReply, $intent, 'database');
                 return [
-                    'success'  => true,
-                    'reply'    => $dbReply,
-                    'intent'   => $intent,
-                    'model'    => null,
-                    'source'   => 'database',
+                    'success' => true,
+                    'reply' => $reply,
+                    'intent' => 'emergency',
+                    'model' => null,
+                    'source' => 'crisis_safety',
+                ];
+            } else {
+                $reply = "⚠️ **EMERGENCY DETECTED**\n\nThis sounds like an urgent medical situation. Please seek immediate help right now:\n\n";
+                $reply .= "• **Go to the BPC School Clinic immediately** 🏃\n";
+                $reply .= "• If the clinic is closed or you need an ambulance, call **emergency services (911)** 🚑\n";
+                $reply .= "• Contact **campus security** or staff nearby for assistance.\n\n";
+                $reply .= "Please don't wait — prioritize your safety and get help now! 🚨";
+
+                $this->chatHistory->addMessage('user', $message, 'emergency');
+                $this->chatHistory->addMessage('assistant', $reply);
+                $this->logInteraction($message, $reply, 'emergency', 'emergency_detector');
+
+                return [
+                    'success' => true,
+                    'reply' => $reply,
+                    'intent' => 'emergency',
+                    'model' => null,
+                    'source' => 'emergency_detector',
                 ];
             }
         }
 
-        // 3. Fetch database context
+        // 2. Retrieve recent history and detect intent
+        $recentHistory = $this->chatHistory->getRecent(6);
+        $intent = $this->intentDetector->detect($message, $recentHistory);
+
+        // 3. Fetch comprehensive live database context
         $dbContext = $this->databaseContext->buildContextSummary();
 
-// 4. Build the prompt — now includes user info & current page
+        // 4. Build prompt with multi-turn history & user info
+        $profile = ($this->user['role'] ?? '') === 'student' ? $this->databaseContext->getStudentProfile() : null;
         $userInfo = [
-            'id'   => $this->user['id'] ?? 0,
-            'name' => ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? ''),
-            'role' => $this->user['role'] ?? 'unknown',
+            'id'             => $this->user['id'] ?? 0,
+            'name'           => ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? ''),
+            'role'           => $this->user['role'] ?? 'unknown',
+            'student_number' => $profile['student_number'] ?? '',
+            'course'         => $profile['course'] ?? '',
+            'year_level'     => $profile['year_level'] ?? '',
+            'section'        => $profile['section'] ?? '',
         ];
+
         $promptData = $this->promptBuilder->build(
             $intent,
             $message,
             $dbContext,
-            $this->chatHistory->exportForApi(6),
+            $this->chatHistory->exportForApi(10),
             $userInfo,
             $this->page
         );
 
-        // 5. Try OpenRouter API
+        // 5. Query OpenRouter API with multi-turn context
         $apiResponse = null;
         $source = 'rule_based';
 
@@ -141,82 +163,103 @@ class AIService
                 $promptData['messages']
             );
 
-            if ($apiResponse['success']) {
+            if ($apiResponse['success'] && !empty(trim($apiResponse['content'] ?? ''))) {
                 $source = 'openrouter';
+                $reply = trim($apiResponse['content']);
             } else {
-                // Log why OpenRouter failed for debugging
-                error_log('[AI Debug] OpenRouter API call failed: '
+                error_log('[MICA OpenRouter Error] '
                     . 'HTTP=' . ($apiResponse['http_code'] ?? 'N/A')
                     . ' | Error=' . ($apiResponse['error'] ?? 'N/A')
-                    . ' | Type=' . ($apiResponse['error_type'] ?? 'N/A')
-                    . ' | Model=' . ($this->openRouter->getModel() ?? 'N/A')
-                    . ' | Enabled=' . ($this->openRouter->isEnabled() ? 'yes' : 'no'));
+                    . ' | Model=' . $this->openRouter->getModel());
             }
-        } else {
-            error_log('[AI Debug] OpenRouter is not enabled. API key empty or invalid. '
-                . 'Model=' . $this->openRouter->getModel()
-                . ' | Key starts with: ' . substr($this->openRouter->getApiKey(), 0, 10) . '...');
         }
 
-        // 6. Fallback to rule-based response if API fails
-        if (!$apiResponse || !$apiResponse['success']) {
-            $reply = $this->generateRuleBasedReply($message, $intent);
-        } else {
-            $reply = $apiResponse['content'];
+        // 6. If OpenRouter is not enabled or failed, use rich fallback
+        if ($source !== 'openrouter') {
+            $dbReply = $this->buildDataDrivenReply($intent, $message, $recentHistory);
+            if ($dbReply !== null) {
+                $reply = $dbReply;
+                $source = 'database_fallback';
+            } else {
+                $reply = $this->generateRuleBasedReply($message, $intent);
+                $source = 'rule_based_fallback';
+            }
         }
 
         // 7. Store in chat history
         $this->chatHistory->addMessage('user', $message, $intent);
         $this->chatHistory->addMessage('assistant', $reply);
 
-        // 8. Log the interaction
+        // 8. Log interaction
         $this->logInteraction($message, $reply, $intent, $source);
 
         return [
             'success' => true,
-            'reply' => $reply,
-            'intent' => $intent,
-            'model' => $apiResponse['model'] ?? null,
-            'source' => $source,
+            'reply'   => $reply,
+            'intent'  => $intent,
+            'model'   => $apiResponse['model'] ?? null,
+            'source'  => $source,
         ];
     }
 
     /**
-     * Generate a rule-based fallback response based on detected intent.
-     * Supports all 13 intents defined in IntentDetector.
+     * Generate fallback response based on detected intent.
      */
     private function generateRuleBasedReply(string $message, string $intent): string
     {
         $lower = mb_strtolower($message);
+        $name = $this->firstName();
 
         return match ($intent) {
-             'greeting' => "Hi there! 👋 I'm MICA, your Medical Intelligent Clinic Assistant from BPC School Clinic.\n\nHow can I help you today? I can check your medical records, appointment status, BMI, vaccination history, medicine availability, and more. Just ask!",
+            'mental_health' => "I hear you, {$name}. Dealing with academic pressure, stress, or burnout can feel heavy.\n\n"
+                . "Here are a few quick things that can help right now:\n"
+                . "• **Take a pause:** Step away from the screen for 5 minutes and take 3 deep, slow breaths.\n"
+                . "• **Break it down:** Write down just the single next task you need to do, rather than the whole project.\n"
+                . "• **Talk to someone:** Sharing what you feel with a trusted friend, family member, or the school clinic/guidance counselor makes a real difference.\n\n"
+                . "Would you like to try a quick breathing exercise together, or talk more about what is on your mind?",
 
-            'medical_record' => "**Medical Records** 📄\n\nYour medical records include all your consultation history, diagnoses, treatments, and any uploaded documents.\n\n• **To view your records:** Go to the **Medical Record** section in your dashboard\n• You can see past consultations, doctor's notes, and treatments\n• Records are kept confidential and secure\n\nWould you like me to help you find something specific in your records?",
+            'greeting' => "Hello {$name}! 👋 I'm MICA, your Medical Intelligent Clinic Assistant from BPC.\n\n"
+                . "How can I help you today? I can assist with checking appointments, medicine availability, BMI and vitals, medical records, or answer health questions.",
+
+            'medical_record' => "**Medical Records** 📄\n\n"
+                . "Your medical records include consultation history, vitals, and treatments.\n"
+                . "• Go to **Medical Record** in your navigation to view detailed history.\n"
+                . "• All records are kept confidential.",
 
             'appointment' => $this->appointmentReply($lower),
 
-            'bmi' => "**BMI (Body Mass Index)** ⚖️\n\nBMI is a measure based on your height and weight.\n\n• **To check your BMI:** Go to the **Health Monitoring** section\n• You can see your current BMI and history\n\n**BMI Categories:**\n• Below 18.5 — Underweight\n• 18.5 – 24.9 — Normal ✅\n• 25.0 – 29.9 — Overweight\n• 30.0 and above — Obese\n\nWould you like tips on maintaining a healthy weight? 😊",
+            'bmi' => "**Health Monitoring & BMI** ⚖️\n\n"
+                . "You can view your BMI records and vital signs under the **Health Monitoring** section in your dashboard.\n"
+                . "Regular checkups help maintain your overall wellness.",
 
-            'health_monitoring' => "**Health Monitoring** 🩺\n\nYou can track your vital signs in the **Health Monitoring** section:\n\n• **Height & Weight** — for BMI calculation\n• **Blood Pressure** — systolic/diastolic\n• **Heart Rate** — beats per minute\n• **Temperature** — body temperature\n• **Oxygen Saturation** — blood oxygen level\n\nRegular monitoring helps you stay on top of your health! Would you like to know more?",
+            'health_monitoring' => "**Health Monitoring** 🩺\n\n"
+                . "You can track vital signs (blood pressure, heart rate, temperature, BMI) in the **Health Monitoring** section.",
 
-            'vaccination' => "**Vaccination Records** 💉\n\nYou can view your vaccination history under **Vaccination Record** in your dashboard.\n\nThis includes:\n• Vaccine name and dose number\n• Date administered\n• Next dose due date (if applicable)\n\nIf you need a specific vaccine or booster, visit the clinic and let the nurse know!",
+            'vaccination' => "**Vaccination Records** 💉\n\n"
+                . "You can check your vaccine history in the **Vaccination Record** section of your dashboard.",
 
-            'medicine_availability' => "**Medicine Availability** 💊\n\nThe BPC Clinic maintains a medicine inventory for common ailments.\n\n• **To check medicine stock:** Visit the clinic directly\n• The nurse can dispense medicine after consultation\n• For prescription medications, you need a doctor's prescription\n\n⚠️ Always inform the nurse about any allergies before taking medicine.",
+            'medicine_availability' => "**Medicine Inventory** 💊\n\n"
+                . "The BPC Clinic provides basic over-the-counter and first-aid medicines for students during school hours.\n"
+                . "Please visit the clinic so the school nurse can assess your condition and dispense appropriate medication.",
 
-            'medical_certificate' => "**Medical Certificates** 📋\n\nYou can request a Medical Certificate if you need one for class absences or other purposes.\n\n**How to get one:**\n1. Visit the clinic for a consultation\n2. Or go to the **Medical Certificates** section in your dashboard\n3. A certificate is issued based on your consultation record\n\nNeed more details about the process? 😊",
+            'medical_certificate' => "**Medical Certificate** 📋\n\n"
+                . "To request a Medical Certificate for school absences:\n"
+                . "1. Visit the clinic for an in-person consultation, or\n"
+                . "2. Submit a request through the **Medical Certificates** section.",
 
-            'announcements' => "**Clinic Announcements** 📢\n\nYou can view the latest clinic announcements in the **Announcements** section of your dashboard.\n\nThis includes:\n• Clinic schedules and closures\n• Health awareness campaigns\n• Important health reminders\n• School health events\n\nCheck back regularly for updates! Is there a specific announcement you're looking for?",
+            'announcements' => "**Clinic Announcements** 📢\n\n"
+                . "Check the **Announcements** section in your sidebar for the latest health advisories and schedules from the school clinic.",
 
-            'clinic_schedule' => "**BPC Clinic Schedule** 🏥\n\n• **Location:** BPC Campus\n• **Services:** Consultations, first aid, health monitoring, vaccinations, medicine dispensing\n• **Staff:** Available school nurses\n\nYou can book an appointment through the system or visit during clinic hours for walk-in consultations.\n\nNeed the clinic contact number or specific hours?",
-
-            'emergency' => "⚠️ **EMERGENCY**\n\nIf you or someone near you is experiencing a medical emergency:\n\n1. **Go to the BPC Clinic immediately** 🏃\n2. If the clinic is closed, call **emergency services** 🚑\n3. Contact **campus security** for assistance\n4. Do not wait — every second counts!\n\nPlease get help right now! 🚨",
+            'clinic_schedule' => "**BPC Clinic Schedule** 🏥\n\n"
+                . "• **Location:** BPC Main Campus Clinic\n"
+                . "• **Hours:** Monday to Friday, 8:00 AM – 5:00 PM\n"
+                . "• **Services:** Consultations, First Aid, Vitals Monitoring, Medicine Dispensing.",
 
             'health_education' => $this->healthEducationReply($lower),
 
-            'general_conversation' => "I'd be happy to help! Here are some things I can assist you with:\n\n• 💊 **Medicine availability** — what's in stock\n• 📄 **Medical records** — view your history\n• 📅 **Appointments** — book or check status\n• ⚖️ **BMI** — check your body mass index\n• 🩺 **Health monitoring** — vital signs tracking\n• 💉 **Vaccinations** — view your vaccine records\n• 📋 **Medical certificates** — how to request\n• 📢 **Announcements** — latest clinic news\n• 🏥 **Clinic schedule** — hours and location\n• 📚 **Health education** — learn about conditions\n\nWhat would you like to know about? 😊",
+            'general_conversation' => "I'm here to help you with anything related to the BPC Clinic, your health records, appointments, or wellness support. What would you like to check?",
 
-            default => "I'm here to help with anything about the BPC Clinic! I can assist with appointments, health records, medicine info, and more. What's on your mind? 😊",
+            default => "I'm listening, {$name}. How can I assist you with the clinic or your health today?",
         };
     }
 
@@ -225,76 +268,54 @@ class AIService
      */
     private function appointmentReply(string $lower): string
     {
+        $name = $this->firstName();
         if (str_contains($lower, 'cancel')) {
-            return "To cancel an appointment:\n\n1. Go to your **Appointment Booking** page\n2. Find the appointment you want to cancel\n3. Contact the clinic to request cancellation\n\nIf you need to reschedule, you can book a new appointment after canceling. Need help with anything else?";
+            return "To cancel an appointment:\n\n• In our system, appointment status updates are managed by the school nurses.\n• You can coordinate directly with the clinic nurse or submit a new scheduled service request.";
         }
         if (str_contains($lower, 'reschedule')) {
-            return "To reschedule an appointment:\n\n1. Contact the clinic nurse directly or\n2. Book a new appointment and mention it's a reschedule\n\nYou can find the Appointment Booking section in your sidebar.";
+            return "To reschedule an appointment:\n\n1. Open **Scheduled Services** from the left sidebar.\n2. Submit a new request with your new preferred **Date** and **Time**.\n3. The clinic nurse will review and update your schedule.";
         }
-        if (str_contains($lower, 'status') || str_contains($lower, 'when')) {
-            return "You can check the status of your appointments in the **Appointment Booking** page in your sidebar. You'll see the status listed as:\n\n• ⏳ **Pending** — waiting for nurse approval\n• ✅ **Approved** — confirmed\n• ❌ **Rejected/Cancelled** — not approved\n• ✅ **Completed** — done\n\nIf you have an urgent concern, visit the clinic directly! 😊";
+        if (str_contains($lower, 'where') || str_contains($lower, 'see') || str_contains($lower, 'view') || str_contains($lower, 'status')) {
+            return "You can view your appointment records and current status:\n\n1. Open **Scheduled Services** (or **Appointments**) from the left sidebar.\n2. Look at the **\"My Scheduled Services\"** table.\n3. You will see your appointment **Date**, **Time**, **Reason**, **Nurse**, and current **Status** (Pending, Approved, Rescheduled, Completed, Rejected, Cancelled).";
         }
-        // Default — booking
-        return "I'd be happy to help you book an appointment! Here's how:\n\n1. Go to **Appointment Booking** in your sidebar\n2. Choose your preferred **date and time**\n3. Describe your **reason for visiting**\n4. Click **Submit Request**\n\nThe school nurse will review your request and approve or reschedule it.\n\nWould you like me to explain more about any of these steps? 📅";
+        // Default — booking workflow
+        return "Here is how to book an appointment in the clinic system:\n\n"
+            . "1. Open **Scheduled Services** (or **Appointments**) from your left sidebar menu.\n"
+            . "2. Under **Request a Scheduled Service**, select your preferred **Date**.\n"
+            . "3. Choose your preferred **Time**.\n"
+            . "4. Enter your **Reason for Visit** in the text box.\n"
+            . "5. Click **Submit Request**.\n\n"
+            . "Your request will be submitted with **Pending** status awaiting nurse review. *(Note: For urgent medical needs, you can simply walk in or scan your QR code anytime without booking!)*";
     }
 
     /**
-     * Health education reply based on keywords.
+     * Health education reply.
      */
     private function healthEducationReply(string $lower): string
     {
         if (str_contains($lower, 'dengue')) {
-            return "**About Dengue** 🦟\n\nDengue is a viral infection transmitted by mosquitoes. Common symptoms include:\n• High fever (40°C/104°F)\n• Severe headache\n• Pain behind the eyes\n• Joint and muscle pain\n• Rash\n\n**Prevention:** Use mosquito repellent, wear long sleeves, and keep your surroundings clean.\n\n⚠️ If you suspect dengue, visit the clinic immediately for proper evaluation!";
+            return "**About Dengue** 🦟\n\nCommon symptoms include high fever, severe headache, joint pain, and rashes. Use mosquito repellent and drink plenty of fluids. Visit the clinic immediately if you experience persistent high fever!";
         }
-        if (str_contains($lower, 'flu') || str_contains($lower, 'colds') || str_contains($lower, 'cough')) {
-            return "**About Colds and Flu** 🤧\n\nCommon symptoms:\n• Runny or stuffy nose\n• Sneezing\n• Sore throat\n• Cough\n• Body aches\n• Fever (more common with flu)\n\n**Self-care tips:**\n• Rest and stay hydrated 🛌\n• Warm fluids can soothe your throat ☕\n• Get plenty of sleep 😴\n\n⚠️ **See the nurse if:** symptoms last more than a week, you have high fever, or trouble breathing.";
+        if (str_contains($lower, 'flu') || str_contains($lower, 'colds') || str_contains($lower, 'ubo') || str_contains($lower, 'sipon')) {
+            return "**Colds & Flu Care** 🤧\n\nRest, drink warm water or soups, and get 7-8 hours of sleep. If symptoms persist over a week or fever rises, please see the school nurse.";
         }
         if (str_contains($lower, 'fever') || str_contains($lower, 'lagnat')) {
-            return "**About Fever** 🌡️\n\nFever is your body's natural response to infection.\n\n**Self-care:**\n• Rest and stay hydrated\n• Monitor your temperature\n• Keep cool with light clothing\n• Take paracetamol as directed (if available)\n\n⚠️ **See the nurse if:**\n• Temperature above 38.5°C\n• Fever lasts more than 2 days\n• Accompanied by rash, difficulty breathing, or severe headache";
+            return "**Fever Care** 🌡️\n\nStay well hydrated, rest in a well-ventilated room, and monitor your temperature. Visit the clinic if your temperature exceeds 38.5°C or lasts more than 2 days.";
         }
-        if (str_contains($lower, 'headache') || str_contains($lower, 'migraine')) {
-            return "**About Headaches** 🤕\n\nCommon causes:\n• Stress and tension\n• Dehydration\n• Lack of sleep\n• Eye strain from screens\n\n**Self-care tips:**\n• Rest in a quiet, dark room 😴\n• Stay hydrated 💧\n• Take breaks from screens 📱\n\n⚠️ **See the nurse if:** headache is severe, sudden, or comes with vision changes or vomiting.";
+        if (str_contains($lower, 'headache') || str_contains($lower, 'sakit ng ulo')) {
+            return "**Headache Relief** 🤕\n\nCommon causes include dehydration, screen strain, stress, and lack of sleep. Rest in a dim room and drink water. If pain is severe or sudden, visit the clinic.";
         }
-
-        return "**Health Education** 📚\n\nI can share information about various health topics, including:\n\n• 🦟 **Dengue** — symptoms and prevention\n• 🤧 **Colds and Flu** — self-care tips\n• 🌡️ **Fever** — when to seek help\n• 🤕 **Headaches** — causes and relief\n• 🥗 **Nutrition** — healthy eating tips\n• 🧘 **Stress Management** — ways to cope\n• 😴 **Sleep Hygiene** — better sleep tips\n\nWhat topic would you like to learn more about?";
+        return "I can share general wellness and self-care information. What health topic or symptom would you like to know more about?";
     }
-
-    // ================================================================
-    // DB-FIRST answer engine
-    // ================================================================
 
     private function firstName(): string
     {
-        return $this->user['first_name'] ?? 'there';
+        $first = $this->user['first_name'] ?? 'there';
+        return trim($first) !== '' ? $first : 'there';
     }
 
     /**
-     * Check whether the logged-in user actually has records for the intent.
-     */
-    private function hasDataRecords(string $intent): bool
-    {
-        try {
-            return match ($intent) {
-                'appointment'           => !empty($this->databaseContext->getAppointments()),
-                'bmi'                   => !empty($this->databaseContext->getBmiRecords()),
-                'medical_record'        => !empty($this->databaseContext->getMedicalRecords()),
-                'health_monitoring'     => !empty($this->databaseContext->getBmiRecords()),
-                'vaccination'           => !empty($this->databaseContext->getVaccinations()),
-                'medicine_availability' => !empty($this->databaseContext->getMedicines()),
-                'announcements'         => !empty($this->databaseContext->getAnnouncements()),
-                'clinic_schedule'       => !empty($this->databaseContext->getClinicSchedule()),
-                default                 => false,
-            };
-        } catch (\Throwable $e) {
-            error_log('[MICA DB Error] hasDataRecords(' . $intent . '): ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Build a personalized, factual reply directly from database records.
-     * Returns null when there is no relevant data so the caller can fall
-     * through to the LLM / rule-based general guidance.
+     * Build a personalized, factual reply directly from database records when offline.
      */
     private function buildDataDrivenReply(string $intent, string $message, array $history = []): ?string
     {
@@ -305,9 +326,8 @@ class AIService
                 'medical_record'        => $this->dataReplyMedicalRecords(),
                 'health_monitoring'     => $this->dataReplyHealthMonitoring(),
                 'vaccination'           => $this->dataReplyVaccination(),
-                'medicine_availability' => $this->dataReplyMedicines(),
+                'medicine_availability' => $this->dataReplyMedicines($message),
                 'announcements'         => $this->dataReplyAnnouncements(),
-                'clinic_schedule'       => $this->dataReplyClinicSchedule(),
                 default                 => null,
             };
         } catch (\Throwable $e) {
@@ -319,13 +339,9 @@ class AIService
     private function dataReplyAppointment(string $message): ?string
     {
         $rows = $this->databaseContext->getAppointments();
-        if (empty($rows)) return null;
         $name = $this->firstName();
-
-        $lower = mb_strtolower($message);
         $today = date('Y-m-d');
 
-        // Look for next pending/approved/completed appointment
         $upcoming = [];
         foreach ($rows as $r) {
             if (isset($r['appointment_date']) && $r['appointment_date'] >= $today
@@ -333,247 +349,121 @@ class AIService
                 $upcoming[] = $r;
             }
         }
-        usort($upcoming, fn($a, $b) => strcmp($a['appointment_date'] . ' ' . ($a['appointment_time'] ?? ''), $b['appointment_date'] . ' ' . ($b['appointment_time'] ?? '')));
 
-        if ($upcoming) {
+        if (!empty($upcoming)) {
             $a = $upcoming[0];
             $when = format_date($a['appointment_date']);
-            $time = isset($a['appointment_time']) && $a['appointment_time']
-                ? date('g:i A', strtotime($a['appointment_time'])) : '—';
-            $reason = $a['reason'] ?? 'General consultation';
+            $time = (!empty($a['appointment_time'])) ? date('g:i A', strtotime($a['appointment_time'])) : 'Anytime';
             $status = ucfirst($a['status'] ?? 'pending');
-
-            if (str_contains($lower, 'today') && $a['appointment_date'] === $today) {
-                return "📋 **From the clinic records** — Yes, {$name}, you have an appointment **today** at **{$time}** ({$status}). Reason: {$reason}.";
-            }
-            return "📋 **From the clinic records** — {$name}, your next appointment is on **{$when}** at **{$time}** ({$status}). Reason: {$reason}.";
+            $reason = $a['reason'] ?? 'Consultation';
+            return "📋 **Appointment Information**\n\n{$name}, you have an active appointment on **{$when}** at **{$time}** (Status: **{$status}**).\nReason: *{$reason}*.";
         }
 
-        // No upcoming — show the latest record so we never fabricate
-        $rows = array_values(array_filter($rows, function ($r) use ($today) {
-            return isset($r['appointment_date']) && $r['appointment_date'] < $today;
-        }));
-        if ($rows) {
-            $a = $rows[0];
-            $when = format_date($a['appointment_date']);
-            $status = ucfirst($a['status'] ?? 'completed');
-            return "📋 **From the clinic records** — I'm sorry, {$name}, I couldn't find any upcoming appointment for you. Your latest visit was on **{$when}** ({$status}). Would you like guidance on booking a new one?";
-        }
-
-        return null;
+        return "I checked our clinic records, {$name}, and you don't have any active upcoming appointments right now. Would you like help booking one?";
     }
 
     private function dataReplyBmi(): ?string
     {
         $rows = $this->databaseContext->getBmiRecords();
         if (empty($rows)) return null;
-        $name = $this->firstName();
         $latest = $rows[0];
-
         $bmi = $latest['bmi'] ?? null;
-        $status = $latest['bmi_status'] ?? null;
-        $recorded = isset($latest['recorded_at']) ? format_date($latest['recorded_at']) : null;
-        $weight = $latest['weight_kg'] ?? null;
-        $height = $latest['height_cm'] ?? null;
+        $status = $latest['bmi_status'] ?? 'Normal';
+        $weight = $latest['weight_kg'] ?? '';
+        $height = $latest['height_cm'] ?? '';
+        $name = $this->firstName();
 
-        $line = "**BMI (Body Mass Index)** ⚖️\n";
         if ($bmi !== null) {
-            $line .= "📋 **From the clinic records** — {$name}, your latest BMI is **{$bmi}** (" . ($status ? e($status) : '—') . ")";
-            if ($recorded) $line .= ", recorded on **{$recorded}**";
-            $line .= ".\n";
+            $res = "⚖️ **Your Latest Health & BMI Record**\n\n{$name}, your recorded BMI is **{$bmi}** (**{$status}**)";
+            if ($weight && $height) {
+                $res .= " with weight **{$weight} kg** and height **{$height} cm**.";
+            } else {
+                $res .= ".";
+            }
+            return $res;
         }
-        if (count($rows) > 1) {
-            $line .= "You have **" . count($rows) . "** BMI records on file.\n";
-        }
-        $line .= "\n**BMI Categories:**\n• Below 18.5 — Underweight\n• 18.5 – 24.9 — Normal ✅\n• 25.0 – 29.9 — Overweight\n• 30.0 and above — Obese\n\nWould you like general wellness tips to keep a healthy weight? 😊";
-        return $line;
+        return null;
     }
 
     private function dataReplyMedicalRecords(): ?string
     {
-        $rows = $this->databaseContext->getMedicalRecords();
-        if (empty($rows)) return null;
+        $records = $this->databaseContext->getMedicalRecords();
         $name = $this->firstName();
-
-        $lines = ["**Medical Records** 📄\n", "📋 **From the clinic records** — {$name}, I found **" . count($rows) . "** medical record(s):\n"];
-        $shown = 0;
-        foreach ($rows as $r) {
-            if ($shown >= 3) break;
-            $date = isset($r['consultation_date']) ? format_date($r['consultation_date']) : (isset($r['uploaded_at']) ? format_date($r['uploaded_at']) : null);
-            $dx = $r['diagnosis'] ?? $r['description'] ?? null;
-            if ($date || $dx) {
-                $lines[] = "• " . ($date ? "**{$date}**" : '') . ($date && $dx ? ' — ' : '') . ($dx ? e($dx) : '') . ($r['treatment'] ?? '' ? ' · ' . e($r['treatment']) : '');
-                $shown++;
-            }
+        if (empty($records)) {
+            return "You don't have any consultation records on file yet, {$name}. If you feel unwell, feel free to visit the school clinic!";
         }
-        if (count($rows) > 3) $lines[] = "…and " . (count($rows) - 3) . " more record(s).";
-        $lines[] = "\nRecords are kept confidential and secure. Would you like me to help you find something specific?";
-        return implode("\n", $lines);
+        $r = $records[0];
+        $d = !empty($r['consultation_date']) ? format_date($r['consultation_date']) : 'Recent';
+        $diag = $r['diagnosis'] ?? 'General Consultation';
+        $treat = $r['treatment'] ?? 'Self-care advice';
+        return "📄 **Latest Clinic Record**\n\n• **Date:** {$d}\n• **Diagnosis:** {$diag}\n• **Treatment:** {$treat}\n\nYou can see full records in your **Medical Record** page.";
     }
 
     private function dataReplyHealthMonitoring(): ?string
     {
-        $rows = $this->databaseContext->getBmiRecords();
-        if (empty($rows)) return null;
-        $name = $this->firstName();
-        $latest = $rows[0];
-
-        $line = "**Health Monitoring** 🩺\n";
-        $line .= "📋 **From the clinic records** — {$name}, your latest vitals (recorded " . (isset($latest['recorded_at']) ? format_date($latest['recorded_at']) : 'recently') . "):\n";
-
-        $fields = [
-            'height_cm' => 'Height',
-            'weight_kg' => 'Weight',
-        ];
-        $stats = [];
-        foreach ($fields as $col => $label) {
-            if (!empty($latest[$col])) $stats[] = "{$label}: {$latest[$col]}";
-        }
-        foreach (['blood_pressure', 'heart_rate', 'pulse_rate', 'temperature', 'oxygen_saturation'] as $col) {
-            if (!empty($latest[$col])) $stats[] = "{$col}: " . $latest[$col];
-        }
-        if ($stats) $line .= "• " . implode(', ', $stats) . "\n";
-        if (isset($latest['bmi'])) $line .= "• BMI: **" . $latest['bmi'] . "** (" . e($latest['bmi_status'] ?? '') . ")\n";
-
-        $line .= "\nRegular monitoring helps you stay on top of your health! Would you like tips?";
-        return $line;
+        return $this->dataReplyBmi();
     }
 
     private function dataReplyVaccination(): ?string
     {
-        $rows = $this->databaseContext->getVaccinations();
-        if (empty($rows)) return null;
+        $vax = $this->databaseContext->getVaccinations();
         $name = $this->firstName();
-
-        $lines = ["**Vaccination Records** 💉\n", "📋 **From the clinic records** — {$name}, you have **" . count($rows) . "** vaccination record(s):\n"];
-        $shown = 0;
-        foreach ($rows as $r) {
-            if ($shown >= 5) break;
-            $vax = $r['vaccine_name'] ?? 'Vaccine';
-            $dose = isset($r['dose_number']) ? ' (Dose ' . $r['dose_number'] . ')' : '';
-            $date = isset($r['date_administered']) ? format_date($r['date_administered']) : '';
-            $lines[] = "• **" . e($vax) . "**" . $dose . ($date ? " — {$date}" : '');
-            $shown++;
+        if (empty($vax)) {
+            return "No vaccination records are currently logged for you, {$name}. If you received vaccines at the clinic or have certificates to log, visit the clinic nurse!";
         }
-        if (count($rows) > 5) $lines[] = "…and " . (count($rows) - 5) . " more.";
-        $lines[] = "\nIf you need a specific vaccine or booster, visit the clinic and let the nurse know!";
-        return implode("\n", $lines);
+        $res = "💉 **Vaccination Records**\n\n";
+        foreach (array_slice($vax, 0, 3) as $v) {
+            $res .= "• **{$v['vaccine_name']}** (Dose {$v['dose_number']}) - " . format_date($v['date_administered']) . "\n";
+        }
+        return $res;
     }
 
-    private function dataReplyMedicines(): ?string
+    private function dataReplyMedicines(string $message): ?string
     {
-        $rows = $this->databaseContext->getMedicines();
-        if (empty($rows)) return null;
-        $name = $this->firstName();
-        $role = $this->user['role'] ?? '';
+        $meds = $this->databaseContext->getMedicines();
+        if (empty($meds)) return null;
 
-        if ($role === 'student') {
-            $m = $rows[0];
-            $avail = (int)($m['available'] ?? 0);
-            $low = (int)($m['low_stock'] ?? 0);
-            $out = (int)($m['out_of_stock'] ?? 0);
-            $line = "**Medicine Availability** 💊\n";
-            $line .= "📋 **From the clinic records** — The clinic currently has:\n";
-            $line .= "• **{$avail}** medicine type(s) in stock\n";
-            if ($low > 0) $line .= "• {$low} running **low**\n";
-            if ($out > 0) $line .= "• {$out} **out of stock**\n";
-            $line .= "\nThe nurse can dispense medicine after a consultation. Always inform the nurse about any allergies before taking medicine.";
-            return $line;
+        $inStock = [];
+        foreach ($meds as $m) {
+            $name = $m['medicine_name'] ?? '';
+            $avail = (isset($m['is_available']) && $m['is_available']) || (isset($m['quantity']) && $m['quantity'] > 0);
+            if ($name && $avail) {
+                $inStock[] = $name;
+            }
         }
 
-        // Nurse/Admin — show actual stock levels
-        $lines = ["**Medicine Inventory** 💊\n", "📋 **From the clinic records**, here's the current inventory:\n"];
-        $shown = 0;
-        foreach ($rows as $m) {
-            if ($shown >= 8) break;
-            $qty = $m['quantity'] ?? 0;
-            $unit = $m['unit'] ?? 'unit(s)';
-            $reorder = $m['reorder_level'] ?? 0;
-            $flag = $qty <= $reorder ? ' ⚠️' : '';
-            $lines[] = "• {$m['medicine_name']} — **{$qty} {$unit}**{$flag}";
-            $shown++;
+        $lower = mb_strtolower($message);
+        foreach ($inStock as $item) {
+            if (str_contains($lower, mb_strtolower($item))) {
+                return "💊 **Medicine Available**\n\nYes, **{$item}** is currently in stock at the BPC Clinic. Please visit the clinic so the school nurse can properly assist and dispense it to you.";
+            }
         }
-        if (count($rows) > 8) $lines[] = "…and " . (count($rows) - 8) . " more.";
-        $lines[] = "\nTotal: **" . count($rows) . "** medicine item(s) on file.";
-        return implode("\n", $lines);
+
+        if (!empty($inStock)) {
+            return "💊 **Clinic Medicines**\n\nThe clinic has common medicines in stock (such as " . implode(', ', array_slice($inStock, 0, 5)) . "). Please visit the clinic nurse for evaluation and dispensing.";
+        }
+        return null;
     }
 
     private function dataReplyAnnouncements(): ?string
     {
-        $rows = $this->databaseContext->getAnnouncements();
-        if (empty($rows)) return null;
-
-        $lines = ["**Clinic Announcements** 📢\n", "📋 **From the clinic records**, here are the latest announcements:\n"];
-        $shown = 0;
-        foreach ($rows as $a) {
-            if ($shown >= 5) break;
-            $pin = !empty($a['is_pinned']) ? ' 📌' : '';
-            $date = isset($a['created_at']) ? format_date($a['created_at']) : '';
-            $lines[] = "• **" . e($a['title']) . "**" . $pin . ($date ? " — {$date}" : '') . "\n  " . e(mb_substr($a['content'] ?? '', 0, 120)) . (mb_strlen($a['content'] ?? '') > 120 ? '…' : '');
-            $shown++;
-        }
-        $lines[] = "\nCheck the Announcements section for full details!";
-        return implode("\n", $lines);
+        $ann = $this->databaseContext->getAnnouncements();
+        if (empty($ann)) return "There are no new clinic announcements at this time.";
+        $a = $ann[0];
+        $title = $a['title'] ?? 'Clinic Update';
+        $content = strip_tags($a['content'] ?? '');
+        return "📢 **Latest Announcement: {$title}**\n\n{$content}\n\nCheck the **Announcements** page for more details.";
     }
 
-    private function dataReplyClinicSchedule(): ?string
-    {
-        $schedule = $this->databaseContext->getClinicSchedule();
-        if (empty($schedule)) return null;
-
-        $name = $schedule['clinic_name'] ?? 'BPC School Clinic';
-        $address = $schedule['school_address'] ?? 'Bulacan Polytechnic College Campus';
-        $contact = $schedule['clinic_contact'] ?? 'Contact the clinic directly';
-
-        return "**BPC Clinic Schedule** 🏥\n"
-            . "📋 **From the clinic records**:\n"
-            . "• **{$name}**\n"
-            . "• 📍 {$address}\n"
-            . "• ☎️ {$contact}\n\n"
-            . "Appointments can be booked through the system, or you may walk in during clinic hours for consultations. Need help booking? 😊";
-    }
-
-    /**
-     * Personalized "not found" note shown when a data intent has no records.
-     * Clearly separates the factual system status from general AI advice.
-     */
-    private function buildDataGapNote(string $intent): string
-    {
-        $name = $this->firstName();
-        $note = match ($intent) {
-            'appointment'           => "I'm sorry, {$name}, I couldn't find any appointment records for you yet.",
-            'bmi'                   => "I'm sorry, {$name}, I couldn't find any BMI records for you yet. Visit the clinic or check the Health Monitoring section after your next vitals check.",
-            'medical_record'        => "I'm sorry, {$name}, I couldn't find any medical records for you yet.",
-            'health_monitoring'     => "I'm sorry, {$name}, I couldn't find any health monitoring records for you yet.",
-            'vaccination'           => "I'm sorry, {$name}, I couldn't find any vaccination records for you yet.",
-            'medicine_availability' => "I'm sorry, {$name}, the clinic's medicine inventory is currently empty or unavailable.",
-            'announcements'         => "I'm sorry, {$name}, there are no clinic announcements posted right now.",
-            'clinic_schedule'       => "I'm sorry, {$name}, the clinic's schedule details haven't been configured yet.",
-            default                 => "I'm sorry, {$name}, I couldn't find that information in the clinic records.",
-        };
-        return $note . "\n\nI can still share general guidance about this topic — please confirm if you'd like that.";
-    }
-
-    /**
-     * Log the AI interaction to the activity log.
-     */
     private function logInteraction(string $message, string $reply, string $intent, string $source): void
     {
         try {
-            log_activity(
-                $this->user['id'],
-                'AI: ' . $intent . ' (' . $source . ')',
-                'ai_assistant',
-                mb_substr($message, 0, 100)
-            );
-        } catch (\Exception $e) {
-            // Silently fail
+            $userId = $this->user['id'] ?? null;
+            if ($userId) {
+                log_activity($userId, 'MICA Interaction', 'ai_assistant', "Intent: {$intent} | Source: {$source}");
+            }
+        } catch (\Throwable $e) {
+            // Silently fail if logging fails
         }
     }
-
-    public function getChatHistory(): ChatHistory { return $this->chatHistory; }
-    public function getDatabaseContext(): DatabaseContext { return $this->databaseContext; }
-    public function getIntentDetector(): IntentDetector { return $this->intentDetector; }
-    public function getOpenRouter(): OpenRouter { return $this->openRouter; }
 }
-

@@ -51,6 +51,36 @@ class DatabaseContext
     }
 
     // ================================================================
+    // STUDENT PROFILE
+    // ================================================================
+
+    /**
+     * Get full student profile for logged-in student.
+     */
+    public function getStudentProfile(): ?array
+    {
+        if ($this->getRole() !== 'student') return null;
+        try {
+            $stmt = $this->db->prepare("
+                SELECT s.id AS student_id, s.student_number, s.course, s.year_level, s.section,
+                       s.gender, s.birthdate, s.address, s.blood_type, s.allergies,
+                       s.guardian_name, s.guardian_contact,
+                       s.emergency_contact_name, s.emergency_contact_number,
+                       u.first_name, u.last_name, u.email, u.phone
+                FROM students s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.user_id = ?
+            ");
+            $stmt->execute([$this->getUserId()]);
+            $res = $stmt->fetch();
+            return $res ?: null;
+        } catch (PDOException $e) {
+            error_log('[MICA DB Error] getStudentProfile: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    // ================================================================
     // MEDICAL RECORDS
     // ================================================================
 
@@ -175,7 +205,7 @@ class DatabaseContext
             if (!$studentId) return [];
 
             $stmt = $this->db->prepare("
-                SELECT id, height_cm, weight_kg, bmi, bmi_status, recorded_at
+                SELECT id, height_cm, weight_kg, bmi, bmi_status, blood_pressure, heart_rate, temperature, recorded_at
                 FROM health_monitoring
                 WHERE student_id = ? AND bmi IS NOT NULL
                 ORDER BY recorded_at DESC
@@ -279,14 +309,11 @@ class DatabaseContext
         $role = $this->getRole();
 
         if ($role === 'student') {
-            // Students can only see medicine availability status, not sensitive details
+            // Students see available medicine catalog
             $stmt = $this->db->query("
-                SELECT 
-                    COUNT(*) AS total_medicines,
-                    SUM(CASE WHEN quantity > 0 THEN 1 ELSE 0 END) AS available,
-                    SUM(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 ELSE 0 END) AS low_stock,
-                    SUM(CASE WHEN quantity = 0 THEN 1 ELSE 0 END) AS out_of_stock
+                SELECT id, medicine_name, category, (quantity > 0) AS is_available, unit
                 FROM medicines WHERE is_archived = 0
+                ORDER BY medicine_name ASC
             ");
             return $stmt->fetchAll();
         }
@@ -303,15 +330,15 @@ class DatabaseContext
         }
 
         // Admin — analytics only
-            $stmt = $this->db->query("
-                SELECT 
-                    COUNT(*) AS total_medicines,
-                    SUM(quantity) AS total_units,
-                    SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) AS low_stock_count,
-                    SUM(CASE WHEN expiration_date IS NOT NULL AND expiration_date < CURDATE() THEN 1 ELSE 0 END) AS expired_count,
-                    ROUND(AVG(quantity), 0) AS average_quantity
-                FROM medicines WHERE is_archived = 0
-            ");
+        $stmt = $this->db->query("
+            SELECT 
+                COUNT(*) AS total_medicines,
+                SUM(quantity) AS total_units,
+                SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) AS low_stock_count,
+                SUM(CASE WHEN expiration_date IS NOT NULL AND expiration_date < CURDATE() THEN 1 ELSE 0 END) AS expired_count,
+                ROUND(AVG(quantity), 0) AS average_quantity
+            FROM medicines WHERE is_archived = 0
+        ");
         return $stmt->fetchAll();
     }
 
@@ -328,7 +355,6 @@ class DatabaseContext
     {
         $role = $this->getRole();
 
-        // Students and Nurses see relevant announcements
         if (in_array($role, ['student', 'nurse'])) {
             $stmt = $this->db->prepare("
                 SELECT a.title, a.content, a.is_pinned, a.created_at,
@@ -366,7 +392,6 @@ class DatabaseContext
     {
         $role = $this->getRole();
 
-        // All roles can see clinic info, but admin sees all settings
         if ($role === 'admin') {
             $stmt = $this->db->query("SELECT setting_key, setting_value FROM system_settings ORDER BY setting_key");
             $settings = [];
@@ -376,7 +401,6 @@ class DatabaseContext
             return $settings;
         }
 
-        // Students and Nurses see only public info
         $stmt = $this->db->query("
             SELECT setting_key, setting_value 
             FROM system_settings 
@@ -396,7 +420,6 @@ class DatabaseContext
 
     /**
      * Get recent QR scan logs for the current context.
-     * Nurses see all recent scans; students see only their own.
      *
      * @return array
      */
@@ -475,7 +498,6 @@ class DatabaseContext
 
     /**
      * Get a summary of the logged-in student's visit context for MICA.
-     * Returns queue_number, appointment status, last scan, recent vitals.
      */
     public function getStudentVisitSummary(): array
     {
@@ -566,7 +588,6 @@ class DatabaseContext
 
     /**
      * Get all context data in one array.
-     * Use this for building AI prompts.
      *
      * @return array
      */
@@ -612,7 +633,7 @@ class DatabaseContext
 
     /**
      * Build a plain-text context summary string for AI prompts.
-     * This is what getContextSummary() used to return.
+     * This provides real, structured data to MICA.
      *
      * @return string
      */
@@ -622,117 +643,161 @@ class DatabaseContext
         $role = $this->getRole();
         $parts = [];
 
-        $parts[] = "User Role: " . strtoupper($role);
+        $parts[] = "### LOGGED-IN USER IDENTITY";
+        $parts[] = "Role: " . strtoupper($role);
+        $parts[] = "Name: " . ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? '');
 
-        // Medical Records
-        $records = $data['medical_records'];
-        if (!empty($records)) {
-            if ($role === 'admin') {
-                $r = $records[0];
-                $parts[] = "Medical Records Analytics: {$r['total_records']} total records, {$r['total_students_with_records']} students";
-            } else {
-                $parts[] = "Medical Records: " . count($records) . " records found";
+        if ($role === 'student') {
+            $profile = $this->getStudentProfile();
+            if ($profile) {
+                $pInfo = [];
+                if (!empty($profile['student_number'])) $pInfo[] = "Student ID: " . $profile['student_number'];
+                if (!empty($profile['course'])) $pInfo[] = "Course: " . $profile['course'];
+                if (!empty($profile['year_level'])) $pInfo[] = "Year Level: " . $profile['year_level'];
+                if (!empty($profile['section'])) $pInfo[] = "Section: " . $profile['section'];
+                if (!empty($pInfo)) {
+                    $parts[] = implode(" | ", $pInfo);
+                }
             }
         }
 
         // Appointments
-        $appts = $data['appointments'];
+        $appts = $data['appointments'] ?? [];
         if (!empty($appts)) {
-            if ($role === 'admin') {
-                $a = $appts[0];
-                $parts[] = "Appointments: {$a['total_appointments']} total ({$a['pending']} pending, {$a['approved']} approved, {$a['completed']} completed)";
+            $parts[] = "\n### APPOINTMENTS IN CLINIC DATABASE";
+            if ($role === 'student') {
+                $today = date('Y-m-d');
+                $upcoming = [];
+                $past = [];
+                foreach ($appts as $a) {
+                    $d = $a['appointment_date'] ?? '';
+                    $t = (!empty($a['appointment_time'])) ? date('g:i A', strtotime($a['appointment_time'])) : 'Anytime';
+                    $st = ucfirst($a['status'] ?? 'pending');
+                    $r = $a['reason'] ?? 'General Consultation';
+                    $line = "- Date: " . format_date($d) . " at {$t} (Status: {$st}, Reason: \"{$r}\")";
+                    if ($d >= $today && in_array($a['status'] ?? '', ['pending', 'approved'], true)) {
+                        $upcoming[] = $line;
+                    } else {
+                        $past[] = $line;
+                    }
+                }
+                if (!empty($upcoming)) {
+                    $parts[] = "Active/Upcoming Appointments for this student:\n" . implode("\n", array_slice($upcoming, 0, 3));
+                } else {
+                    $parts[] = "No active upcoming appointments found for this student.";
+                    if (!empty($past)) {
+                        $parts[] = "Most Recent Past Appointment:\n" . $past[0];
+                    }
+                }
             } else {
-                $upcoming = array_filter($appts, fn($a) => ($a['status'] ?? '') === 'approved' || ($a['status'] ?? '') === 'pending');
-                $parts[] = "Appointments: " . count($upcoming) . " upcoming";
+                $parts[] = "Total Appointments: " . count($appts);
+            }
+        } else if ($role === 'student') {
+            $parts[] = "\n### APPOINTMENTS: No appointment records found for this student in the clinic system.";
+        }
+
+        // BMI & Vitals
+        $bmi = $data['bmi_records'] ?? [];
+        if (!empty($bmi)) {
+            $parts[] = "\n### HEALTH MONITORING & VITAL SIGNS";
+            if ($role === 'student') {
+                $latest = $bmi[0];
+                $bLine = "- Latest BMI: " . ($latest['bmi'] ?? 'N/A') . " (" . ($latest['bmi_status'] ?? 'N/A') . ")";
+                if (!empty($latest['weight_kg'])) $bLine .= " | Weight: {$latest['weight_kg']} kg";
+                if (!empty($latest['height_cm'])) $bLine .= " | Height: {$latest['height_cm']} cm";
+                if (!empty($latest['recorded_at'])) $bLine .= " | Date: " . format_date($latest['recorded_at']);
+                $parts[] = $bLine;
+                if (!empty($latest['blood_pressure'])) $parts[] = "- Blood Pressure: {$latest['blood_pressure']}";
+                if (!empty($latest['heart_rate'])) $parts[] = "- Heart Rate: {$latest['heart_rate']} bpm";
+                if (!empty($latest['temperature'])) $parts[] = "- Temperature: {$latest['temperature']} °C";
+            } else {
+                $b = $bmi[0];
+                $parts[] = "BMI Records Count: " . count($bmi);
             }
         }
 
-        // BMI
-        $bmi = $data['bmi_records'];
-        if (!empty($bmi)) {
-            if ($role === 'admin') {
-                $b = $bmi[0];
-                $parts[] = "BMI Analytics: Avg {$b['average_bmi']}, Underweight {$b['underweight']}, Normal {$b['normal']}, Overweight {$b['overweight']}, Obese {$b['obese']}";
-            } elseif ($role === 'student') {
-                $latest = $bmi[0];
-                $parts[] = "Latest BMI: {$latest['bmi']} ({$latest['bmi_status']})";
+        // Medical Records / Consultations
+        $records = $data['medical_records'] ?? [];
+        if (!empty($records) && $role === 'student') {
+            $parts[] = "\n### MEDICAL & CONSULTATION RECORDS";
+            $rLines = [];
+            foreach (array_slice($records, 0, 3) as $rec) {
+                $cDate = !empty($rec['consultation_date']) ? format_date($rec['consultation_date']) : 'Recent';
+                $diag = $rec['diagnosis'] ?? 'Checkup';
+                $treat = $rec['treatment'] ?? 'None recorded';
+                $rLines[] = "- {$cDate}: Diagnosis: {$diag} | Treatment: {$treat}";
             }
+            $parts[] = implode("\n", $rLines);
         }
 
         // Vaccinations
-        $vax = $data['vaccinations'];
-        if (!empty($vax)) {
-            if ($role === 'admin') {
-                $v = $vax[0];
-                $parts[] = "Vaccinations: {$v['total_vaccinations']} total, {$v['total_students_vaccinated']} students";
-            } else {
-                $parts[] = "Vaccination Records: " . count($vax) . " entries";
+        $vax = $data['vaccinations'] ?? [];
+        if (!empty($vax) && $role === 'student') {
+            $parts[] = "\n### VACCINATION RECORDS";
+            $vLines = [];
+            foreach (array_slice($vax, 0, 5) as $v) {
+                $vDate = !empty($v['date_administered']) ? format_date($v['date_administered']) : 'Recorded';
+                $vLines[] = "- " . ($v['vaccine_name'] ?? 'Vaccine') . " (Dose " . ($v['dose_number'] ?? '1') . ") on {$vDate}";
             }
+            $parts[] = implode("\n", $vLines);
         }
 
-        // Medicines
-        $meds = $data['medicines'];
+        // Medicines in Stock
+        $meds = $data['medicines'] ?? [];
         if (!empty($meds)) {
-            if ($role === 'student') {
-                $m = $meds[0];
-                $parts[] = "Medicine Inventory: {$m['available']} available, {$m['low_stock']} low stock";
-            } elseif ($role === 'nurse') {
-                $low = array_filter($meds, fn($m) => ($m['is_low'] ?? 0) == 1);
-                $parts[] = "Medicine Inventory: " . count($meds) . " items, " . count($low) . " low stock alerts";
-            } else {
-                $m = $meds[0];
-                $parts[] = "Inventory Analytics: {$m['total_medicines']} items, {$m['low_stock_count']} low stock, {$m['expired_count']} expired";
+            $parts[] = "\n### CLINIC MEDICINE INVENTORY (ACTUAL DATABASE STOCK)";
+            if ($role === 'student' || $role === 'nurse') {
+                $inStock = [];
+                $outStock = [];
+                foreach ($meds as $m) {
+                    $name = $m['medicine_name'] ?? '';
+                    if (!$name) continue;
+                    $avail = (isset($m['is_available']) && $m['is_available']) || (isset($m['quantity']) && $m['quantity'] > 0);
+                    if ($avail) {
+                        $inStock[] = $name . (!empty($m['category']) ? " ({$m['category']})" : '');
+                    } else {
+                        $outStock[] = $name;
+                    }
+                }
+                if (!empty($inStock)) {
+                    $parts[] = "Available in Clinic: " . implode(', ', array_slice($inStock, 0, 20));
+                }
+                if (!empty($outStock)) {
+                    $parts[] = "Currently Out of Stock: " . implode(', ', array_slice($outStock, 0, 10));
+                }
             }
         }
 
         // Announcements
-        $ann = $data['announcements'];
+        $ann = $data['announcements'] ?? [];
         if (!empty($ann)) {
-            $parts[] = "Recent Announcements: " . count($ann) . " posted";
+            $parts[] = "\n### RECENT CLINIC ANNOUNCEMENTS";
+            $aLines = [];
+            foreach (array_slice($ann, 0, 3) as $a) {
+                $aTitle = $a['title'] ?? 'Announcement';
+                $aBody = mb_substr(strip_tags($a['content'] ?? ''), 0, 100);
+                $aLines[] = "- \"{$aTitle}\": {$aBody}...";
+            }
+            $parts[] = implode("\n", $aLines);
         }
 
         // Clinic Schedule
-        $schedule = $data['clinic_schedule'];
-        if (!empty($schedule)) {
-            $name = $schedule['clinic_name'] ?? 'BPC Clinic';
-            $parts[] = "Clinic: {$name}";
-        }
+        $schedule = $data['clinic_schedule'] ?? [];
+        $parts[] = "\n### CLINIC SCHEDULE & SERVICES";
+        $parts[] = "Location: Bulacan Polytechnic College (BPC) Main Campus Clinic";
+        $parts[] = "Hours: Monday - Friday, 8:00 AM - 5:00 PM (Regular School Hours)";
+        $parts[] = "Services: First Aid, Health Checkup/Monitoring, Consultations, Medicine Dispensing, Medical Certificates, Vaccine Records";
 
-        // QR Scan Logs
-        $logs = $data['scan_logs'];
-        if (!empty($logs)) {
-            if ($role === 'admin') {
-                $parts[] = "QR Scans by Purpose: " . implode(', ', array_map(
-                    fn($l) => "{$l['purpose']}({$l['cnt']})", $logs
-                ));
-            } else {
-                $parts[] = "Recent QR Scans: " . count($logs);
-            }
-        }
-
-        // Current Queue
-        $queue = $data['current_queue'];
-        if (!empty($queue) && $role !== 'student') {
-            $parts[] = "Active Queue: " . count($queue) . " patients waiting/serving";
-        }
-
-        // Student Visit Summary (for MICA AI integration after QR scan)
+        // Current Queue / Active Visit
         $visit = $data['student_visit'] ?? [];
         if (!empty($visit) && $role === 'student') {
             if (isset($visit['active_queue'])) {
-                $parts[] = "Your Queue: " . $visit['active_queue']['queue_number'] .
-                           " (" . $visit['active_queue']['status'] . ")";
-            }
-            if (isset($visit['today_appointment'])) {
-                $parts[] = "Today's Appointment: " . $visit['today_appointment']['status'];
-            }
-            if (isset($visit['last_scan'])) {
-                $parts[] = "Last QR Scan: " . $visit['last_scan']['purpose'] .
-                           " at " . date('g:i A', strtotime($visit['last_scan']['scan_time']));
+                $parts[] = "\n### TODAY'S CLINIC VISIT / QUEUE";
+                $parts[] = "Active Queue Number: " . $visit['active_queue']['queue_number'] .
+                           " (Status: " . ucfirst($visit['active_queue']['status']) . ")";
             }
         }
 
         return implode("\n", $parts);
     }
 }
-

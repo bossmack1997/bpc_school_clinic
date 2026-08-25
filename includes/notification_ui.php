@@ -294,6 +294,7 @@ window.__initNotificationUI = function () {
           $row.addClass('selected-notification');
           $row.get(0).scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
+        showNotificationDetails(selectedNotificationId);
       }
     }, 'json').fail(function () {
       const failHtml = '<tr><td colspan="7" class="text-center text-muted py-4">Unable to load notifications. Please try again later.</td></tr>';
@@ -329,10 +330,10 @@ window.__initNotificationUI = function () {
   // ============================================================
   // View details
   // ============================================================
-  $(document).on('click', '.view-notif', function () {
-    const id = $(this).data('id');
+  function showNotificationDetails(id) {
+    if (!id) return;
     $.get(APP + '/api/notifications.php', { action: 'details', id }, function (res) {
-      if (!res.success) return toastError(res.message);
+      if (!res.success) return;
       const n = res.data;
 
       // Emergency SOS → specialized modal
@@ -372,6 +373,11 @@ window.__initNotificationUI = function () {
       new bootstrap.Modal(document.getElementById('notifDetailModal')).show();
       if (typeof window.loadNotifications === 'function') window.loadNotifications();
     }, 'json');
+  }
+
+  $(document).on('click', '.view-notif', function () {
+    const id = $(this).data('id');
+    showNotificationDetails(id);
   });
 
   $(document).on('click', '#notifTable tbody tr', function (e) {
@@ -393,10 +399,37 @@ window.__initNotificationUI = function () {
   // ============================================================
   function openNotifSos(n) {
     const sos = n.sos || {};
-    const hasLoc = sos.latitude != null && sos.longitude != null;
-    const mapsUrl = hasLoc ? 'https://www.google.com/maps?q=' + sos.latitude + ',' + sos.longitude : '#';
+    const hasGps = sos.latitude != null && sos.longitude != null && sos.latitude !== '' && sos.longitude !== '';
+    const mapsUrl = hasGps ? 'https://www.google.com/maps?q=' + encodeURIComponent(sos.latitude + ',' + sos.longitude) : '#';
+    const isManual = sos.location_source === 'manual' || (!hasGps && sos.location);
     const statusLabels = { active: 'Active', responded: 'Responded', resolved: 'Resolved', false_alarm: 'False Alarm' };
     const statusColors = { active: 'danger', responded: 'warning text-dark', resolved: 'success', false_alarm: 'secondary' };
+
+    let locationHtml = '';
+    if (hasGps) {
+      const latF = Number(sos.latitude).toFixed(6);
+      const lngF = Number(sos.longitude).toFixed(6);
+      const accLabel = sos.location_accuracy ? 'Accuracy: ±' + escapeHtml(sos.location_accuracy) : 'Accuracy: ±8 meters';
+      locationHtml =
+        `<div class="p-3 bg-light rounded-3 border border-danger-subtle">
+           <div class="fw-bold text-danger mb-1"><i class="bi bi-crosshair me-1"></i> Current Location (Live GPS):</div>
+           <div class="fs-6 fw-bold text-dark mb-1">${latF}, ${lngF}</div>
+           <div class="small text-muted mb-2">${accLabel} · Updated: ${escapeHtml(formatFull(sos.location_updated_at || sos.sos_created_at))}</div>
+           <a href="${mapsUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-danger">
+             <i class="bi bi-box-arrow-up-right me-1"></i> View on Map
+           </a>
+         </div>`;
+    } else if (isManual && sos.location) {
+      const repName = [sos.reporter_first_name, sos.reporter_last_name].filter(Boolean).join(' ');
+      locationHtml =
+        `<div class="p-3 bg-light rounded-3 border border-primary-subtle">
+           <div class="fw-bold text-primary mb-1"><i class="bi bi-geo-alt-fill text-danger me-1"></i> Reported Location:</div>
+           <div class="fs-6 fw-bold text-dark mb-1">${escapeHtml(sos.location)}</div>
+           <div class="small text-muted">Manually reported by Adviser${repName ? ' (' + escapeHtml(repName) + ')' : ''}</div>
+         </div>`;
+    } else {
+      locationHtml = `<div class="p-2 rounded-3 bg-light text-muted small"><i class="bi bi-info-circle me-1"></i>Location unavailable.</div>`;
+    }
 
     const html =
       `<div class="mb-3 text-center">
@@ -416,11 +449,9 @@ window.__initNotificationUI = function () {
          <div class="col-6"><div class="text-muted">Contact</div><div class="fw-semibold">${escapeHtml(sos.phone || '—')}</div></div>
        </div>
        <hr>
-       <div class="small">
-         <div class="text-muted mb-1">Current Location</div>
-         ${hasLoc
-           ? '<div class="d-flex flex-wrap gap-2 align-items-center"><span class="fw-semibold">Lat: ' + sos.latitude + '</span><span class="fw-semibold">Lng: ' + sos.longitude + '</span><a href="' + mapsUrl + '" target="_blank" rel="noopener" class="btn btn-sm btn-primary"><i class="bi bi-geo-alt-fill me-1"></i> Google Maps</a></div>'
-           : '<span class="text-muted"><i class="bi bi-info-circle me-1"></i>Location unavailable.</span>'}
+       <div>
+         <div class="text-muted small mb-1 fw-semibold">Location</div>
+         ${locationHtml}
        </div>`;
 
     $('#notifSosBody').html(html);

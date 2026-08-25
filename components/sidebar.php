@@ -40,12 +40,13 @@ $sbNav = [
                  ['bell-fill', 'Notifications', 'notifications.php'],
                  ['megaphone-fill', 'Announcements', 'announcements.php'],
              ],
-             'Administration' => [
-                 ['person-badge-fill', 'User Management', 'users.php'],
-                 ['hourglass-split', 'Pending Accounts', 'pending_accounts.php'],
-                 ['clock-history', 'Audit Logs', 'activity_logs.php'],
-                 ['gear-fill', 'System Settings', 'settings.php'],
-             ],
+              'Administration' => [
+                  ['person-badge-fill', 'User Management', 'users.php'],
+                  ['layers-fill', 'Sections & Courses', 'sections.php'],
+                  ['hourglass-split', 'Pending Accounts', 'pending_accounts.php'],
+                  ['clock-history', 'Audit Logs', 'activity_logs.php'],
+                  ['gear-fill', 'System Settings', 'settings.php'],
+              ],
               'QR System' => [
                   ['qr-code', 'QR Management', 'qr_management.php'],
               ],
@@ -67,6 +68,7 @@ $sbNav = [
                 ['person-walking', 'Walk-in Patients', 'walkin.php'],
                 ['calendar-check-fill', 'Appointments', 'appointments.php'],
                 ['clock-history', 'Patient History', 'patient_history.php'],
+                ['send-fill', 'Support Referrals', 'referrals.php'],
             ],
             'Clinic Services' => [
                 ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
@@ -105,9 +107,10 @@ $sbNav = [
               ['file-earmark-medical-fill', 'Medical Record', 'medical_record.php'],
               ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
               ['shield-check', 'Vaccination Record', 'vaccination.php'],
+              ['emoji-smile-heart-eyes', 'Health & Well-being', 'wellbeing.php'],
             ],
             'Clinic Services' => [
-                ['calendar-check-fill', 'Appointment Booking', 'appointments.php'],
+                ['calendar-check-fill', 'Scheduled Services', 'appointments.php'],
                 ['file-medical-fill', 'Medical Certificates', 'certificates.php'],
             ],
             'Updates' => [
@@ -120,6 +123,54 @@ $sbNav = [
             ],
         ],
         'brand' => 'Student Portal',
+    ],
+
+    'adviser' => [
+        'sections' => [
+            'Dashboard' => [
+                ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
+            ],
+            'My Clinic' => [
+                ['qr-code', 'My QR Code', 'my_qr.php'],
+                ['file-earmark-medical-fill', 'My Consultations', 'consultations.php'],
+            ],
+            'Advisory' => [
+                ['people-fill', 'My Advisory Class', 'students.php'],
+                ['exclamation-triangle-fill', 'Emergency Reports', 'emergencies.php'],
+            ],
+            'Updates' => [
+                ['megaphone-fill', 'Clinic Announcements', 'announcements.php'],
+                ['bell-fill', 'Notifications', 'notifications.php'],
+            ],
+            'Account' => [
+                ['person-circle', 'Profile', 'profile.php'],
+                ['box-arrow-right', 'Logout', null, 'logout'],
+            ],
+        ],
+        'brand' => 'Adviser Portal',
+    ],
+
+    'guidance' => [
+        'sections' => [
+            'Dashboard' => [
+                ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
+            ],
+            'Support' => [
+                ['send-fill', 'Support Referrals', 'referrals.php'],
+            ],
+            'Clinic' => [
+                ['hospital-fill', 'Clinic Information', 'clinic.php'],
+                ['megaphone-fill', 'Clinic Announcements', 'announcements.php'],
+            ],
+            'Updates' => [
+                ['bell-fill', 'Notifications', 'notifications.php'],
+            ],
+            'Account' => [
+                ['person-circle', 'Profile', 'profile.php'],
+                ['box-arrow-right', 'Logout', null, 'logout'],
+            ],
+        ],
+        'brand' => 'Guidance Portal',
     ],
 ];
 
@@ -138,7 +189,7 @@ $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
     </div>
   </div>
 
-  <!-- Collapse Toggle (Desktop) 
+  <!-- Collapse Toggle (Desktop)
   <button class="sidebar-toggle-collapse" title="Toggle Sidebar">
     <i class="bi bi-chevron-left"></i>
   </button>

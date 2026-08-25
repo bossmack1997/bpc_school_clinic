@@ -24,13 +24,17 @@ function enrich_sos($db, array $notifications) {
         try {
             $rows = $db->query("
                 SELECT se.id AS emergency_id, se.emergency_type, se.description,
-                       se.status AS sos_status, se.latitude, se.longitude,
+                       se.status AS sos_status, se.location, se.location_source,
+                       se.latitude, se.longitude, se.location_accuracy, se.location_updated_at,
+                       se.source, se.reporter_role,
                        se.created_at AS sos_created_at, se.responded_at, se.resolved_at,
                        s.student_number, s.course, s.year_level, s.gender,
-                       u.first_name, u.last_name, u.email, u.phone
+                       u.first_name, u.last_name, u.email, u.phone,
+                       adv_u.first_name AS reporter_first_name, adv_u.last_name AS reporter_last_name
                 FROM sos_emergencies se
                 LEFT JOIN students s ON s.id = se.student_id
-                LEFT JOIN users u ON u.id = se.user_id
+                LEFT JOIN users u ON u.id = COALESCE(s.user_id, (CASE WHEN se.source = 'sos' THEN se.user_id ELSE NULL END))
+                LEFT JOIN users adv_u ON adv_u.id = se.user_id
                 WHERE se.id IN ($inList)
             ")->fetchAll();
             foreach ($rows as $row) {

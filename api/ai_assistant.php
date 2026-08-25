@@ -21,6 +21,17 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/ai/AIService.php';
 
+/**
+ * Remove any unintended '$' characters or prefix artifacts from MICA's user-visible output.
+ */
+if (!function_exists('clean_mica_output')) {
+    function clean_mica_output(string $text): string {
+        $text = preg_replace('/^\$\s*/m', '', $text);
+        $text = preg_replace('/\b\$\s+([A-Za-z])/m', '$1', $text);
+        return trim($text);
+    }
+}
+
 // AJAX-friendly authentication check.
 // Unlike require_login() which redirects (and breaks JSON responses),
 // this returns a proper 401 JSON response when the session has expired
@@ -117,10 +128,10 @@ function processChatMessage(PDO $db, array $user, array $aiConfig, string $messa
 
     if (!$openRouter->isEnabled()) {
         $serviceStatus = 'fallback';
-        $serviceMessage = 'OpenRouter API key not configured. Using rule-based responses.';
+        $serviceMessage = 'Offline assistant response mode active.';
     } elseif ($result['source'] !== 'openrouter') {
         $serviceStatus = 'degraded';
-        $serviceMessage = 'AI service temporarily unavailable. Using rule-based fallback.';
+        $serviceMessage = 'Assistant temporarily using offline responses.';
     }
 
     // Log response
@@ -168,7 +179,7 @@ if ($action === 'chat') {
     $sosRequired = $isEmergency || ($result['intent'] === 'emergency');
 
     $responseData = [
-        'reply'            => $result['reply'],
+        'reply'            => clean_mica_output($result['reply']),
         'intent'           => $result['intent'],
         'source'           => $result['source'],
         'model'            => $result['model'],
@@ -220,7 +231,7 @@ if ($action === 'mica_chat') {
     else $greeting = 'Good evening';
 
     $responseData = [
-        'reply'            => $result['reply'],
+        'reply'            => clean_mica_output($result['reply']),
         'intent'           => $result['intent'],
         'source'           => $result['source'],
         'model'            => $result['model'],
@@ -290,7 +301,8 @@ if ($action === 'sos_emergency') {
 
     // Get student_id if the user is a student
     $studentId = null;
-    if ($user['role'] === 'student') {
+    $userRole = $user['role'] ?? '';
+    if ($userRole === 'student') {
         try {
             $stmt = $db->prepare("SELECT id FROM students WHERE user_id = ?");
             $stmt->execute([$user['id']]);
@@ -307,22 +319,52 @@ if ($action === 'sos_emergency') {
         }
     }
 
+    // Validate GPS coordinates
+    $validLat = null;
+    $validLng = null;
+    if ($latitude !== null && $latitude !== '' && is_numeric($latitude)) {
+        $latF = (float)$latitude;
+        if ($latF >= -90 && $latF <= 90) $validLat = $latF;
+    }
+    if ($longitude !== null && $longitude !== '' && is_numeric($longitude)) {
+        $lngF = (float)$longitude;
+        if ($lngF >= -180 && $lngF <= 180) $validLng = $lngF;
+    }
+
+    $accuracy = isset($_POST['accuracy']) && $_POST['accuracy'] !== '' ? trim($_POST['accuracy']) : (isset($data['accuracy']) ? trim($data['accuracy']) : null);
+    $locationUpdatedAt = ($validLat !== null && $validLng !== null) ? date('Y-m-d H:i:s') : null;
+
     // Store the SOS emergency
     $stmt = $db->prepare("
-        INSERT INTO sos_emergencies (user_id, student_id, emergency_type, description, latitude, longitude, status, ip_address, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+        INSERT INTO sos_emergencies
+            (user_id, student_id, emergency_type, description, location_source, latitude, longitude, location_accuracy, location_updated_at, status, source, reporter_role, ip_address, user_agent)
+        VALUES (?, ?, ?, ?, 'gps', ?, ?, ?, ?, 'active', 'sos', 'student', ?, ?)
     ");
     $stmt->execute([
         $user['id'],
         $studentId,
         $emergencyType,
         $description,
-        $latitude !== null ? (float)$latitude : null,
-        $longitude !== null ? (float)$longitude : null,
+        $validLat,
+        $validLng,
+        $accuracy,
+        $locationUpdatedAt,
         $_SERVER['REMOTE_ADDR'] ?? null,
         $_SERVER['HTTP_USER_AGENT'] ?? null,
     ]);
-    $emergencyId = $db->lastInsertId();
+    $emergencyId = (int)$db->lastInsertId();
+
+    // If initial GPS coordinates are present, log to location history table
+    if ($validLat !== null && $validLng !== null) {
+        try {
+            $db->prepare("
+                INSERT INTO emergency_location_updates (emergency_id, latitude, longitude, accuracy, recorded_at)
+                VALUES (?, ?, ?, ?, NOW())
+            ")->execute([$emergencyId, $validLat, $validLng, $accuracy]);
+        } catch (Throwable $e) {
+            error_log('[MICA SOS Location Log Error]: ' . $e->getMessage());
+        }
+    }
 
     error_log('[MICA SOS] Emergency alert created: #' . $emergencyId . ' | type=' . $emergencyType . ' | user_id=' . ($user['id'] ?? 'unknown'));
 
@@ -337,7 +379,7 @@ if ($action === 'sos_emergency') {
             $nurse['user_id'],
             'emergency',
             '🚨 SOS Emergency: ' . $emergencyType,
-            $user['first_name'] . ' ' . $user['last_name'] . ' needs immediate assistance! Type: ' . $emergencyType,
+            (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) . ' needs immediate assistance! Type: ' . $emergencyType,
             APP_URL . '/pages/nurse/dashboard.php',
             (int)$emergencyId
         );
@@ -351,7 +393,7 @@ if ($action === 'sos_emergency') {
             $admin['id'],
             'emergency',
             '🚨 SOS Emergency Alert: ' . $emergencyType,
-            $user['first_name'] . ' ' . $user['last_name'] . ' triggered an SOS. Type: ' . $emergencyType,
+            (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) . ' triggered an SOS. Type: ' . $emergencyType,
             APP_URL . '/pages/admin/dashboard.php',
             (int)$emergencyId
         );

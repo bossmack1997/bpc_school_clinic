@@ -5,6 +5,8 @@
 ?>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0E7A3E">
+<link rel="manifest" href="<?= APP_URL ?>/manifest.json">
 <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
 <title><?= isset($pageTitle) ? e($pageTitle) . ' — ' : '' ?><?= APP_NAME ?></title>
 

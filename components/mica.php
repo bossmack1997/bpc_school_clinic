@@ -5,6 +5,7 @@
  * SINGLE MICA (Medical Intelligent Clinic Assistant) component.
  * Replaces includes/mica_widget.php — provides:
  *   • SOS Emergency Modal (GPS + type selection)
+ *   • Active Emergency Real-Time GPS Tracking Card
  *   • User context as JavaScript (first_name, role, full name)
  *   • Personalized MICA greeting
  *   • Only EVER rendered ONCE per page (guarded)
@@ -46,7 +47,7 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
           <div class="text-center mb-3">
             <i class="bi bi-shield-exclamation text-danger" style="font-size:3rem;"></i>
             <p class="mt-2 mb-0 fw-semibold">Are you experiencing a medical emergency?</p>
-            <small class="text-muted">Help will be sent to the clinic immediately.</small>
+            <small class="text-muted">Location access is required to send your current location to the school clinic during an emergency.</small>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold" for="emergencyType">Emergency Type</label>
@@ -68,7 +69,7 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
             <textarea class="form-control" name="description" id="emergencyDesc" rows="2" placeholder="Briefly describe what happened..."></textarea>
           </div>
           <div id="locationStatus" class="alert alert-info small py-2 d-none">
-            <i class="bi bi-geo-alt-fill me-1"></i> <span id="locationText">Fetching your location...</span>
+            <i class="bi bi-geo-alt-fill me-1"></i> <span id="locationText">Acquiring high-accuracy GPS coordinates...</span>
           </div>
         </div>
         <div class="modal-footer border-0 justify-content-center gap-2">
@@ -78,6 +79,35 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
           </button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- Student Active SOS Live Tracking Card / Banner                    -->
+<!-- ================================================================ -->
+<div id="studentActiveSosBanner" class="student-sos-active-card" style="display:none;">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+    <div class="d-flex align-items-center gap-3">
+      <div class="text-danger fs-2 d-flex align-items-center">
+        <i class="bi bi-shield-fill-exclamation"></i>
+      </div>
+      <div>
+        <div class="fw-bold text-danger d-flex align-items-center gap-2" style="font-size: 0.95rem;">
+          <span class="spinner-grow spinner-grow-sm text-danger" role="status"></span>
+          🚨 Emergency Active — Location Sharing Active
+        </div>
+        <div class="small text-dark fw-medium">Your real-time GPS location is being shared with the School Clinic.</div>
+        <div class="small text-muted mt-1" id="sosLocationInfo">
+          <i class="bi bi-geo-alt-fill text-danger me-1"></i> <span id="sosCurrentCoords">Detecting coordinates...</span>
+          <span class="ms-2">· Last updated: <span id="sosLastUpdatedText">Just now</span></span>
+        </div>
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="button" class="btn btn-outline-danger btn-sm fw-semibold" id="btnCancelActiveSos">
+        <i class="bi bi-x-circle me-1"></i> Cancel Emergency
+      </button>
     </div>
   </div>
 </div>
@@ -101,74 +131,249 @@ window.MICA_CONFIG = {
   ttsProvider: '<?= defined('MICA_TTS_PROVIDER') ? MICA_TTS_PROVIDER : 'browser' ?>',
 };
 
-// Backward-compatible alias (some pages may reference MICA_GREETING directly).
+// Backward-compatible alias
 window.MICA_GREETING = window.MICA_CONFIG.greeting;
-
 window.__MICA_SOS_LOCATION__ = null;
+window.__ACTIVE_SOS_ID__ = null;
+window.__SOS_WATCH_ID__ = null;
+window.__SOS_LAST_UPDATE_TIME__ = 0;
+window.__SOS_LAST_LAT__ = null;
+window.__SOS_LAST_LNG__ = null;
+window.__MICA_SOS_LOC_TIME__ = 0;
 
-// Requests the browser GPS location AFTER the student confirms & submits
-// the SOS request. Resolves with {lat, lng} on success, or with null when
-// permission is denied / unsupported / timeout — the SOS is NEVER blocked.
-// Returns a Promise so callers can await the result before sending.
-window.getLocation = function () {
+// Requests device GPS location with high accuracy and network fallback.
+window.getLocation = function (forceFresh) {
   return new Promise(function (resolve) {
     var statusBox = document.getElementById('locationStatus');
     var statusText = document.getElementById('locationText');
     if (statusBox) statusBox.classList.remove('d-none');
 
+    // Use recently acquired fresh location (< 15s) if available and not forced
+    if (!forceFresh && window.__MICA_SOS_LOCATION__ && (Date.now() - window.__MICA_SOS_LOC_TIME__ < 15000)) {
+      if (statusText && window.__MICA_SOS_LOCATION__.lat) {
+        statusText.textContent = '📍 GPS ready: ' + window.__MICA_SOS_LOCATION__.lat.toFixed(5) + ', ' + window.__MICA_SOS_LOCATION__.lng.toFixed(5);
+        if (statusBox) statusBox.className = 'alert alert-success small py-2';
+      }
+      resolve(window.__MICA_SOS_LOCATION__);
+      return;
+    }
+
     if (!navigator.geolocation) {
       window.__MICA_SOS_LOCATION__ = null;
       if (statusText) {
-        statusText.textContent = 'Location not supported by this browser.';
-        statusBox.className = 'alert alert-warning small py-2';
+        statusText.textContent = 'GPS location is not supported by this browser.';
+        if (statusBox) statusBox.className = 'alert alert-warning small py-2';
       }
       resolve(null);
       return;
     }
 
     if (statusText) {
-      statusText.textContent = 'Fetching your location...';
-      statusBox.className = 'alert alert-info small py-2';
+      statusText.textContent = 'Acquiring high-accuracy GPS coordinates...';
+      if (statusBox) statusBox.className = 'alert alert-info small py-2';
     }
 
     var settled = false;
     function finish(val) {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
       window.__MICA_SOS_LOCATION__ = val;
+      window.__MICA_SOS_LOC_TIME__ = val ? Date.now() : 0;
       resolve(val);
     }
 
-    var timeout = setTimeout(function () {
-      if (statusText) {
-        statusText.textContent = 'Location request timed out. You can still send SOS without location.';
-        statusBox.className = 'alert alert-warning small py-2';
-      }
-      finish(null);
-    }, 8000);
-
+    // Try High Accuracy GPS first
     navigator.geolocation.getCurrentPosition(
       function (pos) {
         var lat = pos.coords.latitude;
         var lng = pos.coords.longitude;
+        var acc = pos.coords.accuracy ? (Math.round(pos.coords.accuracy) + 'm') : null;
         if (statusText) {
-          statusText.textContent = '✅ Location acquired: ' + lat.toFixed(5) + ', ' + lng.toFixed(5);
-          statusBox.className = 'alert alert-success small py-2';
+          statusText.textContent = '📍 GPS acquired: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + (acc ? ' (±' + acc + ')' : '');
+          if (statusBox) statusBox.className = 'alert alert-success small py-2';
         }
-        finish({ lat: lat, lng: lng });
+        finish({ lat: lat, lng: lng, accuracy: acc });
       },
-      function () {
+      function (err) {
+        // If permission explicitly denied, do not retry
+        if (err && err.code === 1) { // PERMISSION_DENIED
+          if (statusText) {
+            statusText.textContent = 'Location access permission was denied. Submitting SOS without GPS...';
+            if (statusBox) statusBox.className = 'alert alert-warning small py-2';
+          }
+          finish(null);
+          return;
+        }
+
+        // If high-accuracy timed out or position unavailable, attempt standard accuracy fallback
         if (statusText) {
-          statusText.textContent = 'Location access denied. You can still send SOS.';
-          statusBox.className = 'alert alert-warning small py-2';
+          statusText.textContent = 'Refining position via standard geolocation...';
         }
-        finish(null);
+        navigator.geolocation.getCurrentPosition(
+          function (pos2) {
+            var lat2 = pos2.coords.latitude;
+            var lng2 = pos2.coords.longitude;
+            var acc2 = pos2.coords.accuracy ? (Math.round(pos2.coords.accuracy) + 'm') : null;
+            if (statusText) {
+              statusText.textContent = '📍 Location acquired: ' + lat2.toFixed(5) + ', ' + lng2.toFixed(5) + (acc2 ? ' (±' + acc2 + ')' : '');
+              if (statusBox) statusBox.className = 'alert alert-success small py-2';
+            }
+            finish({ lat: lat2, lng: lng2, accuracy: acc2 });
+          },
+          function (err2) {
+            var msg = 'Location unavailable.';
+            if (err2 && err2.code === 1) msg = 'Location permission denied.';
+            else if (err2 && err2.code === 3) msg = 'Location request timed out.';
+            if (statusText) {
+              statusText.textContent = msg + ' Submitting SOS...';
+              if (statusBox) statusBox.className = 'alert alert-warning small py-2';
+            }
+            finish(null);
+          },
+          { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 }
+        );
       },
-      { enableHighAccuracy: true, timeout: 6000 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
   });
 };
+
+// Auto pre-fetch GPS whenever SOS modal is opened
+$(document).on('shown.bs.modal', '#sosModal', function () {
+  window.getLocation(true);
+});
+
+// Start Continuous Real-Time Tracking for active SOS
+window.startSosLocationTracking = function (emergencyId, initialLat, initialLng, initialAcc) {
+  window.__ACTIVE_SOS_ID__ = emergencyId;
+  window.__SOS_LAST_UPDATE_TIME__ = Date.now();
+  window.__SOS_LAST_LAT__ = initialLat;
+  window.__SOS_LAST_LNG__ = initialLng;
+
+  var $banner = $('#studentActiveSosBanner');
+  if ($banner.length) {
+    $banner.fadeIn(300);
+    updateBannerCoords(initialLat, initialLng, initialAcc);
+  }
+
+  if (!navigator.geolocation) return;
+
+  // Clear existing watch if any
+  if (window.__SOS_WATCH_ID__ !== null) {
+    navigator.geolocation.clearWatch(window.__SOS_WATCH_ID__);
+  }
+
+  window.__SOS_WATCH_ID__ = navigator.geolocation.watchPosition(
+    function (pos) {
+      var lat = pos.coords.latitude;
+      var lng = pos.coords.longitude;
+      var acc = pos.coords.accuracy ? (Math.round(pos.coords.accuracy) + 'm') : null;
+
+      // Throttle: Send update if moved > 5m or at least 8 seconds elapsed
+      var now = Date.now();
+      var timeDiff = (now - window.__SOS_LAST_UPDATE_TIME__) / 1000;
+      var moved = true;
+      if (window.__SOS_LAST_LAT__ !== null && window.__SOS_LAST_LNG__ !== null) {
+        var dLat = Math.abs(lat - window.__SOS_LAST_LAT__);
+        var dLng = Math.abs(lng - window.__SOS_LAST_LNG__);
+        if (dLat < 0.00005 && dLng < 0.00005 && timeDiff < 8) {
+          moved = false;
+        }
+      }
+
+      if (moved && window.__ACTIVE_SOS_ID__) {
+        window.__SOS_LAST_UPDATE_TIME__ = now;
+        window.__SOS_LAST_LAT__ = lat;
+        window.__SOS_LAST_LNG__ = lng;
+        updateBannerCoords(lat, lng, acc);
+
+        var csrf = $('meta[name="csrf-token"]').attr('content') || (window.C && window.C.config && window.C.config.csrfToken);
+        $.post(APP_URL + '/api/emergencies.php', {
+          action: 'update_location',
+          emergency_id: window.__ACTIVE_SOS_ID__,
+          latitude: lat,
+          longitude: lng,
+          accuracy: acc,
+          csrf_token: csrf
+        }, function (res) {
+          if (res && res.success) {
+            if (res.tracking_active === false) {
+              window.stopSosLocationTracking('Emergency Resolved', 'Clinic staff has resolved this emergency. Location sharing has stopped.');
+            }
+          }
+        }, 'json');
+      }
+    },
+    function (err) {
+      console.warn('[SOS GPS Watch Error]', err.message);
+    },
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+  );
+};
+
+// Stop Continuous Real-Time Tracking
+window.stopSosLocationTracking = function (title, msg) {
+  if (window.__SOS_WATCH_ID__ !== null) {
+    navigator.geolocation.clearWatch(window.__SOS_WATCH_ID__);
+    window.__SOS_WATCH_ID__ = null;
+  }
+  window.__ACTIVE_SOS_ID__ = null;
+  $('#studentActiveSosBanner').fadeOut(300);
+  if (title && msg && typeof Swal !== 'undefined') {
+    Swal.fire({ icon: 'info', title: title, text: msg });
+  }
+};
+
+function updateBannerCoords(lat, lng, acc) {
+  if (lat !== null && lat !== undefined && lng !== null && lng !== undefined) {
+    $('#sosCurrentCoords').html('<strong>' + Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6) + '</strong>' + (acc ? ' (±' + acc + ')' : ''));
+  } else {
+    $('#sosCurrentCoords').html('<span class="text-warning">GPS location unavailable</span>');
+  }
+  $('#sosLastUpdatedText').text('Just now');
+}
+
+// Auto-check active SOS status on student pages
+function checkStudentActiveSos() {
+  if (window.MICA_USER && window.MICA_USER.role === 'student') {
+    $.get(APP_URL + '/api/emergencies.php', { action: 'active_sos' }, function (res) {
+      if (res && res.success && res.has_active_sos && res.emergency) {
+        var emg = res.emergency;
+        window.startSosLocationTracking(emg.id, emg.latitude, emg.longitude, emg.location_accuracy);
+      }
+    }, 'json');
+  }
+}
+
+// Cancel Active SOS handler
+$(document).on('click', '#btnCancelActiveSos', function () {
+  if (!window.__ACTIVE_SOS_ID__) return;
+  var emgId = window.__ACTIVE_SOS_ID__;
+  var csrf = $('meta[name="csrf-token"]').attr('content');
+
+  Swal.fire({
+    title: 'Cancel Emergency?',
+    text: 'Are you sure you want to cancel this emergency request? Location sharing will stop immediately.',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#dc3545',
+    confirmButtonText: 'Yes, Cancel Emergency'
+  }).then(function (result) {
+    if (result.isConfirmed) {
+      $.post(APP_URL + '/api/emergencies.php', {
+        action: 'cancel_sos',
+        emergency_id: emgId,
+        csrf_token: csrf
+      }, function (res) {
+        if (res && res.success) {
+          window.stopSosLocationTracking('Emergency Cancelled', 'Your emergency request has been cancelled. Location sharing has stopped.');
+        } else {
+          Swal.fire('Error', (res && res.message) || 'Failed to cancel emergency.', 'error');
+        }
+      }, 'json');
+    }
+  });
+});
 
 (function () {
   function submitSOS(e) {
@@ -183,23 +388,26 @@ window.getLocation = function () {
 
     var submitBtn = document.getElementById('sosSubmitBtn');
     var originalText = submitBtn.innerHTML;
-    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending SOS...';
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Acquiring GPS & Sending...';
     submitBtn.disabled = true;
 
-    // 1) Request GPS location AFTER the SOS is confirmed (never blocks).
-    // 2) Send the SOS with location when granted, without it when denied.
+    // 1) Obtain device GPS location
     window.getLocation().then(function (loc) {
       var lat = loc ? loc.lat : null;
       var lng = loc ? loc.lng : null;
+      var acc = loc ? loc.accuracy : null;
+      var csrf = $('meta[name="csrf-token"]').attr('content');
 
-      if (typeof MICA === 'undefined' || typeof MICA.sos !== 'function') {
-        submitBtn.innerHTML = originalText;
-        submitBtn.disabled = false;
-        Swal.fire({ icon: 'error', title: 'Error', text: 'SOS service is unavailable. Please contact the clinic directly.' });
-        return;
-      }
-
-      return MICA.sos(type, desc, lat, lng).then(function (res) {
+      // Post directly to api/emergencies.php
+      $.post(APP_URL + '/api/emergencies.php', {
+        action: 'sos',
+        emergency_type: type,
+        description: desc,
+        latitude: lat,
+        longitude: lng,
+        accuracy: acc,
+        csrf_token: csrf
+      }, function (res) {
         submitBtn.innerHTML = originalText;
         submitBtn.disabled = false;
 
@@ -210,21 +418,35 @@ window.getLocation = function () {
         }
 
         if (res && res.success) {
-          Swal.fire({ icon: 'success', title: 'SOS Activated!', html: res.message || 'Your emergency request has been successfully sent to the School Clinic. Please remain where you are while waiting for assistance.', timer: 6000, timerProgressBar: true });
+          var emgId = res.emergency_id;
+          Swal.fire({
+            icon: 'success',
+            title: '🚨 SOS Activated!',
+            html: (res.message || 'Your emergency request has been sent to the School Clinic.') +
+                  (lat ? '<br><small class="text-success mt-2 d-block">📍 GPS Coordinates transmitted. Live tracking started.</small>' : '<br><small class="text-warning mt-2 d-block">⚠️ Sent without exact GPS location.</small>'),
+            timer: 5000,
+            timerProgressBar: true
+          });
+
+          // Start continuous real-time location tracking
+          window.startSosLocationTracking(emgId, lat, lng, acc);
         } else {
           Swal.fire({ icon: 'error', title: 'SOS Failed', text: (res && res.message) || 'Failed to send SOS. Please try again.' });
         }
         window.__MICA_SOS_LOCATION__ = null;
-      }).catch(function () {
+      }, 'json').fail(function () {
         submitBtn.innerHTML = originalText;
         submitBtn.disabled = false;
-        Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to send SOS. Please try again.' });
+        Swal.fire({ icon: 'error', title: 'Connection Error', text: 'Failed to send SOS. Please contact the clinic directly.' });
       });
     });
   }
 
   var form = document.getElementById('sosForm');
   if (form) form.addEventListener('submit', submitSOS);
+
+  $(document).ready(function () {
+    checkStudentActiveSos();
+  });
 })();
 </script>
-

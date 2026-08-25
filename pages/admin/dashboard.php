@@ -52,7 +52,7 @@ $pageTitle = 'Admin Dashboard';
       <div class="welcome-card" data-aos="fade-down" data-aos-duration="600">
         <div class="welcome-content">
           <div class="clinic-status open"><span class="status-dot"></span> Clinic Open Today</div>
-          <h1>AI-Powered School Clinic Management System</h1>
+          <h1>BPC School Clinic Management System</h1>
           <div class="welcome-sub">Health Monitoring and Appointment Assistance</div>
           <div class="welcome-desc">Professional healthcare management platform for Bulacan Polytechnic College. Monitor student health, manage appointments, and track medical records.</div>
           <div class="welcome-actions">

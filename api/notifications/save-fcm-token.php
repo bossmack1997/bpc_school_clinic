@@ -41,7 +41,7 @@ if ($token === '') {
     exit;
 }
 
-if (!preg_match('/^[A-Za-z0-9_\-:]{10,255}$/', $token)) {
+if (!preg_match('/^[A-Za-z0-9_\-:.~%+=\/]{10,500}$/', $token)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Invalid FCM token format.']);
     exit;

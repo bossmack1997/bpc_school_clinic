@@ -18,7 +18,53 @@ if ($action === 'approve') {
     if (!$target) json_response(false, [], 'User not found.');
     if ($target['status'] === 'active') json_response(false, [], 'Account is already active.');
 
-$db->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$id]);
+    // -----------------------------------------------------------------
+    // Adviser / Guidance self-registration: activate + provision staff
+    // record + teacher QR (advisory sections are chosen by the teacher
+    // themselves in the portal — NOT assigned here).
+    // -----------------------------------------------------------------
+    if (in_array($target['role'], ['adviser', 'guidance'], true)) {
+        try {
+            $db->beginTransaction();
+
+            // Mark the matching pending request approved (if any)
+            $db->prepare("
+                UPDATE teacher_registration_requests
+                SET status = 'approved', reviewed_by = ?, reviewed_at = NOW()
+                WHERE user_id = ? AND status = 'pending'
+            ")->execute([$user['id'], $id]);
+
+            // Provision the teachers patient record (used for QR/consultations)
+            $tChk = $db->prepare("SELECT id, employee_id FROM teachers WHERE user_id = ? LIMIT 1");
+            $tChk->execute([$id]);
+            $teacher = $tChk->fetch();
+            if (!$teacher) {
+                $reqStmt = $db->prepare("SELECT teacher_id_number FROM teacher_registration_requests WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+                $reqStmt->execute([$id]);
+                $empId = $reqStmt->fetchColumn();
+                $db->prepare("INSERT INTO teachers (user_id, employee_id, first_name, middle_name, last_name, email, phone)
+                              VALUES (?, ?, ?, ?, ?, ?, ?)")
+                   ->execute([$id, $empId ?: null, $target['first_name'], $target['middle_name'] ?? null, $target['last_name'], $target['email'], $target['phone'] ?? null]);
+                $teacherId = (int)$db->lastInsertId();
+            } else {
+                $teacherId = (int)$teacher['id'];
+            }
+
+            ensure_teacher_qr($db, $teacherId, $user['id']);
+
+            $db->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$id]);
+            $db->commit();
+        } catch (Exception $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            error_log('Staff account approval failed: ' . $e->getMessage());
+            json_response(false, [], 'Approval failed due to a server error. Please try again.');
+        }
+
+        log_activity($user['id'], 'Approved ' . $target['role'] . ' account', 'users', "User ID $id");
+        json_response(true, [], ucfirst($target['role']) . ' account approved successfully.');
+    }
+
+    $db->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$id]);
 
     // Auto-generate a permanent QR for approved student accounts.
     if ($target['role'] === 'student') {
@@ -50,6 +96,14 @@ if ($action === 'reject') {
     if ($target['status'] === 'rejected') json_response(false, [], 'Account is already rejected.');
 
     $db->prepare("UPDATE users SET status = 'rejected' WHERE id = ?")->execute([$id]);
+
+    // Mark any pending self-registration request as rejected too
+    $db->prepare("
+        UPDATE teacher_registration_requests
+        SET status = 'rejected', reviewed_by = ?, reviewed_at = NOW()
+        WHERE user_id = ? AND status = 'pending'
+    ")->execute([$user['id'], $id]);
+
     log_activity($user['id'], 'Rejected user account', 'users', "User ID $id ({$target['role']})");
     json_response(true, [], 'Account rejected successfully.');
 }
