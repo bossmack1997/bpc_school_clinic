@@ -11,7 +11,7 @@ $pageTitle = 'Scheduled Services';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
 
       <div class="alert alert-light border d-flex align-items-center gap-2 mb-3" role="alert">
         <i class="bi bi-info-circle-fill text-primary"></i>

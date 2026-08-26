@@ -45,9 +45,9 @@ $users = $users->fetchAll();
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h6 class="section-title mb-0">User Management</h6>
+        <h6 class="section-title mb-0"><i class="bi bi-people-fill text-success me-1"></i> User Management</h6>
         <div class="btn-group btn-group-sm">
           <a href="?role=all" class="btn btn-outline-primary <?= $roleFilter === 'all' ? 'active' : '' ?>">All</a>
           <a href="?role=student" class="btn btn-outline-primary <?= $roleFilter === 'student' ? 'active' : '' ?>">Students</a>

@@ -12,7 +12,7 @@ $u = current_user();
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
 
       <!-- Quick Stats -->
       <div class="row g-3 mb-4" id="statsRow">

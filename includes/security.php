@@ -338,10 +338,8 @@ function send_security_headers(): void {
         "object-src 'none'; " .
         "base-uri 'self';");
 
-    // Permissions policy
-    // camera=(self) allows the QR scanner to use the PC/laptop/USB webcam
-    // on the same origin. geolocation and microphone remain blocked.
-    header('Permissions-Policy: geolocation=(), microphone=(), camera=(self)');
+    // Permissions policy: allow same-origin for QR camera scanner, SOS geolocation, and MICA microphone
+    header('Permissions-Policy: geolocation=(self), microphone=(self), camera=(self)');
 }
 
 // ================================================================

@@ -34,7 +34,7 @@ $sectionsList = $db->query("SELECT name, course, year_level FROM sections WHERE 
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <div>
           <h6 class="section-title mb-0"><i class="bi bi-people-fill text-success me-1"></i> Student Management</h6>

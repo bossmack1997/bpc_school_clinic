@@ -47,7 +47,7 @@ $pageTitle = 'My Dashboard';
           <div class="welcome-desc">Student No. <?= e($student['student_number']) ?> · <?= e($student['course'] ?: '—') ?> <?= e($student['year_level'] ?: '') ?></div>
           <div class="welcome-actions">
             <a href="my_qr.php" class="btn btn-white"><i class="bi bi-qr-code-scan me-1"></i> Visit Clinic / Check-in</a>
-            <a href="wellbeing.php" class="btn btn-outline-white"><i class="bi bi-emoji-smile-heart-eyes me-1"></i> My Health &amp; Well-being</a>
+            <a href="wellbeing.php" class="btn btn-outline-white"><i class="bi bi-person-heart me-1"></i> My Health &amp; Well-being</a>
             <a href="#" class="btn btn-outline-white" onclick="if(typeof MICA!=='undefined'&&MICA.open)MICA.open();return false;"><i class="bi bi-robot me-1"></i> Ask MICA</a>
             <button type="button" class="btn btn-danger shadow-sm" data-bs-toggle="modal" data-bs-target="#sosModal"><i class="bi bi-shield-fill-exclamation me-1"></i> 🚨 SOS Emergency</button>
           </div>
@@ -113,7 +113,7 @@ $pageTitle = 'My Dashboard';
           <div class="qa-sub-lg">Walk in or scan your QR</div>
         </a>
         <a href="wellbeing.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-emoji-smile-heart-eyes"></i></div>
+          <div class="qa-icon-lg"><i class="bi bi-person-heart"></i></div>
           <div class="qa-title-lg">Health &amp; Well-being</div>
           <div class="qa-sub-lg">Share info voluntarily</div>
         </a>

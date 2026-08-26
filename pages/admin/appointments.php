@@ -11,9 +11,9 @@ $pageTitle = 'Appointments Overview';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="card p-3">
-        <h6 class="section-title mb-3">All Clinic Appointments</h6>
+        <h6 class="section-title mb-3"><i class="bi bi-calendar-check-fill text-success me-1"></i> All Clinic Appointments</h6>
         <div class="table-responsive">
           <table class="table table-hover align-middle" id="apptTable" style="width:100%">
             <thead><tr><th>Student</th><th>No.</th><th>Date</th><th>Time</th><th>Reason</th><th>Status</th></tr></thead>

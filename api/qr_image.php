@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
+require_login();
 require_once __DIR__ . '/../assets/vendor/phpqrcode.php';
 
 header('Content-Type: image/png');

@@ -8,6 +8,7 @@
  * ------------------------------------------------------------------
  */
 require_once __DIR__ . '/../config/config.php';
+require_login();
 header('Content-Type: application/json');
 json_response(false, [], 'Advisory class management is now self-managed by Teachers from the Teacher Portal.');
 

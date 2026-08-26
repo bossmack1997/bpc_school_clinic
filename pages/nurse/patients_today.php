@@ -11,7 +11,7 @@ $pageTitle = "Today's Patients";
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="card p-3">
         <h6 class="section-title mb-3"><i class="bi bi-hospital text-success me-1"></i> Today's Patients</h6>
         <div class="table-responsive">

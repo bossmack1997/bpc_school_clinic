@@ -32,41 +32,41 @@ $pageTitle = 'Health Analytics';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="row g-3">
         <div class="col-xl-4">
-          <div class="card p-3 h-100">
-            <h6 class="section-title mb-3">Student Age Distribution</h6>
+          <div class="card p-3 h-100 shadow-sm border rounded-3 bg-white">
+            <h6 class="section-title mb-3"><i class="bi bi-pie-chart-fill text-primary me-1"></i> Student Age Distribution</h6>
             <canvas id="ageChart" height="180"></canvas>
           </div>
         </div>
         <div class="col-xl-4">
-          <div class="card p-3 h-100">
-            <h6 class="section-title mb-3">Gender Distribution</h6>
+          <div class="card p-3 h-100 shadow-sm border rounded-3 bg-white">
+            <h6 class="section-title mb-3"><i class="bi bi-gender-ambiguous text-info me-1"></i> Gender Distribution</h6>
             <canvas id="genderChart" height="180"></canvas>
           </div>
         </div>
         <div class="col-xl-4">
-          <div class="card p-3 h-100">
-            <h6 class="section-title mb-3">Year Level Distribution</h6>
+          <div class="card p-3 h-100 shadow-sm border rounded-3 bg-white">
+            <h6 class="section-title mb-3"><i class="bi bi-mortarboard-fill text-success me-1"></i> Year Level Distribution</h6>
             <canvas id="yearChart" height="180"></canvas>
           </div>
         </div>
         <div class="col-xl-6">
-          <div class="card p-3 h-100">
-            <h6 class="section-title mb-3">Top Courses</h6>
+          <div class="card p-3 h-100 shadow-sm border rounded-3 bg-white">
+            <h6 class="section-title mb-3"><i class="bi bi-book-fill text-warning me-1"></i> Top Courses</h6>
             <canvas id="courseChart" height="180"></canvas>
           </div>
         </div>
         <div class="col-xl-3">
-          <div class="card p-3 h-100">
-            <h6 class="section-title mb-3">Appointment Status</h6>
+          <div class="card p-3 h-100 shadow-sm border rounded-3 bg-white">
+            <h6 class="section-title mb-3"><i class="bi bi-calendar-check-fill text-primary me-1"></i> Appointment Status</h6>
             <canvas id="apptChart" height="180"></canvas>
           </div>
         </div>
         <div class="col-xl-3">
-          <div class="card p-3 h-100">
-            <h6 class="section-title mb-3">BMI Distribution</h6>
+          <div class="card p-3 h-100 shadow-sm border rounded-3 bg-white">
+            <h6 class="section-title mb-3"><i class="bi bi-heart-pulse-fill text-danger me-1"></i> BMI Distribution</h6>
             <canvas id="bmiChart" height="180"></canvas>
           </div>
         </div>

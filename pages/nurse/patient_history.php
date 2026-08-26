@@ -11,11 +11,11 @@ $pageTitle = 'Patient History';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="row g-3">
         <div class="col-lg-4">
           <div class="card p-3">
-<h6 class="section-title mb-3"><i class="bi bi-clock-history text-success me-1"></i> Search Patient</h6>
+            <h6 class="section-title mb-3"><i class="bi bi-clock-history text-success me-1"></i> Search Patient</h6>
             <div class="mb-3">
               <label class="form-label small fw-semibold">Search Student</label>
               <input type="text" id="studentSearch" class="form-control" placeholder="Name or student number...">
@@ -28,16 +28,16 @@ $pageTitle = 'Patient History';
               <p class="mb-1" id="pNumber"></p>
               <p class="mb-1" id="pCourse"></p>
             </div>
-            <div id="wellbeingCard" class="card border-info mt-3 d-none">
+            <div id="wellbeingCard" class="card border-success mt-3 d-none">
               <div class="card-body p-3">
                 <div class="d-flex align-items-center gap-2">
-                  <i class="bi bi-emoji-smile-heart-eyes text-info fs-4"></i>
+                  <i class="bi bi-file-earmark-medical text-success fs-4"></i>
                   <div class="small">
-                    <div class="fw-semibold">Well-being Information</div>
-                    <div class="text-muted">Student has voluntarily provided additional well-being information.</div>
+                    <div class="fw-semibold text-dark">Medical Health Profile</div>
+                    <div class="text-muted">Student's medical conditions, allergies, and health information.</div>
                   </div>
                 </div>
-                <button class="btn btn-sm btn-info w-100 mt-2" id="viewWellbeingBtn"><i class="bi bi-eye me-1"></i> View Relevant Information</button>
+                <button class="btn btn-sm btn-outline-success w-100 mt-2" id="viewWellbeingBtn"><i class="bi bi-file-earmark-medical me-1"></i> View Medical Information</button>
               </div>
             </div>
             <button class="btn btn-success w-100 mt-3" id="createReferralBtn" style="display:none;"><i class="bi bi-send me-1"></i> Create Support Referral</button>
@@ -76,126 +76,13 @@ $pageTitle = 'Patient History';
     </div>
   </div>
 </div>
-<?php include __DIR__ . '/../../components/footer.php'; ?>
-<script>
-$('#studentSearch').on('keyup', function () {
-  const q = $(this).val();
-  if (q.length < 2) { $('#searchResults').empty(); return; }
-  $.get(APP_URL + '/api/students_api.php', { action: 'search', q }, function (res) {
-    const $r = $('#searchResults').empty();
-    res.data.forEach(s => {
-      $r.append(`<button type="button" class="list-group-item list-group-item-action" data-id="${s.id}" data-name="${s.first_name} ${s.last_name} (${s.student_number})" data-course="${s.course||''}" data-number="${s.student_number||''}">${s.first_name} ${s.last_name} — ${s.student_number}</button>`);
-    });
-  }, 'json');
-});
 
-$(document).on('click', '#searchResults button', function () {
-  const id = $(this).data('id');
-  $('#pName').text('Name: ' + $(this).data('name'));
-  $('#pNumber').text('Student No: ' + $(this).data('number'));
-  $('#pCourse').text('Course: ' + $(this).data('course'));
-  $('#patientInfo').removeClass('d-none');
-  $('#searchResults').empty();
-  $('#studentSearch').val('');
-  loadPatientHistory(id);
-});
-
-let currentPatientId = null;
-function loadPatientHistory(id) {
-  currentPatientId = id;
-  $('#createReferralBtn').show();
-  // Check for voluntarily-provided well-being information (gated, nurse-only)
-  $.get(APP_URL + '/api/wellbeing.php', { action: 'get', student_id: id }, function (wb) {
-    if (wb.success && wb.exists) {
-      $('#wellbeingCard').removeClass('d-none');
-    } else {
-      $('#wellbeingCard').addClass('d-none');
-    }
-  }, 'json');
-
-  $.get(APP_URL + '/api/students_api.php', { action: 'patient_history', student_id: id }, function (res) {
-    if (!res.success) return;
-
-    if (res.consultations.length) {
-      $('#consultCard').show();
-      const rows = res.consultations.map(c => [c.consultation_date, c.visit_type, c.chief_complaint, c.diagnosis || '—', c.treatment || '—']);
-      $('#consultTable').DataTable({ data: rows, columns:[{},{},{},{},{}], destroy:true, pageLength:5 });
-    } else { $('#consultCard').hide(); }
-
-    if (res.health_monitoring.length) {
-      $('#healthCard').show();
-      const rows = res.health_monitoring.map(h => {
-        const typeLabel = h.record_type === 'nurse_assessment' ? 'Nurse Assessment' : 'Self-Recorded BMI';
-        return [h.recorded_at, h.bmi || '—', h.bmi_status || '—', typeLabel, h.blood_pressure || '—', h.heart_rate || '—', h.temperature || '—'];
-      });
-      $('#healthTable').DataTable({ data: rows, columns:[{},{},{},{},{},{},{}], destroy:true, pageLength:5 });
-    } else { $('#healthCard').hide(); }
-
-    if (res.vaccinations.length) {
-      $('#vacCard').show();
-      const rows = res.vaccinations.map(v => [v.vaccine_name, v.dose_number || '—', v.date_administered, v.next_dose_date || '—']);
-      $('#vacTable').DataTable({ data: rows, columns:[{},{},{},{}], destroy:true, pageLength:5 });
-    } else { $('#vacCard').hide(); }
-  }, 'json');
-}
-
-// -------- Well-being (sensitive, nurse view) --------
-$('#viewWellbeingBtn').on('click', function () {
-  if (!currentPatientId) return;
-  $.get(APP_URL + '/api/wellbeing.php', { action: 'get', student_id: currentPatientId }, function (res) {
-    if (!res.success || !res.profile) { toastError('Unable to load well-being information.'); return; }
-    const p = res.profile;
-    const field = (label, val) => `<div class="mb-2"><div class="text-muted small">${label}</div><div class="fw-semibold">${val ? $('<div>').text(val).html() : '<span class="text-muted">Not provided</span>'}</div></div>`;
-    let prefs = '';
-    try { const arr = JSON.parse(p.support_preferences || '[]'); prefs = arr.length ? arr.join(', ') : '—'; } catch (e) { prefs = '—'; }
-    const html =
-      `<div class="alert alert-info small"><i class="bi bi-shield-lock-fill me-1"></i> Sensitive information — use only to support the student appropriately.</div>` +
-      `<h6 class="small fw-bold">Medical Information</h6>` +
-      field('Known Medical Conditions', p.known_medical_conditions) +
-      field('Allergies', p.allergies) +
-      field('Previous Serious Illnesses', p.previous_illnesses) +
-      field('Current Medications', p.current_medications) +
-      field('Other Important Health Information', p.other_medical_info) +
-      `<h6 class="small fw-bold mt-3">Mental &amp; Emotional Well-being</h6>` +
-      field('Concerns', p.concerns) +
-      field('Previous Professional Support', p.previous_support) +
-      field('Previous Diagnosis / Condition (disclosed)', p.diagnosis_disclosed) +
-      field('Current Support / Treatment', p.current_support) +
-      field('Other Relevant Information', p.other_wellbeing) +
-      `<h6 class="small fw-bold mt-3">Support Preferences</h6>` +
-      field('Preferred approach', prefs) +
-      field('Additional notes', p.student_notes) +
-      `<div class="text-muted small mt-2">Consent acknowledged: ${p.consent_at || '—'}</div>`;
-    $('#wellbeingBody').html(html);
-    new bootstrap.Modal(document.getElementById('wellbeingModal')).show();
-  }, 'json');
-});
-
-// -------- Support Referral from patient view --------
-$('#createReferralBtn').on('click', function () {
-  if (!currentPatientId) return;
-  $('#refStudentId2').val(currentPatientId);
-  $('#refStudentChosen2').removeClass('d-none').text('Student ID: ' + currentPatientId);
-  new bootstrap.Modal(document.getElementById('referralModal2')).show();
-});
-
-$('#referralForm2').on('submit', function (e) {
-  e.preventDefault();
-  if (!$('#refStudentId2').val()) { toastError('No student selected.'); return; }
-  const data = $(this).serialize() + '&action=create&csrf_token=' + $('meta[name="csrf-token"]').attr('content');
-  $.post(APP_URL + '/api/referrals.php', data, function (res) {
-    if (res.success) { toastSuccess(res.message); $('#referralForm2')[0].reset(); bootstrap.Modal.getInstance(document.getElementById('referralModal2')).hide(); }
-    else toastError(res.message);
-  }, 'json');
-});
-</script>
-
-<!-- Well-being Detail Modal -->
+<!-- Medical Health Detail Modal (Nurse view: Medical Information ONLY) -->
 <div class="modal fade" id="wellbeingModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content border-0 rounded-4 shadow">
-      <div class="modal-header border-0 bg-info text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-emoji-smile-heart-eyes me-2"></i> Student Well-being Information</h5>
+      <div class="modal-header border-0 bg-success text-white rounded-top-4">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-medical me-2"></i> Student Medical Health Information</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" id="wellbeingBody"></div>
@@ -252,5 +139,109 @@ $('#referralForm2').on('submit', function (e) {
     </div>
   </div>
 </div>
+
+<?php include __DIR__ . '/../../components/footer.php'; ?>
+<script>
+$('#studentSearch').on('keyup', function () {
+  const q = $(this).val();
+  if (q.length < 2) { $('#searchResults').empty(); return; }
+  $.get(APP_URL + '/api/students_api.php', { action: 'search', q }, function (res) {
+    const $r = $('#searchResults').empty();
+    res.data.forEach(s => {
+      $r.append(`<button type="button" class="list-group-item list-group-item-action" data-id="${s.id}" data-name="${s.first_name} ${s.last_name} (${s.student_number})" data-course="${s.course||''}" data-number="${s.student_number||''}">${s.first_name} ${s.last_name} — ${s.student_number}</button>`);
+    });
+  }, 'json');
+});
+
+$(document).on('click', '#searchResults button', function () {
+  const id = $(this).data('id');
+  $('#pName').text('Name: ' + $(this).data('name'));
+  $('#pNumber').text('Student No: ' + $(this).data('number'));
+  $('#pCourse').text('Course: ' + $(this).data('course'));
+  $('#patientInfo').removeClass('d-none');
+  $('#searchResults').empty();
+  $('#studentSearch').val('');
+  loadPatientHistory(id);
+});
+
+let currentPatientId = null;
+function loadPatientHistory(id) {
+  currentPatientId = id;
+  $('#createReferralBtn').show();
+  // Check for medical health information
+  $.get(APP_URL + '/api/wellbeing.php', { action: 'get', student_id: id }, function (wb) {
+    if (wb.success && wb.exists) {
+      $('#wellbeingCard').removeClass('d-none');
+    } else {
+      $('#wellbeingCard').addClass('d-none');
+    }
+  }, 'json');
+
+  $.get(APP_URL + '/api/students_api.php', { action: 'patient_history', student_id: id }, function (res) {
+    if (!res.success) return;
+
+    if (res.consultations && res.consultations.length) {
+      $('#consultCard').show();
+      const rows = res.consultations.map(c => [c.consultation_date, c.visit_type, c.chief_complaint, c.diagnosis || '—', c.treatment || '—']);
+      $('#consultTable').DataTable({ data: rows, columns:[{},{},{},{},{}], destroy:true, pageLength:5 });
+    } else { $('#consultCard').hide(); }
+
+    if (res.health_monitoring && res.health_monitoring.length) {
+      $('#healthCard').show();
+      const rows = res.health_monitoring.map(h => {
+        const typeLabel = h.record_type === 'nurse_assessment' ? 'Nurse Assessment' : 'Self-Recorded BMI';
+        return [h.recorded_at, h.bmi || '—', h.bmi_status || '—', typeLabel, h.blood_pressure || '—', h.heart_rate || '—', h.temperature || '—'];
+      });
+      $('#healthTable').DataTable({ data: rows, columns:[{},{},{},{},{},{},{}], destroy:true, pageLength:5 });
+    } else { $('#healthCard').hide(); }
+
+    if (res.vaccinations && res.vaccinations.length) {
+      $('#vacCard').show();
+      const rows = res.vaccinations.map(v => [v.vaccine_name, v.dose_number || '—', v.date_administered, v.next_dose_date || '—']);
+      $('#vacTable').DataTable({ data: rows, columns:[{},{},{},{}], destroy:true, pageLength:5 });
+    } else { $('#vacCard').hide(); }
+  }, 'json');
+}
+
+// -------- Medical Health Information (Nurse View: Medical Information ONLY) --------
+$('#viewWellbeingBtn').on('click', function () {
+  if (!currentPatientId) return;
+  $.get(APP_URL + '/api/wellbeing.php', { action: 'get', student_id: currentPatientId }, function (res) {
+    if (!res.success || !res.profile) { toastError('Unable to load medical health information.'); return; }
+    const p = res.profile;
+    const field = (label, val) => `<div class="mb-3"><div class="text-muted small fw-medium">${label}</div><div class="fw-semibold text-dark">${val ? $('<div>').text(val).html() : '<span class="text-muted fst-italic">None reported</span>'}</div></div>`;
+
+    const html =
+      `<div class="alert alert-light border small mb-3"><i class="bi bi-shield-check text-success me-1"></i> Medically relevant health information provided for clinic care.</div>` +
+      `<h6 class="small fw-bold text-success mb-3"><i class="bi bi-heart-pulse-fill me-1"></i> Medical Information</h6>` +
+      field('Known Medical Conditions', p.known_medical_conditions) +
+      field('Allergies', p.allergies) +
+      field('Previous Serious Illnesses', p.previous_illnesses) +
+      field('Current Medications', p.current_medications) +
+      field('Other Important Health Information', p.other_medical_info);
+
+    $('#wellbeingBody').html(html);
+    new bootstrap.Modal(document.getElementById('wellbeingModal')).show();
+  }, 'json');
+});
+
+// -------- Support Referral from patient view --------
+$('#createReferralBtn').on('click', function () {
+  if (!currentPatientId) return;
+  $('#refStudentId2').val(currentPatientId);
+  $('#refStudentChosen2').removeClass('d-none').text('Student ID: ' + currentPatientId);
+  new bootstrap.Modal(document.getElementById('referralModal2')).show();
+});
+
+$('#referralForm2').on('submit', function (e) {
+  e.preventDefault();
+  if (!$('#refStudentId2').val()) { toastError('No student selected.'); return; }
+  const data = $(this).serialize() + '&action=create&csrf_token=' + $('meta[name="csrf-token"]').attr('content');
+  $.post(APP_URL + '/api/referrals.php', data, function (res) {
+    if (res.success) { toastSuccess(res.message); $('#referralForm2')[0].reset(); bootstrap.Modal.getInstance(document.getElementById('referralModal2')).hide(); }
+    else toastError(res.message);
+  }, 'json');
+});
+</script>
 </body>
 </html>

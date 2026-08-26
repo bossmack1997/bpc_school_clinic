@@ -45,6 +45,7 @@ $sbNav = [
                   ['layers-fill', 'Sections & Courses', 'sections.php'],
                   ['hourglass-split', 'Pending Accounts', 'pending_accounts.php'],
                   ['clock-history', 'Audit Logs', 'activity_logs.php'],
+                  ['cpu', 'PWA Diagnostics', 'pwa_debug.php'],
                   ['gear-fill', 'System Settings', 'settings.php'],
               ],
               'QR System' => [
@@ -107,7 +108,7 @@ $sbNav = [
               ['file-earmark-medical-fill', 'Medical Record', 'medical_record.php'],
               ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
               ['shield-check', 'Vaccination Record', 'vaccination.php'],
-              ['emoji-smile-heart-eyes', 'Health & Well-being', 'wellbeing.php'],
+              ['person-heart', 'Health & Well-being', 'wellbeing.php'],
             ],
             'Clinic Services' => [
                 ['calendar-check-fill', 'Scheduled Services', 'appointments.php'],
@@ -157,6 +158,7 @@ $sbNav = [
             ],
             'Support' => [
                 ['send-fill', 'Support Referrals', 'referrals.php'],
+                ['person-heart', 'Student Well-being', 'wellbeing.php'],
             ],
             'Clinic' => [
                 ['hospital-fill', 'Clinic Information', 'clinic.php'],

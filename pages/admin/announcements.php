@@ -11,9 +11,9 @@ $pageTitle = 'Announcements';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h6 class="section-title mb-0">Clinic Announcements</h6>
+        <h6 class="section-title mb-0"><i class="bi bi-megaphone-fill text-success me-1"></i> Clinic Announcements</h6>
         <span class="badge bg-secondary">View Only</span>
       </div>
       <div class="card p-3">

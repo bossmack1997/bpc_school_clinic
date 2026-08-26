@@ -21,9 +21,9 @@ $pendingUsers = $db->query("
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="card p-3">
-        <h6 class="section-title mb-3">Pending Account Approvals</h6>
+        <h6 class="section-title mb-3"><i class="bi bi-hourglass-split text-success me-1"></i> Pending Account Approvals</h6>
         <div class="table-responsive">
           <table class="table table-hover align-middle" id="pendingTable" style="width:100%">
             <thead><tr><th>Name</th><th>Role</th><th>Identifier</th><th>Email</th><th>Status</th><th>Registered</th><th>Action</th></tr></thead>

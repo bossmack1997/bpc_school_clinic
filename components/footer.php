@@ -19,6 +19,7 @@
 <script src="<?= asset_url('js/chart.umd.min.js') ?>"></script>
 <script src="<?= asset_url('js/aos.js') ?>"></script>
 <script src="<?= asset_url('js/main.js') ?>"></script>
+<script src="<?= asset_url('js/pwa.js') ?>"></script>
 <?php if (getenv('FIREBASE_PROJECT_ID')): ?>
 <script src="<?= asset_url('js/firebase-notifications.js') ?>"></script>
 <?php endif; ?>

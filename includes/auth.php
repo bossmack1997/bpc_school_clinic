@@ -398,16 +398,16 @@ function require_adviser_student_access($db, $studentId) {
 // ================================================================
 
 /**
- * May the current user view a student's DETAILED well-being (mental-health) info?
- *  - The student themselves: yes (own record)
- *  - Nurse: yes (clinical care)
- *  - Guidance / authorized support: yes
- *  - Adviser: NO (safety/emergency only — never detailed psychological records)
- *  - Admin: NO by default (must be explicitly authorized; not auto-granted)
- *  - Others: no
+ * May the current user view a student's DETAILED confidential mental & emotional well-being?
+ *  - Guidance Counselor: YES (authorized counseling / student support)
+ *  - Student: YES (own personal record only)
+ *  - Nurse: NO (Nurse may only access general medical health info; NO access to confidential psychological/emotional records)
+ *  - Adviser: NO (safety/emergency only — never confidential counseling records)
+ *  - Admin: NO (never access confidential counseling records)
+ *  - Others: NO
  */
 function can_view_detailed_wellbeing($db, $viewerUserId, $viewerRole, $studentId, $ownerStudentId = null) {
-    if ($viewerRole === 'nurse' || $viewerRole === 'guidance') {
+    if ($viewerRole === 'guidance') {
         return true;
     }
     if ($viewerRole === 'student') {
@@ -420,6 +420,17 @@ function can_view_detailed_wellbeing($db, $viewerUserId, $viewerRole, $studentId
         return $ownerStudentId !== false && (int)$ownerStudentId === (int)$studentId;
     }
     return false;
+}
+
+/**
+ * May the current user view a student's general medical health information (conditions, allergies, meds)?
+ *  - Nurse: YES (for clinical care)
+ *  - Guidance: YES (for holistic student support)
+ *  - Student: YES (own personal record)
+ *  - Others: NO
+ */
+function can_view_medical_wellbeing($viewerRole) {
+    return in_array($viewerRole, ['nurse', 'guidance', 'student'], true);
 }
 
 /**

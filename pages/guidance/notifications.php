@@ -14,7 +14,7 @@ $roleDir = 'guidance';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <?php include __DIR__ . '/../../includes/notification_ui.php'; ?>
     </div>
   </div>

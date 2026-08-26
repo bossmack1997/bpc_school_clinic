@@ -23,41 +23,69 @@ function current_student_id($db, $userId) {
 
 // ---------------------------------------------------------------------
 // GET — fetch a well-being profile
-//   - student: only own
-//   - nurse/guidance: any student (detailed) + audit log
-//   - adviser/admin: NOT allowed detailed -> 403
+//   - student: only own profile (full access)
+//   - guidance: any student (full access to confidential mental/emotional info)
+//   - nurse: medical subset ONLY (known_medical_conditions, allergies, previous_illnesses, current_medications, other_medical_info)
+//   - adviser / admin / others: 403 Forbidden
 // ---------------------------------------------------------------------
 if ($action === 'get') {
     $studentId = (int)($_GET['student_id'] ?? 0);
 
+    if ($studentId <= 0) {
+        json_response(false, [], 'Invalid student ID.');
+    }
+
+    // Verify student exists
+    $stmt = $db->prepare("SELECT id, user_id FROM students WHERE id = ?");
+    $stmt->execute([$studentId]);
+    $studentRow = $stmt->fetch();
+    if (!$studentRow) {
+        json_response(false, [], 'Student not found.');
+    }
+
     if ($role === 'student') {
         $own = current_student_id($db, $u['id']);
         if (!$own || $own !== $studentId) {
-            json_response(false, [], 'You can only view your own well-being information.');
+            json_response(false, [], 'Access denied. You can only view your own well-being information.');
         }
-    } elseif (in_array($role, ['nurse', 'guidance'], true)) {
-        // authorized to view details
-        $stmt = $db->prepare("SELECT id FROM students WHERE id = ?");
-        $stmt->execute([$studentId]);
-        if (!$stmt->fetch()) {
-            json_response(false, [], 'Student not found.');
-        }
-        log_activity($u['id'], 'Viewed sensitive well-being information', 'wellbeing', "Student #$studentId");
+    } elseif ($role === 'guidance') {
+        // Guidance counselor has authorized access to full confidential well-being & counseling info
+        log_activity($u['id'], 'Viewed confidential student well-being profile', 'guidance', "Student #$studentId");
+    } elseif ($role === 'nurse') {
+        // Nurse has access ONLY to medical health fields for clinical care
+        log_activity($u['id'], 'Viewed student medical health profile', 'medical_records', "Student #$studentId");
     } else {
-        json_response(false, [], 'Access denied.');
-    }
-
-    if ($studentId <= 0) {
-        json_response(false, [], 'Invalid student.');
+        // Advisers, Admins, and other roles have NO access to student well-being records
+        json_response(false, [], 'Access denied. Student well-being and counseling records are restricted to Guidance Counselors.');
     }
 
     $stmt = $db->prepare("SELECT * FROM wellbeing_profiles WHERE student_id = ?");
     $stmt->execute([$studentId]);
     $row = $stmt->fetch();
+
     if (!$row) {
-        json_response(true, ['profile' => null, 'exists' => false]);
+        json_response(true, ['profile' => null, 'exists' => false, 'scope' => $role === 'nurse' ? 'medical_only' : 'full']);
     }
-    json_response(true, ['profile' => $row, 'exists' => true]);
+
+    // Server-side filtering by role:
+    if ($role === 'nurse') {
+        // NURSE gets strictly the 5 medical health fields ONLY.
+        // Mental/emotional and support preferences fields are NEVER transmitted to Nurse.
+        $medicalProfile = [
+            'id'                       => (int)$row['id'],
+            'student_id'               => (int)$row['student_id'],
+            'known_medical_conditions' => $row['known_medical_conditions'] ?? '',
+            'allergies'                => $row['allergies'] ?? '',
+            'previous_illnesses'       => $row['previous_illnesses'] ?? '',
+            'current_medications'      => $row['current_medications'] ?? '',
+            'other_medical_info'       => $row['other_medical_info'] ?? '',
+            'updated_at'               => $row['updated_at'] ?? null,
+        ];
+        json_response(true, ['profile' => $medicalProfile, 'exists' => true, 'scope' => 'medical_only']);
+    }
+
+    // GUIDANCE & STUDENT receive full profile
+    json_response(true, ['profile' => $row, 'exists' => true, 'scope' => 'full']);
 }
 
 // ---------------------------------------------------------------------

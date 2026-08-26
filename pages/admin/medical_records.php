@@ -11,9 +11,9 @@ $pageTitle = 'Medical Records';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="card p-3">
-        <h6 class="section-title mb-3">All Medical Records</h6>
+        <h6 class="section-title mb-3"><i class="bi bi-file-earmark-medical-fill text-success me-1"></i> All Medical Records</h6>
         <div class="table-responsive">
           <table class="table table-hover align-middle" id="recordsTable" style="width:100%">
             <thead><tr><th>Student</th><th>Student No.</th><th>Date</th><th>Complaint</th><th>Diagnosis</th><th>File</th></tr></thead>

@@ -75,7 +75,7 @@ $quickActions = match ($role) {
   <?php include __DIR__ . '/../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
 
       <!-- Hero banner -->
       <div class="alert alert-success d-flex align-items-center justify-content-between flex-wrap gap-2 rounded-4 shadow-sm mb-4 py-3 px-4" data-aos="fade-down">

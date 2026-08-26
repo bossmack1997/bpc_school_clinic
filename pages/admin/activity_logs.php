@@ -11,9 +11,9 @@ $pageTitle = 'Activity Logs';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h6 class="section-title mb-0">System Activity Logs</h6>
+        <h6 class="section-title mb-0"><i class="bi bi-clock-history text-success me-1"></i> System Activity Logs</h6>
         <div class="input-group" style="width:280px;">
           <input type="text" id="searchInput" class="form-control" placeholder="Search logs...">
           <button class="btn btn-outline-primary" onclick="searchLogs()"><i class="bi bi-search"></i></button>

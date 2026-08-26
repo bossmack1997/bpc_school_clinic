@@ -56,6 +56,11 @@ $pageTitle = 'Guidance Dashboard';
           <div class="qa-title-lg">Support Referrals</div>
           <div class="qa-sub-lg">Manage student referrals</div>
         </a>
+        <a href="wellbeing.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-person-heart text-info"></i></div>
+          <div class="qa-title-lg">Student Well-being</div>
+          <div class="qa-sub-lg">Confidential mental &amp; emotional records</div>
+        </a>
         <a href="clinic.php" class="quick-action-card-lg text-decoration-none">
           <div class="qa-icon-lg"><i class="bi bi-hospital-fill text-primary"></i></div>
           <div class="qa-title-lg">Clinic Information</div>
@@ -105,10 +110,10 @@ $(function () {
   $.get(APP_URL + '/api/referrals.php', { action: 'list' }, function (res) {
     if (!res.success) return;
     const data = res.data || [];
-    const counts = { pending: 0, in_support: 0, follow_up_required: 0, closed: 0 };
+    const counts = { pending: 0, accepted: 0, in_support: 0, follow_up_required: 0, closed: 0 };
     data.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
     $('#statPending').text(counts.pending);
-    $('#statSupport').text(counts.in_support + counts.accepted);
+    $('#statSupport').text((counts.in_support || 0) + (counts.accepted || 0));
     $('#statFollowup').text(counts.follow_up_required);
     $('#statClosed').text(counts.closed);
 

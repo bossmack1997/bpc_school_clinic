@@ -11,7 +11,7 @@ $pageTitle = 'Vaccination Record';
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area">
+    <div class="content-area page-enter">
       <div class="card p-3">
             <h6 class="section-title mb-3"><i class="bi bi-shield-check text-success me-1"></i> My Vaccination Record</h6>
         <div class="table-responsive">

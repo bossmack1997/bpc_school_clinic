@@ -91,36 +91,49 @@ $pageTitle = 'Adviser Dashboard';
         </div>
       </div>
 
-      <!-- MY CLINIC -->
-      <h6 class="section-title mb-3" data-aos="fade-up"><i class="bi bi-hospital-fill"></i> My Clinic</h6>
-      <div class="row g-3 mb-4">
-        <div class="col-md-4">
-          <a href="my_qr.php" class="text-decoration-none">
-            <div class="card p-3 h-100 shadow-sm text-center">
-              <div class="text-success mb-2"><i class="bi bi-qr-code-scan fs-3"></i></div>
-              <div class="fw-semibold">My QR Code</div>
-              <div class="small text-muted">Check in at the clinic</div>
-            </div>
-          </a>
-        </div>
-        <div class="col-md-4">
-          <a href="consultations.php" class="text-decoration-none">
-            <div class="card p-3 h-100 shadow-sm text-center">
-              <div class="text-primary mb-2"><i class="bi bi-file-earmark-medical fs-3"></i></div>
-              <div class="fw-semibold">My Consultations</div>
-              <div class="small text-muted">Your own clinic records</div>
-            </div>
-          </a>
-        </div>
-        <div class="col-md-4">
-          <a href="profile.php" class="text-decoration-none">
-            <div class="card p-3 h-100 shadow-sm text-center">
-              <div class="text-info mb-2"><i class="bi bi-person-circle fs-3"></i></div>
-              <div class="fw-semibold">My Profile</div>
-              <div class="small text-muted">Account &amp; contact info</div>
-            </div>
-          </a>
-        </div>
+      <!-- Quick Actions -->
+      <h6 class="section-title mb-3" data-aos="fade-up"><i class="bi bi-lightning-fill text-warning me-1"></i> Quick Actions</h6>
+      <div class="quick-actions-grid mb-4" data-aos="fade-up" data-aos-delay="50">
+        <a href="students.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-people-fill text-success"></i></div>
+          <div class="qa-title-lg">My Advisory Class</div>
+          <div class="qa-sub-lg">View student roster</div>
+        </a>
+        <a href="emergencies.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-exclamation-triangle-fill text-danger"></i></div>
+          <div class="qa-title-lg">Emergency Reports</div>
+          <div class="qa-sub-lg">Manage SOS &amp; alerts</div>
+        </a>
+        <a href="my_qr.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-qr-code-scan text-success"></i></div>
+          <div class="qa-title-lg">My QR Code</div>
+          <div class="qa-sub-lg">Check in at the clinic</div>
+        </a>
+        <a href="consultations.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-file-earmark-medical text-primary"></i></div>
+          <div class="qa-title-lg">My Consultations</div>
+          <div class="qa-sub-lg">Your clinic records</div>
+        </a>
+        <a href="announcements.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-megaphone-fill text-warning"></i></div>
+          <div class="qa-title-lg">Announcements</div>
+          <div class="qa-sub-lg">Read clinic notices</div>
+        </a>
+        <a href="notifications.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-bell-fill text-info"></i></div>
+          <div class="qa-title-lg">Notifications</div>
+          <div class="qa-sub-lg">View system alerts</div>
+        </a>
+        <a href="profile.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-person-circle text-secondary"></i></div>
+          <div class="qa-title-lg">My Profile</div>
+          <div class="qa-sub-lg">Account settings</div>
+        </a>
+        <a href="<?= APP_URL ?>/pages/ai_assistant.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-robot text-success"></i></div>
+          <div class="qa-title-lg">Ask MICA</div>
+          <div class="qa-sub-lg">AI Health Assistant</div>
+        </a>
       </div>
 
       <h6 class="section-title mb-3" data-aos="fade-up"><i class="bi bi-people-fill text-success me-1"></i> My Advisory Class</h6>
@@ -161,48 +174,127 @@ $pageTitle = 'Adviser Dashboard';
         <?php endif; ?>
       </div>
 
-      <h6 class="section-title mb-3" data-aos="fade-up"><i class="bi bi-list-ul text-success me-1"></i> Advisory Students Roster</h6>
-      <div class="card" data-aos="fade-up" data-aos-delay="100">
-        <div class="card-body p-0">
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-              <thead>
-                <tr><th>Student</th><th>Student No.</th><th>Course</th><th>Year</th><th>Section</th><th></th></tr>
-              </thead>
-              <tbody>
-                <?php foreach ($students as $s): ?>
-                <tr>
-                  <td class="fw-medium"><?= e($s['first_name'].' '.$s['last_name']) ?></td>
-                  <td><?= e($s['student_number']) ?></td>
-                  <td><?= e($s['course'] ?: '—') ?></td>
-                  <td><?= e($s['year_level'] ?: '—') ?></td>
-                  <td><span class="badge bg-light text-dark border fw-medium"><?= e($s['assigned_section_name'] ?: $s['section']) ?></span></td>
-                  <td><a href="student_detail.php?id=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-primary">View</a></td>
-                </tr>
-                <?php endforeach; ?>
-                <?php if (!$students): ?>
-                <tr>
-                  <td colspan="6" class="text-center py-4">
-                    <div class="p-3 my-2">
-                      <div class="mb-2 text-muted">
-                        <div class="d-inline-flex align-items-center justify-content-center bg-light rounded-circle p-3" style="width: 60px; height: 60px;">
-                          <i class="bi bi-people fs-2 text-secondary"></i>
-                        </div>
-                      </div>
-                      <h5 class="fw-bold text-dark mb-1">No Students Yet</h5>
-                      <p class="text-muted small mb-0" style="max-width: 480px; margin: 0 auto;">
-                        There are currently no students enrolled in your advisory section, <strong><?= e(implode(', ', $sections) ?: 'Unassigned') ?></strong>.<br>
-                        Once students are enrolled in this section, they will appear here.
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-                <?php endif; ?>
-              </tbody>
-            </table>
-          </div>
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3" data-aos="fade-up">
+        <h6 class="section-title mb-0"><i class="bi bi-people-fill text-success me-1"></i> My Advisory Class Roster</h6>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="$('.dash-advisory-collapse').collapse('show'); $('.dash-advisory-header').attr('aria-expanded','true').removeClass('collapsed');">
+            <i class="bi bi-arrows-expand me-1"></i> Expand All
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="$('.dash-advisory-collapse').collapse('hide'); $('.dash-advisory-header').attr('aria-expanded','false').addClass('collapsed');">
+            <i class="bi bi-arrows-collapse me-1"></i> Collapse All
+          </button>
+          <a href="students.php" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye me-1"></i> Full Roster</a>
         </div>
       </div>
+
+      <?php
+        // Prepare section groups for dashboard
+        $dashSectionGroups = [];
+        if (!empty($assignments)) {
+            foreach ($assignments as $a) {
+                $secId = (int)$a['section_id'];
+                $secName = trim((string)$a['section_name']);
+                $secCourse = trim((string)($a['course'] ?? ''));
+                $secYear = trim((string)($a['year_level'] ?? ''));
+
+                $secStudents = array_values(array_filter($students, function ($st) use ($a) {
+                    return (!empty($st['assigned_section_id']) && (int)$st['assigned_section_id'] === (int)$a['section_id']) ||
+                           (!empty($st['assigned_section_name']) && strcasecmp($st['assigned_section_name'], $a['section_name']) === 0) ||
+                           (!empty($st['section']) && strcasecmp($st['section'], $a['section_name']) === 0);
+                }));
+
+                $dashSectionGroups[] = [
+                    'id'          => $secId,
+                    'name'        => $secName,
+                    'course'      => $secCourse,
+                    'year_level'  => $secYear,
+                    'students'    => $secStudents,
+                    'count'       => count($secStudents)
+                ];
+            }
+        }
+      ?>
+
+      <?php if (!empty($dashSectionGroups)): ?>
+        <div class="row g-3 mb-4" data-aos="fade-up" data-aos-delay="100">
+          <?php foreach ($dashSectionGroups as $idx => $group): ?>
+            <?php
+              $collapseId = 'dashCollapseSec_' . $idx;
+              $count = $group['count'];
+              $countLabel = $count . ' ' . ($count === 1 ? 'Student' : 'Students');
+            ?>
+            <div class="col-12">
+              <div class="card border overflow-hidden">
+                <div class="card-header bg-white d-flex flex-wrap align-items-center justify-content-between gap-3 p-3 cursor-pointer dash-advisory-header collapsed"
+                     data-bs-toggle="collapse"
+                     data-bs-target="#<?= $collapseId ?>"
+                     aria-expanded="false"
+                     style="user-select: none;">
+                  <div class="d-flex align-items-center gap-3">
+                    <div class="d-inline-flex align-items-center justify-content-center bg-success-light text-success rounded-circle" style="width: 38px; height: 38px;">
+                      <i class="bi bi-mortarboard-fill"></i>
+                    </div>
+                    <div>
+                      <h6 class="fw-bold mb-0 text-dark"><?= e($group['name']) ?></h6>
+                      <div class="small text-muted">
+                        <?= e($group['course'] ?: 'Advisory Section') ?> <?= $group['year_level'] ? '· ' . e($group['year_level']) : '' ?>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge <?= $count > 0 ? 'bg-success-light text-success' : 'bg-light text-muted border' ?> fw-semibold px-3 py-2">
+                      <i class="bi <?= $count > 0 ? 'bi-person-check-fill' : 'bi-person-x' ?> me-1"></i> <?= e($countLabel) ?>
+                    </span>
+                    <i class="bi bi-chevron-down text-muted ms-1"></i>
+                  </div>
+                </div>
+
+                <div id="<?= $collapseId ?>" class="collapse dash-advisory-collapse">
+                  <div class="card-body p-0">
+                    <?php if ($count > 0): ?>
+                      <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                          <thead class="bg-light small text-muted">
+                            <tr>
+                              <th class="ps-4">Student</th>
+                              <th>Student No.</th>
+                              <th>Course</th>
+                              <th>Year</th>
+                              <th>Section</th>
+                              <th class="text-end pe-4">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <?php foreach ($group['students'] as $s): ?>
+                              <tr>
+                                <td class="ps-4 fw-medium text-dark"><?= e($s['first_name'] . ' ' . $s['last_name']) ?></td>
+                                <td><span class="font-monospace"><?= e($s['student_number']) ?></span></td>
+                                <td><span class="badge bg-primary-light text-primary"><?= e($s['course'] ?: '—') ?></span></td>
+                                <td><?= e($s['year_level'] ?: '—') ?></td>
+                                <td><span class="badge bg-light text-dark border"><?= e($s['assigned_section_name'] ?: $s['section']) ?></span></td>
+                                <td class="text-end pe-4">
+                                  <a href="student_detail.php?id=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye me-1"></i> View
+                                  </a>
+                                </td>
+                              </tr>
+                            <?php endforeach; ?>
+                          </tbody>
+                        </table>
+                      </div>
+                    <?php else: ?>
+                      <div class="text-center py-4 text-muted">
+                        <i class="bi bi-people fs-3 text-secondary mb-2 d-block"></i>
+                        <span class="small fw-semibold">No students enrolled in this section yet.</span>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
 
     </div>
   </div>

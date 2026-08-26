@@ -1,22 +1,47 @@
 {
   "name": "BPC School Clinic Management System",
   "short_name": "BPC Clinic",
-  "description": "Digital health records, appointments, emergency SOS, and clinic management for Bulacan Polytechnic College.",
-  "start_url": "./auth/login.php",
+  "description": "AI-Powered School Clinic Management System with digital health monitoring, appointments, and emergency assistance for Bulacan Polytechnic College.",
+  "start_url": "index.php",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "orientation": "portrait",
   "theme_color": "#0E7A3E",
-  "orientation": "portrait-primary",
+  "background_color": "#FFFFFF",
+  "categories": ["medical", "education", "health"],
   "icons": [
     {
-      "src": "./assets/images/default-avatar.svg",
-      "sizes": "192x192",
-      "type": "image/svg+xml"
+      "src": "assets/icons/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
     },
     {
-      "src": "./assets/images/default-avatar.svg",
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml"
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Open your BPC Clinic dashboard",
+      "url": "index.php",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Scheduled Services",
+      "short_name": "Appointments",
+      "description": "Book or check clinic appointments",
+      "url": "pages/student/appointments.php",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }
