@@ -15,42 +15,85 @@ $pageTitle = 'Guidance Dashboard';
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area page-enter">
 
-      <h6 class="section-title mb-3"><i class="bi bi-people-fill text-success me-1"></i> Guidance &amp; Student Support</h6>
+      <!-- Welcome Card — Guidance & Student Support -->
+      <div class="welcome-card" data-aos="fade-down" data-aos-duration="600">
+        <div class="welcome-content">
+          <div class="clinic-status open"><span class="status-dot"></span> Guidance &amp; Counseling Station</div>
+          <h1>Welcome, <?= e($u['first_name']) ?>! 👋</h1>
+          <div class="welcome-sub">Student Well-being &amp; Support Portal</div>
+          <div class="welcome-desc">Confidential guidance platform for Bulacan Polytechnic College. Coordinate student referrals, review support preferences, and monitor counseling cases.</div>
+          <div class="welcome-actions">
+            <a href="referrals.php" class="btn btn-white"><i class="bi bi-send-fill me-1"></i> Support Referrals</a>
+            <a href="wellbeing.php" class="btn btn-outline-white"><i class="bi bi-person-heart me-1"></i> Student Well-being</a>
+            <a href="clinic.php" class="btn btn-outline-white"><i class="bi bi-hospital me-1"></i> Clinic Info</a>
+          </div>
+        </div>
+        <div class="welcome-visual">
+          <div class="welcome-icon"><i class="bi bi-heart-pulse"></i></div>
+        </div>
+        <!-- Subtle ECG line -->
+        <div class="ecg-line" style="position:absolute;bottom:0;left:0;right:0;opacity:0.06;">
+          <svg viewBox="0 0 400 40" preserveAspectRatio="none">
+            <path class="ecg-path" d="M0,20 L50,20 L60,8 L70,32 L80,20 L130,20 L140,10 L145,20 L150,20 L200,20 L210,12 L220,28 L230,20 L280,20 L290,15 L295,20 L300,20 L350,20 L360,18 L370,22 L380,20 L400,20" stroke="white" stroke-width="2" fill="none"/>
+          </svg>
+        </div>
+      </div>
 
-      <div class="row g-3 mb-4">
+      <!-- Medical Stat Cards -->
+      <div class="row g-3 mb-4" data-aos="fade-up" data-aos-delay="100">
         <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-success mb-2"><i class="bi bi-inboxes fs-3"></i></div>
-            <div class="small text-muted fw-medium">Pending Referrals</div>
-            <div class="fw-bold fs-4" id="statPending">—</div>
+          <div class="medical-stat-card gradient-green">
+            <div class="msc-top">
+              <div class="msc-icon"><i class="bi bi-inboxes-fill"></i></div>
+              <div class="msc-value" id="statPending">—</div>
+            </div>
+            <div>
+              <div class="msc-label">Pending Referrals</div>
+              <div class="msc-trend up"><i class="bi bi-hourglass-split"></i> Awaiting review</div>
+            </div>
           </div>
         </div>
         <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-info mb-2"><i class="bi bi-person-heart fs-3"></i></div>
-            <div class="small text-muted fw-medium">In Support</div>
-            <div class="fw-bold fs-4" id="statSupport">—</div>
+          <div class="medical-stat-card gradient-blue">
+            <div class="msc-top">
+              <div class="msc-icon"><i class="bi bi-person-heart"></i></div>
+              <div class="msc-value" id="statSupport">—</div>
+            </div>
+            <div>
+              <div class="msc-label">In Support</div>
+              <div class="msc-trend up"><i class="bi bi-shield-check"></i> Active counseling</div>
+            </div>
           </div>
         </div>
         <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-warning mb-2"><i class="bi bi-clock-history fs-3"></i></div>
-            <div class="small text-muted fw-medium">Follow-up Required</div>
-            <div class="fw-bold fs-4" id="statFollowup">—</div>
+          <div class="medical-stat-card gradient-orange">
+            <div class="msc-top">
+              <div class="msc-icon"><i class="bi bi-clock-history"></i></div>
+              <div class="msc-value" id="statFollowup">—</div>
+            </div>
+            <div>
+              <div class="msc-label">Follow-up Required</div>
+              <div class="msc-trend down"><i class="bi bi-arrow-repeat"></i> Action needed</div>
+            </div>
           </div>
         </div>
         <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-secondary mb-2"><i class="bi bi-check2-circle fs-3"></i></div>
-            <div class="small text-muted fw-medium">Closed</div>
-            <div class="fw-bold fs-4" id="statClosed">—</div>
+          <div class="medical-stat-card gradient-teal">
+            <div class="msc-top">
+              <div class="msc-icon"><i class="bi bi-check2-circle"></i></div>
+              <div class="msc-value" id="statClosed">—</div>
+            </div>
+            <div>
+              <div class="msc-label">Closed Cases</div>
+              <div class="msc-trend up"><i class="bi bi-check-circle-fill"></i> Resolved</div>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- Quick Actions -->
-      <h6 class="section-title mb-3"><i class="bi bi-lightning-fill text-warning me-1"></i> Quick Actions</h6>
-      <div class="quick-actions-grid mb-4">
+      <h6 class="section-title mb-3" data-aos="fade-up"><i class="bi bi-lightning-fill text-warning me-1"></i> Quick Actions</h6>
+      <div class="quick-actions-grid mb-4" data-aos="fade-up" data-aos-delay="50">
         <a href="referrals.php" class="quick-action-card-lg text-decoration-none">
           <div class="qa-icon-lg"><i class="bi bi-send-fill text-success"></i></div>
           <div class="qa-title-lg">Support Referrals</div>
@@ -88,8 +131,8 @@ $pageTitle = 'Guidance Dashboard';
         </a>
       </div>
 
-      <div class="card p-3">
-        <div class="d-flex justify-content-between align-items-center mb-2">
+      <div class="card p-3 shadow-sm rounded-4 border-0" data-aos="fade-up" data-aos-delay="100">
+        <div class="d-flex justify-content-between align-items-center mb-3">
           <h6 class="section-title mb-0"><i class="bi bi-list-ul text-success me-1"></i> Assigned Referrals</h6>
           <a href="referrals.php" class="btn btn-sm btn-success"><i class="bi bi-arrow-right me-1"></i> Manage Referrals</a>
         </div>
