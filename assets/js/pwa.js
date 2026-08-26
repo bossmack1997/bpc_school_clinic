@@ -141,6 +141,16 @@
     promptInstall: function () {
       if (deferredPrompt) {
         deferredPrompt.prompt();
+        return deferredPrompt.userChoice.then(function (choiceResult) {
+          if (choiceResult.outcome === 'accepted') {
+            console.log('[PWA] User accepted the install prompt');
+          } else {
+            console.log('[PWA] User dismissed the install prompt');
+          }
+          deferredPrompt = null;
+          hideInstallBanner();
+          return choiceResult;
+        });
       } else if (isStandalone()) {
         if (typeof Swal !== 'undefined') {
           Swal.fire({
@@ -166,5 +176,14 @@
       }
     }
   };
+
+  // Delegate click for any install button/link across all pages
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.btn-pwa-install, .pwa-install-btn, [data-pwa-install], #pwaManualInstallBtn');
+    if (btn) {
+      e.preventDefault();
+      window.BPC_PWA.promptInstall();
+    }
+  });
 })();
 

@@ -798,6 +798,70 @@ class DatabaseContext
             }
         }
 
+        // Nurse-Specific Live Summary
+        if ($role === 'nurse') {
+            $parts[] = "\n### NURSE CLINIC STATUS";
+            try {
+                $today = date('Y-m-d');
+                $tApptStmt = $this->db->prepare("SELECT COUNT(*) FROM appointments WHERE appointment_date = ? AND status IN ('pending','approved')");
+                $tApptStmt->execute([$today]);
+                $todayAppts = (int)$tApptStmt->fetchColumn();
+                $parts[] = "- Today's Active Appointments: {$todayAppts}";
+
+                $sosStmt = $this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status = 'active'");
+                $activeSos = (int)$sosStmt->fetchColumn();
+                $parts[] = "- Active SOS Alerts: {$activeSos}";
+
+                $lowMedStmt = $this->db->query("SELECT COUNT(*) FROM medicine_inventory WHERE quantity <= min_quantity OR is_available = 0");
+                $lowMeds = (int)$lowMedStmt->fetchColumn();
+                $parts[] = "- Low Stock / Unavailable Medicines: {$lowMeds}";
+            } catch (PDOException $e) { /* fallback */ }
+        }
+
+        // Teacher / Adviser Specific Summary
+        if ($role === 'adviser' || $role === 'teacher') {
+            $parts[] = "\n### MY ADVISORY CLASSES";
+            try {
+                $aStmt = $this->db->prepare("SELECT id FROM teachers_advisers WHERE user_id = ? LIMIT 1");
+                $aStmt->execute([$this->getUserId()]);
+                $advId = $aStmt->fetchColumn();
+                if ($advId) {
+                    $cStmt = $this->db->prepare("
+                        SELECT c.code AS course_code, s.name AS section_name, COUNT(st.id) AS student_count
+                        FROM advisory_assignments aa
+                        JOIN courses c ON c.id = aa.course_id
+                        JOIN sections s ON s.id = aa.section_id
+                        LEFT JOIN students st ON st.course = c.code AND st.section = s.name
+                        WHERE aa.adviser_id = ?
+                        GROUP BY aa.id
+                    ");
+                    $cStmt->execute([$advId]);
+                    $advClasses = $cStmt->fetchAll();
+                    if (!empty($advClasses)) {
+                        foreach ($advClasses as $ac) {
+                            $parts[] = "- Section {$ac['course_code']} {$ac['section_name']}: {$ac['student_count']} students enrolled";
+                        }
+                    } else {
+                        $parts[] = "- No advisory sections assigned currently.";
+                    }
+                }
+            } catch (PDOException $e) { /* fallback */ }
+        }
+
+        // Admin Specific Summary
+        if ($role === 'admin') {
+            $parts[] = "\n### SYSTEM SUMMARY";
+            try {
+                $uStmt = $this->db->query("SELECT role, COUNT(*) as cnt FROM users GROUP BY role");
+                $roles = $uStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+                $parts[] = "- Users: " . implode(', ', array_map(fn($r, $c) => ucfirst($r) . ": {$c}", array_keys($roles), array_values($roles)));
+
+                $cCount = (int)$this->db->query("SELECT COUNT(*) FROM courses")->fetchColumn();
+                $sCount = (int)$this->db->query("SELECT COUNT(*) FROM sections")->fetchColumn();
+                $parts[] = "- Academic Setup: {$cCount} Courses, {$sCount} Sections";
+            } catch (PDOException $e) { /* fallback */ }
+        }
+
         return implode("\n", $parts);
     }
 }

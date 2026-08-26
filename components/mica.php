@@ -32,6 +32,9 @@ elseif ($micaHour >= 12 && $micaHour < 18) $micaTimeOfDay = 'Good afternoon';
 else $micaTimeOfDay = 'Good evening';
 $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medical Intelligent Clinic Assistant from BPC. How can I help you today?';
 ?>
+<!-- Reusable MICA Assistant Role Metadata -->
+<div id="mica-assistant" data-mica-role="<?= $micaRole ?>" data-mica-assistant="true" style="display:none;"></div>
+
 <!-- ================================================================ -->
 <!-- SOS Emergency Modal (Global - used by MICA on every page)        -->
 <!-- ================================================================ -->
@@ -94,7 +97,7 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
       <span class="sos-widget-title">
         <i class="bi bi-shield-fill-exclamation text-danger me-1"></i>
         <strong>Emergency Active</strong>
-        <span class="sos-badge-pill" id="sosStatusPill"><i class="bi bi-broadcast me-1"></i>Location Sharing Active</span>
+        <span class="sos-badge-pill"><i class="bi bi-broadcast me-1"></i>GPS Sharing</span>
       </span>
     </div>
     <div class="sos-widget-actions">
@@ -110,7 +113,7 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
   <!-- Expandable Details Body -->
   <div class="sos-widget-details" id="sosWidgetDetails">
     <div class="sos-details-inner">
-      <div class="small text-dark fw-medium mb-2" id="sosWidgetSubTitle">
+      <div class="small text-dark fw-medium mb-2">
         <i class="bi bi-geo-alt-fill text-danger me-1"></i> Real-time location is shared with the School Clinic:
       </div>
       <div class="sos-coords-box p-2 rounded bg-light border mb-2">
@@ -158,7 +161,7 @@ window.__SOS_LAST_LAT__ = null;
 window.__SOS_LAST_LNG__ = null;
 window.__MICA_SOS_LOC_TIME__ = 0;
 
-// Requests device GPS location with robust permission checking, high-accuracy preference, and truthful fallbacks.
+// Requests device GPS location with high accuracy and network fallback.
 window.getLocation = function (forceFresh) {
   return new Promise(function (resolve) {
     var statusBox = document.getElementById('locationStatus');
@@ -168,7 +171,7 @@ window.getLocation = function (forceFresh) {
     // Use recently acquired fresh location (< 15s) if available and not forced
     if (!forceFresh && window.__MICA_SOS_LOCATION__ && (Date.now() - window.__MICA_SOS_LOC_TIME__ < 15000)) {
       if (statusText && window.__MICA_SOS_LOCATION__.lat) {
-        statusText.innerHTML = '📍 GPS ready: <strong>' + window.__MICA_SOS_LOCATION__.lat.toFixed(5) + ', ' + window.__MICA_SOS_LOCATION__.lng.toFixed(5) + '</strong>';
+        statusText.textContent = '📍 GPS ready: ' + window.__MICA_SOS_LOCATION__.lat.toFixed(5) + ', ' + window.__MICA_SOS_LOCATION__.lng.toFixed(5);
         if (statusBox) statusBox.className = 'alert alert-success small py-2';
       }
       resolve(window.__MICA_SOS_LOCATION__);
@@ -176,14 +179,18 @@ window.getLocation = function (forceFresh) {
     }
 
     if (!navigator.geolocation) {
-      console.warn('[SOS Geolocation] navigator.geolocation not supported in this browser.');
       window.__MICA_SOS_LOCATION__ = null;
       if (statusText) {
-        statusText.innerHTML = '<i class="bi bi-geo-alt-slash me-1"></i> Geolocation is not supported by this browser. Your emergency request will still be sent.';
+        statusText.textContent = 'GPS location is not supported by this browser.';
         if (statusBox) statusBox.className = 'alert alert-warning small py-2';
       }
       resolve(null);
       return;
+    }
+
+    if (statusText) {
+      statusText.textContent = 'Acquiring high-accuracy GPS coordinates...';
+      if (statusBox) statusBox.className = 'alert alert-info small py-2';
     }
 
     var settled = false;
@@ -195,99 +202,59 @@ window.getLocation = function (forceFresh) {
       resolve(val);
     }
 
-    function doGeolocationRequest() {
-      if (statusText) {
-        statusText.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Acquiring high-accuracy GPS coordinates...';
-        if (statusBox) statusBox.className = 'alert alert-info small py-2';
-      }
-      console.log('[SOS Geolocation] Starting geolocation request (highAccuracy: true)...');
-
-      navigator.geolocation.getCurrentPosition(
-        function (pos) {
-          var lat = pos.coords.latitude;
-          var lng = pos.coords.longitude;
-          var acc = pos.coords.accuracy ? (Math.round(pos.coords.accuracy) + 'm') : null;
-          console.log('[SOS Geolocation] Success: lat=' + lat + ', lng=' + lng + ', accuracy=' + acc);
-
+    // Try High Accuracy GPS first
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        var lat = pos.coords.latitude;
+        var lng = pos.coords.longitude;
+        var acc = pos.coords.accuracy ? (Math.round(pos.coords.accuracy) + 'm') : null;
+        if (statusText) {
+          statusText.textContent = '📍 GPS acquired: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + (acc ? ' (±' + acc + ')' : '');
+          if (statusBox) statusBox.className = 'alert alert-success small py-2';
+        }
+        finish({ lat: lat, lng: lng, accuracy: acc });
+      },
+      function (err) {
+        // If permission explicitly denied, do not retry
+        if (err && err.code === 1) { // PERMISSION_DENIED
           if (statusText) {
-            statusText.innerHTML = '📍 GPS acquired: <strong>' + lat.toFixed(5) + ', ' + lng.toFixed(5) + '</strong>' + (acc ? ' (±' + acc + ')' : '');
-            if (statusBox) statusBox.className = 'alert alert-success small py-2';
-          }
-          finish({ lat: lat, lng: lng, accuracy: acc });
-        },
-        function (err) {
-          var errCode = err ? err.code : 0;
-          var errMsg = err ? err.message : 'Unknown error';
-          var codeName = errCode === 1 ? 'PERMISSION_DENIED' : (errCode === 2 ? 'POSITION_UNAVAILABLE' : (errCode === 3 ? 'TIMEOUT' : 'UNKNOWN'));
-          console.warn('[SOS Geolocation] Error: code=' + errCode + ' (' + codeName + ') - ' + errMsg);
-
-          // Code 1: Permission Denied
-          if (errCode === 1) {
-            if (statusText) {
-              statusText.innerHTML = '<i class="bi bi-shield-lock me-1"></i> Location permission was not allowed. Your emergency request will still be sent, but without GPS coordinates.';
-              if (statusBox) statusBox.className = 'alert alert-warning small py-2';
-            }
-            finish(null);
-            return;
-          }
-
-          // Fallback: Try standard accuracy if high-accuracy timed out or unavailable
-          console.log('[SOS Geolocation] High-accuracy failed (' + codeName + '). Attempting standard accuracy fallback...');
-          if (statusText) {
-            statusText.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Refining position via standard network location...';
-          }
-
-          navigator.geolocation.getCurrentPosition(
-            function (pos2) {
-              var lat2 = pos2.coords.latitude;
-              var lng2 = pos2.coords.longitude;
-              var acc2 = pos2.coords.accuracy ? (Math.round(pos2.coords.accuracy) + 'm') : null;
-              console.log('[SOS Geolocation] Fallback Success: lat=' + lat2 + ', lng=' + lng2 + ', accuracy=' + acc2);
-
-              if (statusText) {
-                statusText.innerHTML = '📍 Location acquired: <strong>' + lat2.toFixed(5) + ', ' + lng2.toFixed(5) + '</strong>' + (acc2 ? ' (±' + acc2 + ')' : '');
-                if (statusBox) statusBox.className = 'alert alert-success small py-2';
-              }
-              finish({ lat: lat2, lng: lng2, accuracy: acc2 });
-            },
-            function (err2) {
-              var fbCode = err2 ? err2.code : 0;
-              var fbName = fbCode === 1 ? 'PERMISSION_DENIED' : (fbCode === 2 ? 'POSITION_UNAVAILABLE' : (fbCode === 3 ? 'TIMEOUT' : 'UNKNOWN'));
-              console.warn('[SOS Geolocation] Fallback error: code=' + fbCode + ' (' + fbName + ') - ' + (err2 ? err2.message : ''));
-
-              if (statusText) {
-                statusText.innerHTML = '<i class="bi bi-geo-alt-slash me-1"></i> Current location could not be obtained. Your emergency request will still be sent to the clinic.';
-                if (statusBox) statusBox.className = 'alert alert-warning small py-2';
-              }
-              finish(null);
-            },
-            { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 }
-          );
-        },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-      );
-    }
-
-    // Inspect Permissions API if available
-    if (navigator.permissions && navigator.permissions.query) {
-      navigator.permissions.query({ name: 'geolocation' }).then(function (p) {
-        console.log('[SOS Geolocation] Permission state: ' + p.state);
-        if (p.state === 'denied') {
-          console.warn('[SOS Geolocation] Location permission is blocked in browser settings.');
-          if (statusText) {
-            statusText.innerHTML = '<i class="bi bi-shield-lock me-1"></i> Location permission is blocked. Your emergency request will still be sent, but your current location could not be obtained.';
+            statusText.textContent = 'Location access permission was denied. Submitting SOS without GPS...';
             if (statusBox) statusBox.className = 'alert alert-warning small py-2';
           }
           finish(null);
           return;
         }
-        doGeolocationRequest();
-      }).catch(function () {
-        doGeolocationRequest();
-      });
-    } else {
-      doGeolocationRequest();
-    }
+
+        // If high-accuracy timed out or position unavailable, attempt standard accuracy fallback
+        if (statusText) {
+          statusText.textContent = 'Refining position via standard geolocation...';
+        }
+        navigator.geolocation.getCurrentPosition(
+          function (pos2) {
+            var lat2 = pos2.coords.latitude;
+            var lng2 = pos2.coords.longitude;
+            var acc2 = pos2.coords.accuracy ? (Math.round(pos2.coords.accuracy) + 'm') : null;
+            if (statusText) {
+              statusText.textContent = '📍 Location acquired: ' + lat2.toFixed(5) + ', ' + lng2.toFixed(5) + (acc2 ? ' (±' + acc2 + ')' : '');
+              if (statusBox) statusBox.className = 'alert alert-success small py-2';
+            }
+            finish({ lat: lat2, lng: lng2, accuracy: acc2 });
+          },
+          function (err2) {
+            var msg = 'Location unavailable.';
+            if (err2 && err2.code === 1) msg = 'Location permission denied.';
+            else if (err2 && err2.code === 3) msg = 'Location request timed out.';
+            if (statusText) {
+              statusText.textContent = msg + ' Submitting SOS...';
+              if (statusBox) statusBox.className = 'alert alert-warning small py-2';
+            }
+            finish(null);
+          },
+          { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 }
+        );
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
   });
 };
 
@@ -378,31 +345,10 @@ window.stopSosLocationTracking = function (title, msg) {
 };
 
 function updateBannerCoords(lat, lng, acc) {
-  var hasCoords = (lat !== null && lat !== undefined && lng !== null && lng !== undefined && isFinite(lat) && isFinite(lng));
-  var $pill = $('#sosStatusPill');
-  var $subtitle = $('#sosWidgetSubTitle');
-  var $coords = $('#sosCurrentCoords');
-
-  if (hasCoords) {
-    if ($pill.length) {
-      $pill.removeClass('sos-badge-unavailable').html('<i class="bi bi-broadcast me-1"></i>Location Sharing Active');
-    }
-    if ($subtitle.length) {
-      $subtitle.html('<i class="bi bi-geo-alt-fill text-danger me-1"></i> Real-time location is shared with the School Clinic:');
-    }
-    if ($coords.length) {
-      $coords.html('<strong>' + Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6) + '</strong>' + (acc ? ' (±' + acc + ')' : ''));
-    }
+  if (lat !== null && lat !== undefined && lng !== null && lng !== undefined) {
+    $('#sosCurrentCoords').html('<strong>' + Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6) + '</strong>' + (acc ? ' (±' + acc + ')' : ''));
   } else {
-    if ($pill.length) {
-      $pill.addClass('sos-badge-unavailable').html('<i class="bi bi-geo-alt-slash me-1"></i>Location Unavailable');
-    }
-    if ($subtitle.length) {
-      $subtitle.html('<i class="bi bi-exclamation-triangle text-warning me-1"></i> Emergency reported without GPS coordinates.');
-    }
-    if ($coords.length) {
-      $coords.html('<span class="text-muted"><i class="bi bi-geo-alt-slash me-1"></i>No GPS coordinates available</span>');
-    }
+    $('#sosCurrentCoords').html('<span class="text-warning">GPS location unavailable</span>');
   }
   $('#sosLastUpdatedText').text('Just now');
 }

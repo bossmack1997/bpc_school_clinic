@@ -338,7 +338,11 @@ function send_security_headers(): void {
         "object-src 'none'; " .
         "base-uri 'self';");
 
-    // Permissions policy: allow same-origin for QR camera scanner, SOS geolocation, and MICA microphone
+    // Permissions policy
+    // Allows the application on the same origin (self) to use:
+    // - microphone (for MICA voice speech recognition)
+    // - camera (for QR scanner camera access)
+    // - geolocation (for emergency SOS real-time location sharing)
     header('Permissions-Policy: geolocation=(self), microphone=(self), camera=(self)');
 }
 

@@ -469,9 +469,11 @@ function escapeHtml(text) {
   }
 
   function getRolePath() {
-    var role = (window.MICA_USER && window.MICA_USER.role) || 'student';
+    var role = (window.MICA_USER && window.MICA_USER.role) || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role')) || 'student';
     if (role === 'admin') return 'admin';
     if (role === 'nurse') return 'nurse';
+    if (role === 'teacher' || role === 'adviser') return 'adviser';
+    if (role === 'guidance') return 'guidance';
     return 'student';
   }
 
@@ -647,14 +649,48 @@ function escapeHtml(text) {
     var waveformBars = '';
     for (var i = 0; i < 12; i++) waveformBars += '<div class="mica-waveform-bar"></div>';
 
-    var quickActions = [
-      { icon: '📊', label: 'BMI', action: 'bmi' },
-      { icon: '📅', label: 'Appointments', action: 'appointments' },
-      { icon: '📄', label: 'Records', action: 'records' },
-      { icon: '💊', label: 'Medicines', action: 'medicines' },
-      { icon: '💉', label: 'Vaccines', action: 'vaccines' },
-      { icon: '🚨', label: 'SOS', action: 'sos' },
-    ];
+    var role = (window.MICA_USER && window.MICA_USER.role) || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role')) || 'student';
+    var quickActions = [];
+
+    if (role === 'nurse') {
+      quickActions = [
+        { icon: '📅', label: 'Appointments', action: 'appointments_nurse' },
+        { icon: '💊', label: 'Medicine Stock', action: 'medicines' },
+        { icon: '🚨', label: 'Emergencies', action: 'emergencies_nurse' },
+        { icon: '📄', label: 'Certificates', action: 'certificates_nurse' },
+        { icon: '📢', label: 'Announcements', action: 'announcements' },
+      ];
+    } else if (role === 'teacher' || role === 'adviser') {
+      quickActions = [
+        { icon: '👥', label: 'My Advisory', action: 'advisory_teacher' },
+        { icon: '🏥', label: 'Clinic Referrals', action: 'referrals_teacher' },
+        { icon: '📢', label: 'Announcements', action: 'announcements' },
+        { icon: '🚨', label: 'SOS Protocol', action: 'sos_protocol' },
+      ];
+    } else if (role === 'guidance') {
+      quickActions = [
+        { icon: '🤝', label: 'Support Workflow', action: 'guidance_workflow' },
+        { icon: '🏥', label: 'Referrals', action: 'referrals_guidance' },
+        { icon: '📢', label: 'Announcements', action: 'announcements' },
+        { icon: '💚', label: 'Wellness Tips', action: 'wellness_tips' },
+      ];
+    } else if (role === 'admin') {
+      quickActions = [
+        { icon: '👥', label: 'User Overview', action: 'users_admin' },
+        { icon: '📚', label: 'Sections', action: 'sections_admin' },
+        { icon: '📊', label: 'Analytics', action: 'analytics_admin' },
+        { icon: '📢', label: 'Announcements', action: 'announcements' },
+      ];
+    } else {
+      quickActions = [
+        { icon: '📊', label: 'BMI', action: 'bmi' },
+        { icon: '📅', label: 'Appointments', action: 'appointments' },
+        { icon: '📄', label: 'Records', action: 'records' },
+        { icon: '💊', label: 'Medicines', action: 'medicines' },
+        { icon: '💉', label: 'Vaccines', action: 'vaccines' },
+        { icon: '🚨', label: 'SOS', action: 'sos' },
+      ];
+    }
 
     var qaHtml = quickActions.map(function (a) {
       var cls = a.action === 'sos' ? 'mica-qa-btn mica-qa-btn-danger' : 'mica-qa-btn';
@@ -828,15 +864,19 @@ function escapeHtml(text) {
   function showPersonalizedGreeting() {
     var timeOfDay = getPhilippineGreeting();
     var firstName = (window.MICA_USER && window.MICA_USER.firstName) || 'there';
-    var role = (window.MICA_USER && window.MICA_USER.role) || 'student';
+    var role = (window.MICA_USER && window.MICA_USER.role) || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role')) || 'student';
 
-    var roleIntro = '';
+    var roleScope = '';
     if (role === 'nurse') {
-      roleIntro = " I'm here to help with patient records, appointments, and clinic info.";
+      roleScope = 'I can assist you with <strong>today\'s appointments</strong>, <strong>medicine inventory stock</strong>, <strong>emergency SOS alerts</strong>, <strong>dispensing logs</strong>, and <strong>medical certificates</strong>.<br><br>';
+    } else if (role === 'teacher' || role === 'adviser') {
+      roleScope = 'I can assist you with <strong>advisory class health tracking</strong>, <strong>clinic referrals</strong>, <strong>clinic announcements</strong>, and <strong>emergency SOS guidelines</strong>.<br><br>';
+    } else if (role === 'guidance') {
+      roleScope = 'I can assist you with <strong>guidance counseling coordination</strong>, <strong>student well-being referrals</strong>, <strong>wellness support resources</strong>, and <strong>clinic announcements</strong>.<br><br>';
     } else if (role === 'admin') {
-      roleIntro = " I can provide clinic analytics, announcements, and system overviews.";
+      roleScope = 'I can assist you with <strong>user management overviews</strong>, <strong>course & section setup</strong>, <strong>system configuration</strong>, and <strong>clinic analytics & reports</strong>.<br><br>';
     } else {
-      roleIntro = " I can help with appointments, medical records, BMI, and more.";
+      roleScope = 'Ask me about your <strong>medical records</strong>, <strong>appointments</strong>, <strong>BMI & vitals</strong>, <strong>vaccinations</strong>, <strong>medicine availability</strong>, or <strong>SOS emergency</strong> help.<br><br>';
     }
 
     var div = document.createElement('div');
@@ -846,11 +886,9 @@ function escapeHtml(text) {
         '<div><strong>👋 ' + timeOfDay + ', ' + escapeHtml(firstName) + '!</strong><br><br>' +
         'I\'m <strong>MICA</strong> — your <strong>Medical Intelligent Clinic Assistant</strong><br>' +
         'from Bulacan Polytechnic College.<br><br>' +
-        'Ask me about your <strong>medical records</strong>, <strong>appointments</strong>, ' +
-        '<strong>BMI</strong>, <strong>vaccinations</strong>, <strong>medicine availability</strong>, ' +
-        'or <strong>SOS emergency</strong> help.<br><br>' +
+        roleScope +
         'You can <strong>type</strong> your question or tap the <strong>microphone</strong> to speak.<br>' +
-        'I\'ll listen, understand, and respond — just like a real assistant would.<br><br>' +
+        'I\'ll listen, understand, and respond in real time.<br><br>' +
         'How can I help you today?</div>' +
         '<div class="mica-bubble-time">Just now</div>' +
       '</div>';
@@ -864,7 +902,21 @@ function escapeHtml(text) {
 
   function showChips() {
     if (!C.dom.micaChips) return;
-    var questions = ['Book an appointment', 'What is my BMI?', 'Show my medical records', 'Medicine availability'];
+    var role = (window.MICA_USER && window.MICA_USER.role) || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role')) || 'student';
+    var questions = [];
+
+    if (role === 'nurse') {
+      questions = ['Today\'s appointments', 'Medicine inventory stock', 'Recent emergency alerts', 'Clinic announcements'];
+    } else if (role === 'teacher' || role === 'adviser') {
+      questions = ['My advisory students', 'Clinic referral process', 'Clinic announcements', 'Emergency SOS guidelines'];
+    } else if (role === 'guidance') {
+      questions = ['Counseling workflow', 'Student clinic referrals', 'Clinic announcements', 'Wellness & support tips'];
+    } else if (role === 'admin') {
+      questions = ['System user overview', 'Course & section list', 'Recent activity summary', 'Clinic announcements'];
+    } else {
+      questions = ['Book an appointment', 'What is my BMI?', 'Show my medical records', 'Medicine availability'];
+    }
+
     C.dom.micaChips.innerHTML = '';
     questions.forEach(function (q) {
       var chip = document.createElement('span');
@@ -1615,12 +1667,24 @@ function escapeHtml(text) {
     var messages = {
       bmi: 'What is my BMI? How can I check it?',
       appointments: 'How do I book an appointment?',
+      appointments_nurse: 'What appointments are scheduled today?',
       records: 'Show my medical records',
       medicines: 'What medicines are available in the clinic?',
       vaccines: 'What vaccines do I have on record?',
       vaccination: 'What vaccines do I have on record?',
       announcements: 'Latest clinic announcements',
       health: 'Show my health monitoring data',
+      emergencies_nurse: 'Are there any active emergency alerts or SOS requests?',
+      certificates_nurse: 'How do I issue or verify a medical certificate?',
+      advisory_teacher: 'How do I check my advisory students in the clinic system?',
+      referrals_teacher: 'How do I refer a student to the school clinic?',
+      sos_protocol: 'What is the emergency SOS protocol for teachers?',
+      guidance_workflow: 'How does the guidance counseling workflow integrate with the clinic?',
+      referrals_guidance: 'How do student well-being referrals work?',
+      wellness_tips: 'What student wellness support techniques can be recommended?',
+      users_admin: 'Provide a summary of user roles and accounts in the system',
+      sections_admin: 'How are courses and sections configured in the clinic system?',
+      analytics_admin: 'What clinic reports and analytics are available?',
       sos: '__SOS__',
       navigate_dashboard: 'Open Dashboard',
       navigate_appointments: 'Open Appointments',
@@ -1798,7 +1862,8 @@ function escapeHtml(text) {
   // ================================================================
   window.MICA = {
     init: function () {
-      if (C.dom.micaFab) return; // Prevent double init
+      if (window.__MICA_INITIALIZED__ || C.dom.micaFab) return; // Prevent double init
+      window.__MICA_INITIALIZED__ = true;
 
       C.config.csrfToken = document.querySelector('meta[name="csrf-token"]')
         ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
@@ -1825,13 +1890,6 @@ function escapeHtml(text) {
       console.log('[MICA] Origin:', window.location.origin);
 
       try { initRecognition(); } catch (e) { console.warn('[MICA] Recognition init failed:', e); }
-
-      // Test microphone access on init
-      testMicrophoneAccess().then(function () {
-        console.log('[MICA] Microphone diagnostic: PASSED');
-      }).catch(function () {
-        console.warn('[MICA] Microphone diagnostic: FAILED');
-      });
 
       // Restore history (async) — fallback to greeting
       try { loadHistory(); } catch (e) { console.warn('[MICA] History load failed:', e); }

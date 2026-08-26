@@ -4,6 +4,37 @@
              Real-time Clock, Collapsible Sidebar, Page Loader
    ===================================================================== */
 
+/**
+ * Global helper: Returns the appropriate notification center URL based on user role.
+ * Accessible everywhere across the app in all scopes.
+ */
+function getNotificationPageUrl() {
+  if (window.NOTIFICATION_PAGE_URL && typeof window.NOTIFICATION_PAGE_URL === 'string') {
+    return window.NOTIFICATION_PAGE_URL;
+  }
+  var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
+  var role = (window.MICA_USER && window.MICA_USER.role)
+    || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role'))
+    || '';
+
+  if (role === 'admin') return base + '/pages/admin/notifications.php';
+  if (role === 'nurse') return base + '/pages/nurse/notifications.php';
+  if (role === 'teacher' || role === 'adviser') return base + '/pages/adviser/notifications.php';
+  if (role === 'guidance') return base + '/pages/guidance/notifications.php';
+  if (role === 'student') return base + '/pages/student/notifications.php';
+
+  var path = window.location.pathname || '';
+  if (path.includes('/admin/')) return base + '/pages/admin/notifications.php';
+  if (path.includes('/nurse/')) return base + '/pages/nurse/notifications.php';
+  if (path.includes('/adviser/')) return base + '/pages/adviser/notifications.php';
+  if (path.includes('/guidance/')) return base + '/pages/guidance/notifications.php';
+  if (path.includes('/student/')) return base + '/pages/student/notifications.php';
+
+  return base + '/pages/student/notifications.php';
+}
+
+window.getNotificationPageUrl = getNotificationPageUrl;
+
 $(function () {
   'use strict';
 
@@ -143,35 +174,25 @@ $(function () {
   }, 4000);
 
   // ================================================================
-  // Notification service
+  // Notification Service & Polling
   // ================================================================
-  function getNotificationPageUrl() {
-    if (window.NOTIFICATION_PAGE_URL && typeof window.NOTIFICATION_PAGE_URL === 'string') {
-      return window.NOTIFICATION_PAGE_URL;
-    }
-    var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : '';
-    var role = (window.MICA_USER && window.MICA_USER.role) || 'nurse';
-    if (base) {
-      return base + '/pages/' + role + '/notifications.php';
-    }
-    return 'notifications.php';
-  }
-
   const NOTIFICATION_POLL_INTERVAL = 30000;
-  let notificationPollTimer = null;
 
   function markNotificationRead(id, callback) {
     if (!id) {
       if (typeof callback === 'function') callback();
       return;
     }
-    $.post(APP_URL + '/api/notifications.php', {
+    var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
+    $.post(base + '/api/notifications.php', {
       action: 'mark_read',
       id: id,
       csrf_token: $('meta[name="csrf-token"]').attr('content')
     }, function (res) {
       if (res && res.success) {
-        loadNotifications();
+        if (typeof window.loadNotifications === 'function') {
+          window.loadNotifications();
+        }
         if (typeof window.loadNotifCenter === 'function') {
           window.loadNotifCenter();
         }
@@ -185,12 +206,15 @@ $(function () {
   }
 
   function markAllNotificationsRead(callback) {
-    $.post(APP_URL + '/api/notifications.php', {
+    var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
+    $.post(base + '/api/notifications.php', {
       action: 'mark_all_read',
       csrf_token: $('meta[name="csrf-token"]').attr('content')
     }, function (res) {
       if (res && res.success) {
-        loadNotifications();
+        if (typeof window.loadNotifications === 'function') {
+          window.loadNotifications();
+        }
         if (typeof window.loadNotifCenter === 'function') {
           window.loadNotifCenter();
         }
@@ -201,27 +225,52 @@ $(function () {
     });
   }
 
-  if ($('#notifBadge').length) {
-    loadNotifications();
-    if (notificationPollTimer) clearInterval(notificationPollTimer);
-    notificationPollTimer = setInterval(loadNotifications, NOTIFICATION_POLL_INTERVAL);
+  // Start single notification poller per page session
+  if ($('#notifBadge').length && !window.__NOTIF_POLL_ACTIVE__) {
+    window.__NOTIF_POLL_ACTIVE__ = true;
+    if (typeof loadNotifications === 'function') {
+      loadNotifications();
+      setInterval(loadNotifications, NOTIFICATION_POLL_INTERVAL);
+    }
   }
 
   $(document).on('click', '#notifList a.notif-dropdown-item, #notifList a.notif-link, #notifList a.sos-notif-item', function (e) {
-    e.preventDefault();
     var $el = $(this);
     var id = $el.data('id');
-    var targetUrl = getNotificationPageUrl() + (id ? '?id=' + id : '');
+    var href = $el.attr('href');
+    var isSos = $el.hasClass('sos-notif-item');
 
+    if (isSos) {
+      e.preventDefault();
+      var rawSos = $el.attr('data-sos');
+      if (rawSos) {
+        try {
+          var sosData = JSON.parse(decodeURIComponent(rawSos));
+          if (typeof openSosDetailsModal === 'function') {
+            openSosDetailsModal(sosData);
+          }
+        } catch (err) {
+          console.warn('[Notifications] Failed to parse SOS details:', err);
+        }
+      }
+      return;
+    }
+
+    // Regular notification link
     if (id) {
-      $.post(APP_URL + '/api/notifications.php', {
+      var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
+      $.post(base + '/api/notifications.php', {
         action: 'mark_read',
         id: id,
         csrf_token: $('meta[name="csrf-token"]').attr('content')
       });
     }
 
-    window.location.href = targetUrl;
+    if (!href || href === '#' || href === 'javascript:void(0)') {
+      e.preventDefault();
+      var targetUrl = getNotificationPageUrl() + (id ? '?id=' + encodeURIComponent(id) : '');
+      window.location.href = targetUrl;
+    }
   });
 
   // Accept SOS
@@ -235,30 +284,39 @@ $(function () {
   });
 
   // ================================================================
-  // Animated Counters
+  // Animated Counters (Optimized via requestAnimationFrame)
   // ================================================================
+  function animateCounterElement(el) {
+    const $el = $(el);
+    if ($el.data('counted')) return;
+    $el.data('counted', true);
+    const target = parseInt($el.data('count')) || 0;
+    const duration = 1000;
+    const startTime = performance.now();
+
+    if (target === 0) {
+      $el.text('0');
+      return;
+    }
+
+    function update(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const easeProgress = 1 - Math.pow(1 - progress, 3);
+      const current = Math.floor(easeProgress * target);
+      $el.text(current.toLocaleString());
+      if (progress < 1) {
+        requestAnimationFrame(update);
+      } else {
+        $el.text(target.toLocaleString());
+      }
+    }
+    requestAnimationFrame(update);
+  }
+
   function animateCounters() {
     $('.counter-animate').each(function () {
-      const $el = $(this);
-      const target = parseInt($el.data('count')) || 0;
-      const duration = 1200;
-      const start = 0;
-      const step = Math.max(1, Math.floor(target / (duration / 16)));
-      let current = start;
-
-      if (target === 0) {
-        $el.text('0');
-        return;
-      }
-
-      const timer = setInterval(function () {
-        current += step;
-        if (current >= target) {
-          current = target;
-          clearInterval(timer);
-        }
-        $el.text(current.toLocaleString());
-      }, 16);
+      animateCounterElement(this);
     });
   }
 
@@ -267,21 +325,16 @@ $(function () {
     const observer = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (entry.isIntersecting) {
-          const $el = $(entry.target);
-          if (!$el.data('counted')) {
-            $el.data('counted', true);
-            animateCounters();
-          }
+          animateCounterElement(entry.target);
           observer.unobserve(entry.target);
         }
       });
-    }, { threshold: 0.3 });
+    }, { threshold: 0.2 });
 
     $('.counter-animate').each(function () {
       observer.observe(this);
     });
   } else {
-    // Fallback
     animateCounters();
   }
 
@@ -313,8 +366,13 @@ function escapeHtml(text) {
 // Notifications
 // ================================================================
 function loadNotifications() {
-  $.get(APP_URL + '/api/notifications.php', { action: 'latest' }, function (res) {
-    if (!res.success) return;
+  var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
+  var notifPageUrl = typeof window.getNotificationPageUrl === 'function'
+    ? window.getNotificationPageUrl()
+    : (window.NOTIFICATION_PAGE_URL || 'notifications.php');
+
+  $.get(base + '/api/notifications.php', { action: 'latest' }, function (res) {
+    if (!res || !res.success) return;
     const unread = res.unread_count || 0;
     const $badge = $('#notifBadge');
 
@@ -329,34 +387,38 @@ function loadNotifications() {
     if (!res.data || res.data.length === 0) {
       $list.append('<li><a class="dropdown-item text-muted small text-center" href="#">No notifications</a></li>');
     } else {
-      // Emergency (SOS) notifications are already sorted to the top by the API.
-      const userRole = (window.MICA_USER && window.MICA_USER.role) || 'student';
+      const userRole = (window.MICA_USER && window.MICA_USER.role)
+        || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role'))
+        || 'student';
       const isStaff = userRole === 'nurse' || userRole === 'admin';
 
       res.data.slice(0, 12).forEach(function (n) {
-        const timeAgo = timeSince(n.created_at);
+        const timeAgo = (typeof timeSince === 'function') ? timeSince(n.created_at || '') : 'Just now';
         const isSos = n.type === 'emergency' && n.sos && n.sos.emergency_id;
+        const titleSafe = escapeHtml(n.title || 'Notification');
+        const msgSafe = escapeHtml(n.message || '');
+        const notifId = n.id ? encodeURIComponent(n.id) : '';
 
         if (isSos && isStaff) {
           // ---- Emergency SOS notification (red indicator, opens details) ----
           const sos = n.sos;
           const sosStatus = sos.sos_status || 'active';
           const statusLabel = sosStatus.charAt(0).toUpperCase() + sosStatus.slice(1);
-          const hasLocation = sos.latitude != null && sos.longitude != null;
+          const hasLocation = sos.latitude != null && sos.longitude != null && sos.latitude !== '' && sos.longitude !== '';
 
           const sosEl = document.createElement('li');
           const sosJson = encodeURIComponent(JSON.stringify(sos));
           sosEl.innerHTML =
             `<a href="#" class="dropdown-item notif-dropdown-item sos-notif-item ${n.is_read ? '' : 'unread'}"
-                data-id="${n.id}"
+                data-id="${notifId}"
                 data-sos="${sosJson}">
                <div class="d-flex align-items-start gap-2">
                  <div class="mt-1 flex-shrink-0">
                    <span class="notif-dot" style="background:var(--danger); box-shadow:0 0 0 3px rgba(220,53,69,0.2);"></span>
                  </div>
                  <div class="flex-grow-1">
-                   <div class="small fw-semibold text-danger">${$('<div>').text(n.title).html()}</div>
-                   <div class="text-muted" style="font-size:.75rem">${$('<div>').text(n.message).html()}</div>
+                   <div class="small fw-semibold text-danger">${titleSafe}</div>
+                   <div class="text-muted" style="font-size:.75rem">${msgSafe}</div>
                    <div class="d-flex align-items-center gap-2 mt-1">
                      <span class="badge bg-danger" style="font-size:.6rem;">${statusLabel}</span>
                      ${hasLocation ? '<span class="badge bg-primary" style="font-size:.6rem;"><i class="bi bi-geo-alt-fill me-1"></i>GPS</span>' : ''}
@@ -375,16 +437,21 @@ function loadNotifications() {
               : n.type === 'health'
                 ? 'background:var(--success);'
                 : 'background:var(--info);';
-const link = n.link || '#';
+
+          let link = n.link;
+          if (!link || link === '#' || link === 'javascript:void(0)') {
+            link = notifPageUrl + (notifId ? '?id=' + notifId : '');
+          }
+
           $list.append(
-            `<li><a class="dropdown-item notif-dropdown-item notif-link ${n.is_read ? '' : 'unread'}" href="${link}" data-id="${n.id}">
+            `<li><a class="dropdown-item notif-dropdown-item notif-link ${n.is_read ? '' : 'unread'}" href="${escapeHtml(link)}" data-id="${notifId}">
                <div class="d-flex align-items-start gap-2">
                  <div class="mt-1 flex-shrink-0">
                    <span class="notif-dot" style="${dotColor}"></span>
                  </div>
                  <div class="flex-grow-1">
-                   <div class="small fw-semibold ${n.is_read ? '' : 'text-primary'}">${$('<div>').text(n.title).html()}</div>
-                   <div class="text-muted" style="font-size:.75rem">${$('<div>').text(n.message).html()}</div>
+                   <div class="small fw-semibold ${n.is_read ? '' : 'text-primary'}">${titleSafe}</div>
+                   <div class="text-muted" style="font-size:.75rem">${msgSafe}</div>
                    <div class="text-muted" style="font-size:.65rem">${timeAgo}</div>
                  </div>
                </div>
@@ -395,16 +462,16 @@ const link = n.link || '#';
 
       // Always show a "View all notifications" link to the full Notification Center.
       $list.append('<li><hr class="dropdown-divider"></li>');
-      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${getNotificationPageUrl()}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
+      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${notifPageUrl}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
     }
   }, 'json').fail(function (xhr, status, err) {
-    // Silent failure — the polling loop continues but never spams the
-    // console with repeated ERR_CONNECTION_CLOSED errors.
     if (window.console && console.debug) {
       console.debug('[Notifications] Poll failed (will retry):', status, err);
     }
   });
 }
+
+window.loadNotifications = loadNotifications;
 
 // ================================================================
 // SOS Details Modal — populate with full student + GPS details

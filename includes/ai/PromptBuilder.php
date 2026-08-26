@@ -83,8 +83,10 @@ class PromptBuilder
         array $userInfo,
         string $currentPage = ''
     ): string {
-        $userName = $userInfo['name'] ?? 'Student';
-        $userFirstName = trim(explode(' ', $userName)[0]);
+        $userFirstName = $userInfo['first_name'] ?? '';
+        $userName = $userInfo['name'] ?? trim(($userInfo['first_name'] ?? '') . ' ' . ($userInfo['last_name'] ?? ''));
+        if ($userName === '') $userName = 'User';
+        if ($userFirstName === '') $userFirstName = trim(explode(' ', $userName)[0]);
         if ($userFirstName === '') $userFirstName = 'there';
 
         $prompt = "You are MICA (Medical Intelligent Clinic Assistant), the official intelligent health and clinic assistant of Bulacan Polytechnic College (BPC), integrated into the {$this->appName}.\n\n";
@@ -165,12 +167,35 @@ class PromptBuilder
         $prompt .= "- For acute medical symptoms (chest pain, breathing trouble, severe bleeding, sudden high fever), urge immediate in-person clinic visit or emergency care.\n\n";
 
         // Current User Profile
+        $userRole = strtolower($userInfo['role'] ?? 'student');
         $prompt .= "## LOGGED-IN USER\n";
         $prompt .= "- First Name: {$userFirstName}\n";
         $prompt .= "- Full Name: {$userName}\n";
-        $prompt .= "- Role: " . strtoupper($userInfo['role'] ?? 'STUDENT') . "\n";
+        $prompt .= "- Role: " . strtoupper($userRole) . "\n";
         if (!empty($currentPage)) {
             $prompt .= "- Current Page: {$currentPage}\n";
+        }
+        $prompt .= "\n";
+
+        // Role-Specific Capabilities & Boundaries
+        $prompt .= "## ROLE-SPECIFIC CAPABILITIES & BOUNDARIES\n";
+        if ($userRole === 'nurse') {
+            $prompt .= "- The user is a School Nurse.\n";
+            $prompt .= "- Tailor assistance to: today's clinic appointments, medicine inventory status and replenishment, emergency SOS alert notifications, student health logs/vitals, dispensing procedures, and issuing/verifying medical certificates.\n";
+            $prompt .= "- Maintain clinical privacy: do not reveal confidential counseling files restricted to Guidance Counselors.\n";
+        } elseif ($userRole === 'adviser' || $userRole === 'teacher') {
+            $prompt .= "- The user is a Class Adviser / Teacher.\n";
+            $prompt .= "- Tailor assistance to: checking advisory class health workflows, clinic referral procedures for ill students, clinic announcements, and school SOS emergency protocol.\n";
+            $prompt .= "- Respect student confidentiality: do not share individual student medical records beyond authorized class advisory status.\n";
+        } elseif ($userRole === 'guidance') {
+            $prompt .= "- The user is a Guidance Counselor.\n";
+            $prompt .= "- Tailor assistance to: guidance counseling workflow, student well-being referrals, mental health support strategies, clinic coordination, and announcements.\n";
+        } elseif ($userRole === 'admin') {
+            $prompt .= "- The user is a System Administrator.\n";
+            $prompt .= "- Tailor assistance to: user management overview, academic courses and sections setup, clinic analytics/reports, announcements, and system configuration.\n";
+        } else {
+            $prompt .= "- The user is a Student.\n";
+            $prompt .= "- Tailor assistance to: viewing own clinic records, vitals/BMI, scheduled service appointments, medicine stock availability, vaccinations, medical certificates, clinic announcements, and SOS emergency requests.\n";
         }
         $prompt .= "\n";
 
