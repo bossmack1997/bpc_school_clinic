@@ -40,7 +40,7 @@ $pendingUsers = $db->query("
   LIMIT 5
 ")->fetchAll();
 
-$pageTitle = 'Admin Dashboard';
+$pageTitle = 'System Administrator Dashboard';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -52,13 +52,13 @@ $pageTitle = 'Admin Dashboard';
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area page-enter">
 
-      <!-- Welcome Card — Admin Command Center (Matching Student Portal Visual Language) -->
+      <!-- Welcome Card — System Administrator Command Center (Matching Student Portal Visual Language) -->
       <div class="welcome-card" data-aos="fade-down" data-aos-duration="600">
         <div class="welcome-content">
           <div class="clinic-status open"><span class="status-dot"></span> Clinic Open Today</div>
           <h1>Welcome, <?= e($u['first_name']) ?>! 👋</h1>
           <div class="welcome-sub">BPC Clinic Management System</div>
-          <div class="welcome-desc">Administrator Portal · Manage clinic operations, users, appointments, records, announcements, and reports.</div>
+          <div class="welcome-desc">System Administrator Portal · Manage clinic operations, users, appointments, records, announcements, and reports.</div>
           <div class="welcome-actions">
             <a href="users.php" class="btn btn-white"><i class="bi bi-people-fill me-1"></i> Manage Users</a>
             <a href="appointments.php" class="btn btn-outline-white"><i class="bi bi-calendar-check me-1"></i> Appointments</a>

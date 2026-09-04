@@ -16,8 +16,6 @@ if ($roleFilter === 'student') {
     $where = "WHERE u.role = 'admin'";
 } elseif ($roleFilter === 'adviser') {
     $where = "WHERE u.role = 'adviser'";
-} elseif ($roleFilter === 'guidance') {
-    $where = "WHERE u.role = 'guidance'";
 }
 
 $users = $db->prepare("
@@ -46,14 +44,19 @@ $users = $users->fetchAll();
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area page-enter">
-      <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h6 class="section-title mb-0"><i class="bi bi-people-fill text-success me-1"></i> User Management</h6>
-        <div class="btn-group btn-group-sm">
-          <a href="?role=all" class="btn btn-outline-primary <?= $roleFilter === 'all' ? 'active' : '' ?>">All</a>
-          <a href="?role=student" class="btn btn-outline-primary <?= $roleFilter === 'student' ? 'active' : '' ?>">Students</a>
-          <a href="?role=nurse" class="btn btn-outline-primary <?= $roleFilter === 'nurse' ? 'active' : '' ?>">Nurses</a>
-          <a href="?role=adviser" class="btn btn-outline-primary <?= $roleFilter === 'adviser' ? 'active' : '' ?>">Teachers</a>
-          <a href="?role=guidance" class="btn btn-outline-primary <?= $roleFilter === 'guidance' ? 'active' : '' ?>">Counselors</a>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createNurseModal">
+            <i class="bi bi-person-plus-fill me-1"></i> Create Nurse Account
+          </button>
+          <div class="btn-group btn-group-sm">
+            <a href="?role=all" class="btn btn-outline-primary <?= $roleFilter === 'all' ? 'active' : '' ?>">All</a>
+            <a href="?role=student" class="btn btn-outline-primary <?= $roleFilter === 'student' ? 'active' : '' ?>">Students</a>
+            <a href="?role=nurse" class="btn btn-outline-primary <?= $roleFilter === 'nurse' ? 'active' : '' ?>">Nurses</a>
+            <a href="?role=adviser" class="btn btn-outline-primary <?= $roleFilter === 'adviser' ? 'active' : '' ?>">Teachers / Advisers</a>
+            <a href="?role=admin" class="btn btn-outline-primary <?= $roleFilter === 'admin' ? 'active' : '' ?>">Admins</a>
+          </div>
         </div>
       </div>
       <div class="d-flex justify-content-between align-items-center mb-2">
@@ -68,7 +71,7 @@ $users = $users->fetchAll();
               <tr>
                 <td><?php if ($u['role'] !== 'admin'): ?><input type="checkbox" class="user-checkbox" value="<?= $u['id'] ?>"><?php endif; ?></td>
                 <td><?= e($u['first_name'] . ' ' . $u['last_name']) ?></td>
-                <td><span class="badge bg-info"><?= ucfirst($u['role']) ?></span></td>
+                <td><span class="badge bg-info"><?= e(get_role_display_name($u['role'])) ?></span></td>
                 <td><?= e($u['student_number'] ?? $u['employee_id'] ?? '—') ?></td>
                 <td><?= e($u['email']) ?></td>
                 <td>
@@ -100,6 +103,90 @@ $users = $users->fetchAll();
           </table>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Nurse Account Modal (Administrator Only) -->
+<div class="modal fade" id="createNurseModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <form id="createNurseForm" novalidate>
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title"><i class="bi bi-person-badge-fill me-2"></i>Create New Nurse Account</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-4">
+          <p class="text-muted small mb-3">Nurse accounts are created with immediate active status to manage clinical operations.</p>
+          <div class="row g-2 mb-3">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">First Name *</label>
+              <input type="text" name="first_name" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Middle Name</label>
+              <input type="text" name="middle_name" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Last Name *</label>
+              <input type="text" name="last_name" class="form-control" required>
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Employee / Nurse ID *</label>
+              <input type="text" name="employee_id" class="form-control" placeholder="e.g. NURSE-2026-001" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">PRC License Number</label>
+              <input type="text" name="license_number" class="form-control" placeholder="Optional">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Gender *</label>
+              <select name="gender" class="form-select" required>
+                <option value="">Select</option>
+                <option value="Female">Female</option>
+                <option value="Male">Male</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Date of Birth</label>
+              <input type="date" name="date_of_birth" class="form-control" max="<?= date('Y-m-d') ?>">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Contact Number</label>
+              <input type="text" name="contact_number" class="form-control" placeholder="09171234567">
+            </div>
+          </div>
+          <hr class="my-3">
+          <h6 class="fw-semibold small text-muted mb-2"><i class="bi bi-shield-lock-fill me-1"></i> Login Credentials</h6>
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Email Address *</label>
+              <input type="email" name="email" class="form-control" required placeholder="nurse@bpc.edu.ph">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Username *</label>
+              <input type="text" name="username" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" placeholder="nurse_username">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Initial Password *</label>
+              <input type="password" name="password" id="nursePw" class="form-control" required minlength="8" placeholder="Min. 8 characters">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Confirm Password *</label>
+              <input type="password" name="confirm_password" id="nurseConfirmPw" class="form-control" required minlength="8">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer bg-light">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveNurseBtn">Create Nurse Account</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -185,6 +272,43 @@ $('.deactivate-btn').on('click', function () {
       if (res.success) { toastSuccess(res.message); location.reload(); }
       else toastError(res.message);
     }, 'json');
+  });
+});
+
+// Create Nurse Form Submission
+$('#createNurseForm').on('submit', function (e) {
+  e.preventDefault();
+  const form = $(this);
+  const pw = $('#nursePw').val();
+  const confirmPw = $('#nurseConfirmPw').val();
+
+  if (pw.length < 8) {
+    alert('Password must be at least 8 characters.');
+    return;
+  }
+  if (pw !== confirmPw) {
+    alert('Passwords do not match.');
+    return;
+  }
+
+  const btn = $('#saveNurseBtn');
+  btn.prop('disabled', true).text('Creating...');
+
+  const formData = form.serialize() + '&action=create_nurse&csrf_token=' + encodeURIComponent(csrfToken);
+
+  $.post(APP_URL + '/api/users.php', formData, function (res) {
+    btn.prop('disabled', false).text('Create Nurse Account');
+    if (res.success) {
+      toastSuccess(res.message);
+      bootstrap.Modal.getInstance(document.getElementById('createNurseModal')).hide();
+      form[0].reset();
+      location.reload();
+    } else {
+      toastError(res.message);
+    }
+  }, 'json').fail(function () {
+    btn.prop('disabled', false).text('Create Nurse Account');
+    toastError('Failed to create nurse account. Please try again.');
   });
 });
 

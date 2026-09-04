@@ -144,6 +144,14 @@ $typeMeta = [
 
 <script>
 window.__initNotificationUI = function () {
+  if (window.__notificationUIInitialized) {
+    if (typeof window.loadNotifCenter === 'function') {
+      window.loadNotifCenter();
+    }
+    return;
+  }
+  window.__notificationUIInitialized = true;
+
   (function () {
   'use strict';
 
@@ -162,7 +170,45 @@ window.__initNotificationUI = function () {
   const NOTIFICATION_PAGE_URL = window.NOTIFICATION_PAGE_URL || 'notifications.php';
   const selectedNotificationId = parseInt(new URLSearchParams(window.location.search).get('id') || 0);
   const csrf = $('meta[name="csrf-token"]').attr('content');
-  let dt = null;
+  let notifTableInstance = null;
+  let initialNotificationHandled = false;
+
+  // ============================================================
+  // DataTable instance manager (singleton)
+  // ============================================================
+  function initNotifTable() {
+    if ($.fn.DataTable.isDataTable('#notifTable')) {
+      notifTableInstance = $('#notifTable').DataTable();
+      return notifTableInstance;
+    }
+
+    notifTableInstance = $('#notifTable').DataTable({
+      data: [],
+      columns: [
+        { orderable: false, searchable: false },
+        null, null, null, null, null,
+        { orderable: false, searchable: false },
+      ],
+      pageLength: 10,
+      order: [],
+      language: {
+        emptyTable: '<div class="text-center text-muted py-4"><i class="bi bi-bell-slash fs-3 d-block mb-2"></i>No notifications yet.</div>',
+        zeroRecords: '<div class="text-center text-muted py-4"><i class="bi bi-bell-slash fs-3 d-block mb-2"></i>No matching notifications found.</div>'
+      },
+      createdRow: function (row) {
+        const $input = $(row).find('input.notif-check');
+        const isRead = $input.data('is-read') === 1 || $input.data('is-read') === '1';
+        if (!isRead) {
+          $(row).addClass('unread-notification');
+        }
+        if (selectedNotificationId && $input.val() == selectedNotificationId) {
+          $(row).addClass('selected-notification');
+        }
+      },
+    });
+
+    return notifTableInstance;
+  }
 
   // ============================================================
   // Helpers
@@ -214,6 +260,8 @@ window.__initNotificationUI = function () {
   // Load notifications into DataTable
   // ============================================================
   window.loadNotifCenter = function (page) {
+    const table = initNotifTable();
+
     const params = {
       action: 'list',
       filter: $('#filterType').val(),
@@ -224,18 +272,19 @@ window.__initNotificationUI = function () {
     if (page !== undefined) params.offset = page * 50;
 
     $.get(APP + '/api/notifications.php', params, function (res) {
-      if (!res.success) {
-        const errorHtml = '<tr><td colspan="7" class="text-center text-muted py-4">' + (res.message || 'Failed to load notifications.') + '</td></tr>';
-        if (dt) { dt.destroy(); dt = null; }
-        $('#notifTable tbody').html(errorHtml);
+      if (!res || !res.success) {
+        $('#notifCount').text('');
+        table.clear().draw();
+        $('#selectAllNotif').prop('checked', false);
+        updateDeleteBtn();
         return;
       }
       $('#notifCount').text(res.total + ' notification(s)' + (res.unread_count ? ' · ' + res.unread_count + ' unread' : ''));
 
       if (!res.data || res.data.length === 0) {
-        const emptyHtml = '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-bell-slash fs-3 d-block mb-2"></i>No notifications yet.</td></tr>';
-        if (dt) { dt.destroy(); dt = null; }
-        $('#notifTable tbody').html(emptyHtml);
+        table.clear().draw();
+        $('#selectAllNotif').prop('checked', false);
+        updateDeleteBtn();
         return;
       }
 
@@ -266,29 +315,15 @@ window.__initNotificationUI = function () {
         ];
       });
 
-      if (dt) dt.destroy();
-      dt = $('#notifTable').DataTable({
-        data: rows,
-        columns: [
-          { orderable: false, searchable: false },
-          null, null, null, null, null,
-          { orderable: false, searchable: false },
-        ],
-        pageLength: 10,
-        order: [],
-        createdRow: function (row) {
-          const $input = $(row).find('input.notif-check');
-          const isRead = $input.data('is-read') === 1 || $input.data('is-read') === '1';
-          if (!isRead) {
-            $(row).addClass('unread-notification');
-          }
-          if (selectedNotificationId && $input.val() == selectedNotificationId) {
-            $(row).addClass('selected-notification');
-          }
-        },
-      });
+      table.clear();
+      table.rows.add(rows);
+      table.draw();
 
-      if (selectedNotificationId) {
+      $('#selectAllNotif').prop('checked', false);
+      updateDeleteBtn();
+
+      if (selectedNotificationId && !initialNotificationHandled) {
+        initialNotificationHandled = true;
         const $row = $('#notifTable tbody tr').has(`input.notif-check[value="${selectedNotificationId}"]`);
         if ($row.length) {
           $row.addClass('selected-notification');
@@ -297,9 +332,9 @@ window.__initNotificationUI = function () {
         showNotificationDetails(selectedNotificationId);
       }
     }, 'json').fail(function () {
-      const failHtml = '<tr><td colspan="7" class="text-center text-muted py-4">Unable to load notifications. Please try again later.</td></tr>';
-      if (dt) { dt.destroy(); dt = null; }
-      $('#notifTable tbody').html(failHtml);
+      table.clear().draw();
+      $('#selectAllNotif').prop('checked', false);
+      updateDeleteBtn();
     });
   };
 

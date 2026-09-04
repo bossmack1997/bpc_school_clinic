@@ -36,13 +36,11 @@ if ($action === 'add') {
 
     $targetRoles = [];
     if ($audience === 'all') {
-        $targetRoles = ['admin', 'student', 'nurse', 'adviser', 'guidance'];
+        $targetRoles = ['admin', 'student', 'nurse', 'adviser'];
     } elseif ($audience === 'students') {
         $targetRoles = ['student'];
     } elseif ($audience === 'teachers') {
         $targetRoles = ['adviser'];
-    } elseif ($audience === 'guidance') {
-        $targetRoles = ['guidance'];
     } elseif ($audience === 'nurses') {
         $targetRoles = ['nurse'];
     }

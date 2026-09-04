@@ -166,13 +166,13 @@ function attempt_remember_me_login() {
 
 /** Returns the dashboard URL for a given role */
 function dashboard_url_for($role) {
+    $role = strtolower(trim((string)$role));
     return match ($role) {
-        'admin'   => APP_URL . '/pages/admin/dashboard.php',
-        'nurse'   => APP_URL . '/pages/nurse/dashboard.php',
-        'student' => APP_URL . '/pages/student/dashboard.php',
-        'adviser' => APP_URL . '/pages/adviser/dashboard.php',
-        'guidance' => APP_URL . '/pages/guidance/dashboard.php',
-        default   => APP_URL . '/auth/login.php',
+        'admin'              => APP_URL . '/pages/admin/dashboard.php',
+        'nurse'              => APP_URL . '/pages/nurse/dashboard.php',
+        'student'            => APP_URL . '/pages/student/dashboard.php',
+        'adviser', 'teacher' => APP_URL . '/pages/adviser/dashboard.php',
+        default              => APP_URL . '/auth/login.php',
     };
 }
 
@@ -394,48 +394,17 @@ function require_adviser_student_access($db, $studentId) {
 }
 
 // ================================================================
-// SENSITIVE WELL-BEING ACCESS CONTROL
+// MEDICAL DATA ACCESS CONTROL
 // ================================================================
 
 /**
- * May the current user view a student's DETAILED confidential mental & emotional well-being?
- *  - Guidance Counselor: YES (authorized counseling / student support)
- *  - Student: YES (own personal record only)
- *  - Nurse: NO (Nurse may only access general medical health info; NO access to confidential psychological/emotional records)
- *  - Adviser: NO (safety/emergency only — never confidential counseling records)
- *  - Admin: NO (never access confidential counseling records)
- *  - Others: NO
- */
-function can_view_detailed_wellbeing($db, $viewerUserId, $viewerRole, $studentId, $ownerStudentId = null) {
-    if ($viewerRole === 'guidance') {
-        return true;
-    }
-    if ($viewerRole === 'student') {
-        // Students may only view their own well-being record.
-        if ($ownerStudentId === null) {
-            $stmt = $db->prepare("SELECT id FROM students WHERE user_id = ?");
-            $stmt->execute([(int)$viewerUserId]);
-            $ownerStudentId = $stmt->fetchColumn();
-        }
-        return $ownerStudentId !== false && (int)$ownerStudentId === (int)$studentId;
-    }
-    return false;
-}
-
-/**
- * May the current user view a student's general medical health information (conditions, allergies, meds)?
+ * May the current user view a student's general medical information (conditions, allergies, meds)?
  *  - Nurse: YES (for clinical care)
- *  - Guidance: YES (for holistic student support)
  *  - Student: YES (own personal record)
+ *  - Admin: YES (administrative oversight)
  *  - Others: NO
  */
-function can_view_medical_wellbeing($viewerRole) {
-    return in_array($viewerRole, ['nurse', 'guidance', 'student'], true);
+function can_view_medical_info($viewerRole) {
+    return in_array($viewerRole, ['nurse', 'admin', 'student'], true);
 }
 
-/**
- * Roles allowed to create/manage support referrals.
- */
-function can_manage_referrals($role) {
-    return in_array($role, ['nurse', 'guidance'], true);
-}

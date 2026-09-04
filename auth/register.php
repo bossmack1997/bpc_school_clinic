@@ -3,14 +3,13 @@
  * auth/register.php
  * ------------------------------------------------------------------
  * Unified Self-Registration System for BPC School Clinic.
- * Supports public self-registration for:
+ * Supports dedicated self-registration for:
  *   1. Student
  *   2. Nurse
  *   3. Teacher / Adviser
- *   4. Guidance Counselor
+ *   4. Administrator
  *
- * Admin role is STRICTLY prohibited from public self-registration.
- * Server-side validation enforces allowed public roles only.
+ * Each role has a distinct registration process and assigned role.
  * ------------------------------------------------------------------
  */
 require_once __DIR__ . '/../config/config.php';
@@ -31,12 +30,12 @@ $old = $_POST ?? [];
 // Determine default role selection from GET/POST
 $rawRoleReq = trim($_REQUEST['role'] ?? $_REQUEST['type'] ?? $_REQUEST['account_type'] ?? 'student');
 $roleNormMap = [
-    'student'            => 'student',
-    'nurse'              => 'nurse',
-    'teacher'            => 'adviser',
-    'adviser'            => 'adviser',
-    'guidance'           => 'guidance',
-    'guidance_counselor' => 'guidance',
+    'student'       => 'student',
+    'nurse'         => 'nurse',
+    'teacher'       => 'adviser',
+    'adviser'       => 'adviser',
+    'admin'         => 'admin',
+    'administrator' => 'admin',
 ];
 $selectedRole = $roleNormMap[$rawRoleReq] ?? 'student';
 
@@ -75,13 +74,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $rawRole = trim($_POST['account_type'] ?? $_POST['role'] ?? 'student');
 
-    // STRICT SERVER-SIDE ROLE VALIDATION
-    // Never trust client role input for admin or privileged role creation.
-    if (!isset($roleNormMap[$rawRole]) || $rawRole === 'admin') {
-        $errors[] = 'Invalid or unauthorized account type selected.';
+    if (!isset($roleNormMap[$rawRole])) {
+        $errors[] = 'Invalid account type selected. Please choose Student, Nurse, Teacher, or Administrator.';
         $role = 'student';
     } else {
-        $role = $roleNormMap[$rawRole]; // Internal role name: student, nurse, adviser, guidance
+        $role = $roleNormMap[$rawRole]; // Internal role: student, nurse, adviser, admin
     }
 
     $selectedRole = $role;
@@ -116,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Passwords do not match.';
     }
     if (!$certify) {
-        $errors[] = 'You must certify that the information above is true.';
+        $errors[] = 'You must certify that the information provided is true and accurate.';
     }
 
     // Role-specific field extractions & validations
@@ -147,6 +144,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $employeeId    = trim($_POST['employee_id'] ?? '');
         $licenseNumber = trim($_POST['license_number'] ?? '');
 
+        if (!$employeeId) {
+            $errors[] = 'Nurse / Employee ID is required.';
+        }
         if (!$gender) {
             $errors[] = 'Gender is required for Nurse registration.';
         }
@@ -160,27 +160,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$contact) {
             $errors[] = 'Contact Number is required for Nurse registration.';
         }
-    } elseif ($role === 'adviser' || $role === 'guidance') {
+        if (!$errors && $employeeId !== '') {
+            $stmt = $db->prepare("SELECT id FROM nurses WHERE employee_id = ? LIMIT 1");
+            $stmt->execute([$employeeId]);
+            if ($stmt->fetch()) {
+                $errors[] = 'This Nurse Employee ID is already registered.';
+            }
+        }
+    } elseif ($role === 'adviser') {
         $employeeId = trim($_POST['employee_id'] ?? '');
         $department = trim($_POST['department'] ?? '');
 
         if (!$employeeId) {
-            $errors[] = 'Employee / Staff ID is required.';
+            $errors[] = 'Employee / Faculty ID is required.';
         }
         if (!$department) {
-            $errors[] = 'Department is required.';
+            $errors[] = 'Department / College is required.';
         }
 
         if (!$errors && $employeeId !== '') {
             $stmt = $db->prepare("SELECT id FROM teachers WHERE employee_id = ? LIMIT 1");
             $stmt->execute([$employeeId]);
             if ($stmt->fetch()) {
-                $errors[] = 'This Employee/Staff ID is already registered.';
+                $errors[] = 'This Employee/Faculty ID is already registered.';
             } else {
                 $stmt = $db->prepare("SELECT id FROM teacher_registration_requests WHERE teacher_id_number = ? AND status IN ('pending','approved') LIMIT 1");
                 $stmt->execute([$employeeId]);
                 if ($stmt->fetch()) {
-                    $errors[] = 'A registration using this Employee/Staff ID is already underway.';
+                    $errors[] = 'A registration using this Employee/Faculty ID is already underway.';
                 }
             }
         }
@@ -193,8 +200,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
             $stmt->execute([$email]);
             if ($stmt->fetch()) {
-                $errors[] = 'You already have a pending registration. Please wait for admin review.';
+                $errors[] = 'You already have a pending teacher registration. Please wait for administrator review.';
             }
+        }
+    } elseif ($role === 'admin') {
+        $adminOffice = trim($_POST['admin_office'] ?? '');
+        if (!$contact) {
+            $errors[] = 'Contact number is required for Administrator registration.';
         }
     }
 
@@ -216,9 +228,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                              ?: 'assets/images/default-avatar.png';
             $validIdRel = upload_registration_file('valid_id', 'assets/images/student_ids', 'valid_id', ['image/jpeg','image/png','image/webp','application/pdf']);
 
+            // Admin accounts activate immediately; Student, Nurse, Teacher enter pending verification
+            $accountStatus = ($role === 'admin') ? 'active' : 'pending';
+
             $stmt = $db->prepare("
                 INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, profile_picture, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $role,
@@ -231,7 +246,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $gender ?: null,
                 $dob ?: null,
                 $contact ?: null,
-                $profilePicRel
+                $profilePicRel,
+                $accountStatus
             ]);
             $userId = (int)$db->lastInsertId();
 
@@ -250,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 log_activity($userId, 'Registered new student account', 'auth');
-                set_flash('success', 'Student registration submitted! Your account is pending admin approval.');
+                set_flash('success', 'Student registration submitted! Your account is pending administrator approval.');
 
             } elseif ($role === 'nurse') {
                 $stmt = $db->prepare("
@@ -269,7 +285,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 log_activity($userId, 'Registered new nurse account', 'auth');
-                set_flash('success', 'Nurse registration submitted! Your account is pending admin approval.');
+                set_flash('success', 'Nurse registration submitted! Your account is pending administrator approval.');
 
             } elseif ($role === 'adviser') {
                 $stmt = $db->prepare("
@@ -281,15 +297,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 log_activity($userId, 'Submitted teacher account request', 'auth');
                 set_flash('success', 'Teacher account request submitted! You can log in after the administrator approves your account.');
 
-            } elseif ($role === 'guidance') {
-                $stmt = $db->prepare("
-                    INSERT INTO teacher_registration_requests (user_id, requested_role, teacher_id_number, requested_sections, status)
-                    VALUES (?, 'guidance', ?, NULL, 'pending')
-                ");
-                $stmt->execute([$userId, $employeeId ?: null]);
-
-                log_activity($userId, 'Submitted guidance counselor account request', 'auth');
-                set_flash('success', 'Guidance Counselor account request submitted! You can log in after the administrator approves your account.');
+            } elseif ($role === 'admin') {
+                log_activity($userId, 'Self-registered new administrator account', 'auth', 'Administrator: ' . $username);
+                set_flash('success', 'Administrator account created successfully! You can now sign in with your credentials.');
             }
 
             $db->commit();
@@ -330,6 +340,12 @@ $pageTitle = 'Create an Account';
     color: #ffffff !important;
     box-shadow: 0 4px 12px rgba(11, 107, 58, 0.25);
   }
+  .role-btn.btn-admin.active {
+    background: #0f172a !important;
+    border-color: #0f172a !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3);
+  }
   .role-btn i {
     font-size: 1.25rem;
   }
@@ -338,10 +354,10 @@ $pageTitle = 'Create an Account';
 <body>
 <div class="auth-wrapper">
   <div class="auth-card" style="max-width:1080px;" data-aos="fade-up" data-aos-duration="800">
-    <div class="auth-side">
+    <div class="auth-side" id="authSideBanner">
       <div class="auth-icon" id="sideIcon"><i class="bi bi-person-plus-fill"></i></div>
       <h2 class="mb-2" id="sideTitle">BPC School Clinic</h2>
-      <p class="mb-0" id="sideDesc">Create your account to access clinic services, health records, and support.</p>
+      <p class="mb-0" id="sideDesc">Create your account to access clinic services, records, or administration.</p>
     </div>
     <div class="auth-form-side">
       <h4 class="mb-1" id="formHeaderTitle">CREATE AN ACCOUNT</h4>
@@ -357,7 +373,7 @@ $pageTitle = 'Create an Account';
       <form method="POST" novalidate enctype="multipart/form-data" id="unifiedRegForm">
         <?= csrf_field() ?>
 
-        <!-- Account Type Selector -->
+        <!-- Account Type Selector (Student, Nurse, Teacher, Administrator) -->
         <div class="mb-3">
           <label class="form-label fw-bold small text-dark d-block mb-2">
             <i class="bi bi-person-badge me-1 text-primary"></i> Select Account Type:
@@ -382,13 +398,13 @@ $pageTitle = 'Create an Account';
               </button>
             </div>
             <div class="col-6 col-sm-3">
-              <button type="button" class="btn role-btn w-100 py-2 text-center <?= $selectedRole === 'guidance' ? 'active' : '' ?>" data-role="guidance_counselor">
-                <i class="bi bi-heart-pulse-fill d-block mb-1"></i>
-                <span>Counselor</span>
+              <button type="button" class="btn role-btn btn-admin w-100 py-2 text-center <?= $selectedRole === 'admin' ? 'active' : '' ?>" data-role="admin">
+                <i class="bi bi-shield-lock-fill d-block mb-1"></i>
+                <span>Admin</span>
               </button>
             </div>
           </div>
-          <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole === 'adviser' ? 'teacher' : ($selectedRole === 'guidance' ? 'guidance_counselor' : $selectedRole)) ?>">
+          <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole === 'adviser' ? 'teacher' : $selectedRole) ?>">
         </div>
 
         <!-- Section: Personal Information -->
@@ -396,15 +412,15 @@ $pageTitle = 'Create an Account';
         <div class="row g-2 mb-2">
           <div class="col-md-4">
             <label class="form-label small fw-semibold">First Name *</label>
-            <input type="text" name="first_name" class="form-control" required maxlength="80" value="<?= e($old['first_name'] ?? '') ?>">
+            <input type="text" name="first_name" class="form-control" required maxlength="80" value="<?= e($old['first_name'] ?? '') ?>" placeholder="First name">
           </div>
           <div class="col-md-4">
             <label class="form-label small fw-semibold">Middle Name</label>
-            <input type="text" name="middle_name" class="form-control" maxlength="80" value="<?= e($old['middle_name'] ?? '') ?>">
+            <input type="text" name="middle_name" class="form-control" maxlength="80" value="<?= e($old['middle_name'] ?? '') ?>" placeholder="Middle name (optional)">
           </div>
           <div class="col-md-4">
             <label class="form-label small fw-semibold">Last Name *</label>
-            <input type="text" name="last_name" class="form-control" required maxlength="80" value="<?= e($old['last_name'] ?? '') ?>">
+            <input type="text" name="last_name" class="form-control" required maxlength="80" value="<?= e($old['last_name'] ?? '') ?>" placeholder="Last name">
           </div>
           <div class="col-md-6 role-field field-gender field-student field-nurse">
             <label class="form-label small fw-semibold" id="genderLabel">Gender</label>
@@ -419,9 +435,9 @@ $pageTitle = 'Create an Account';
             <label class="form-label small fw-semibold" id="dobLabel">Date of Birth</label>
             <input type="date" name="date_of_birth" id="dobInput" class="form-control" max="<?= date('Y-m-d') ?>" value="<?= e($old['date_of_birth'] ?? '') ?>">
           </div>
-          <div class="col-md-6 role-field field-contact field-student field-nurse field-teacher field-guidance_counselor">
-            <label class="form-label small fw-semibold" id="contactLabel">Contact Number</label>
-            <input type="text" name="contact_number" id="contactInput" class="form-control" maxlength="30" value="<?= e($old['contact_number'] ?? '') ?>">
+          <div class="col-md-6 role-field field-contact field-student field-nurse field-teacher field-admin">
+            <label class="form-label small fw-semibold" id="contactLabel">Contact Number *</label>
+            <input type="text" name="contact_number" id="contactInput" class="form-control" maxlength="30" placeholder="e.g. 09171234567" value="<?= e($old['contact_number'] ?? '') ?>">
           </div>
         </div>
 
@@ -453,27 +469,52 @@ $pageTitle = 'Create an Account';
           </div>
         </div>
 
-        <!-- Section: Professional / Employment Info (Nurse, Teacher, Guidance) -->
-        <div class="role-section section-staff">
-          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-briefcase-fill me-1"></i> Employment Information</h6>
+        <!-- Section: Nurse Employment Info (Nurse Only) -->
+        <div class="role-section section-nurse">
+          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-hospital-fill me-1"></i> Nurse Credentials</h6>
           <div class="row g-2 mb-2">
-            <div class="col-md-6 role-field field-employee_id field-nurse field-teacher field-guidance_counselor">
-              <label class="form-label small fw-semibold" id="employeeIdLabel">Nurse / Employee ID *</label>
-              <input type="text" name="employee_id" id="employeeIdInput" class="form-control" maxlength="50" value="<?= e($old['employee_id'] ?? '') ?>">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Nurse / Employee ID *</label>
+              <input type="text" name="employee_id" id="nurseEmployeeIdInput" class="form-control" maxlength="50" placeholder="e.g. NURSE-2026-001" value="<?= e($old['employee_id'] ?? '') ?>">
             </div>
-            <div class="col-md-6 role-field field-license field-nurse">
+            <div class="col-md-6">
               <label class="form-label small fw-semibold">PRC License Number</label>
               <input type="text" name="license_number" class="form-control" placeholder="Optional" value="<?= e($old['license_number'] ?? '') ?>">
             </div>
-            <div class="col-md-6 role-field field-department field-teacher field-guidance_counselor">
-              <label class="form-label small fw-semibold" id="deptLabel">Department *</label>
-              <input type="text" name="department" id="deptInput" class="form-control" maxlength="120" value="<?= e($old['department'] ?? '') ?>">
+          </div>
+        </div>
+
+        <!-- Section: Teacher Employment Info (Teacher Only) -->
+        <div class="role-section section-teacher">
+          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-briefcase-fill me-1"></i> Faculty Information</h6>
+          <div class="row g-2 mb-2">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Employee / Faculty ID *</label>
+              <input type="text" name="employee_id" id="teacherEmployeeIdInput" class="form-control" maxlength="50" placeholder="e.g. T-2026-001" value="<?= e($old['employee_id'] ?? '') ?>">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Department / College *</label>
+              <input type="text" name="department" id="deptInput" class="form-control" maxlength="120" placeholder="e.g. College of Computer Studies" value="<?= e($old['department'] ?? '') ?>">
             </div>
           </div>
+          <div class="card p-2 mb-2 small" style="background:var(--primary-light,#EAF7EF);border:none;">
+            <div class="fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i> Advisory Section Assignment</div>
+            <div class="text-muted">You will be able to select and manage your advisory class inside the Adviser Portal once your account is approved.</div>
+          </div>
+        </div>
 
-          <div class="card p-2 mb-2 small section-teacher-note" style="background:var(--primary-light,#EAF7EF);border:none;display:none;">
-            <div class="fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i> Advisory Class Assignment</div>
-            <div class="text-muted">As a teacher, you will select your advisory class inside the Adviser Portal after your account is approved by the administrator.</div>
+        <!-- Section: Administrator Info (Admin Only) -->
+        <div class="role-section section-admin">
+          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-shield-check me-1"></i> Administrative Office</h6>
+          <div class="row g-2 mb-2">
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold">Administrative Department / Unit</label>
+              <input type="text" name="admin_office" class="form-control" placeholder="e.g. Clinic Administration, MIS Office, Office of Student Affairs" value="<?= e($old['admin_office'] ?? '') ?>">
+            </div>
+          </div>
+          <div class="card p-2 mb-2 small bg-dark text-white border-0 rounded-3">
+            <div class="fw-semibold mb-1"><i class="bi bi-shield-lock-fill me-1 text-warning"></i> Administrator Privileges</div>
+            <div class="text-light opacity-75">Administrator accounts hold system-wide management authority (user approvals, course &amp; section management, reports, and system settings).</div>
           </div>
         </div>
 
@@ -482,20 +523,20 @@ $pageTitle = 'Create an Account';
         <div class="row g-2 mb-2">
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Email Address *</label>
-            <input type="email" name="email" class="form-control" required value="<?= e($old['email'] ?? '') ?>">
+            <input type="email" name="email" class="form-control" required placeholder="name@domain.com" value="<?= e($old['email'] ?? '') ?>">
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Username *</label>
-            <input type="text" name="username" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" value="<?= e($old['username'] ?? '') ?>">
-            <div class="form-text small">Letters, numbers, underscores only.</div>
+            <input type="text" name="username" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" placeholder="Choose a username" value="<?= e($old['username'] ?? '') ?>">
+            <div class="form-text small">Letters, numbers, underscores only (3-50 chars).</div>
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Password *</label>
-            <input type="password" name="password" id="regPw" class="form-control" required minlength="8">
+            <input type="password" name="password" id="regPw" class="form-control" required minlength="8" placeholder="Min. 8 characters">
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Confirm Password *</label>
-            <input type="password" name="confirm_password" id="regConfirmPw" class="form-control" required minlength="8">
+            <input type="password" name="confirm_password" id="regConfirmPw" class="form-control" required minlength="8" placeholder="Re-enter password">
           </div>
         </div>
 
@@ -514,7 +555,7 @@ $pageTitle = 'Create an Account';
 
         <div class="form-check mt-3">
           <input class="form-check-input" type="checkbox" name="certify" id="certify" required>
-          <label class="form-check-label small" for="certify">I certify that the information above is true and accurate.</label>
+          <label class="form-check-label small" for="certify">I certify that all information provided above is true, accurate, and complete.</label>
         </div>
 
         <button type="submit" class="btn btn-primary w-100 mt-3 mb-2 py-2 fw-semibold" id="submitBtn">
@@ -540,6 +581,7 @@ $pageTitle = 'Create an Account';
       sideDesc: 'Register as a student to book clinic appointments, track your medical history, and get your clinic QR code.',
       sideIcon: '<i class="bi bi-mortarboard-fill"></i>',
       btnText: 'Create Student Account',
+      btnClass: 'btn-primary',
       genderReq: false,
       dobReq: false,
       contactReq: false,
@@ -547,59 +589,52 @@ $pageTitle = 'Create an Account';
       empIdReq: false,
       deptReq: false,
       validIdReq: true,
-      validIdLabel: 'Student ID / Valid ID *',
-      empIdLabel: 'Nurse / Employee ID'
+      validIdLabel: 'Student ID / Valid ID *'
     },
     nurse: {
       title: 'Nurse Registration',
       sideTitle: 'Nurse Station',
-      sideDesc: 'Register as a school nurse to manage health records, consultations, and clinic operations.',
+      sideDesc: 'Register as a school nurse to manage health records, patient consultations, and clinic operations.',
       sideIcon: '<i class="bi bi-person-badge-fill"></i>',
       btnText: 'Register Nurse Account',
+      btnClass: 'btn-primary',
       genderReq: true,
       dobReq: true,
       contactReq: true,
       studentNumReq: false,
-      empIdReq: false,
+      empIdReq: true,
       deptReq: false,
       validIdReq: false,
-      validIdLabel: 'Valid ID / PRC ID',
-      empIdLabel: 'Nurse / Employee ID'
+      validIdLabel: 'Valid ID / PRC ID'
     },
     teacher: {
       title: 'Teacher Registration',
       sideTitle: 'Faculty Portal',
-      sideDesc: 'Register as a teacher. After administrator approval, set your advisory class and monitor student well-being.',
+      sideDesc: 'Register as a teacher. After administrator review, manage your advisory section and student clinic care.',
       sideIcon: '<i class="bi bi-person-video3"></i>',
       btnText: 'Submit Teacher Request',
+      btnClass: 'btn-primary',
       genderReq: false,
       dobReq: false,
       contactReq: false,
       studentNumReq: false,
       empIdReq: true,
       deptReq: true,
-      deptPlaceholder: 'e.g. College of Engineering',
-      deptLabel: 'Department *',
-      empIdLabel: 'Employee / Faculty ID *',
-      empIdPlaceholder: 'e.g. T-2026-001',
       validIdReq: false
     },
-    guidance_counselor: {
-      title: 'Guidance Counselor Registration',
-      sideTitle: 'Counseling Office',
-      sideDesc: 'Register as a guidance counselor to receive student support referrals and coordinate student well-being.',
-      sideIcon: '<i class="bi bi-heart-pulse-fill"></i>',
-      btnText: 'Submit Counselor Request',
+    admin: {
+      title: 'Administrator Registration',
+      sideTitle: 'System Administration',
+      sideDesc: 'Register as an Administrator to oversee clinic operations, user accounts, sections, and reporting.',
+      sideIcon: '<i class="bi bi-shield-lock-fill"></i>',
+      btnText: 'Register Administrator Account',
+      btnClass: 'btn-dark',
       genderReq: false,
       dobReq: false,
-      contactReq: false,
+      contactReq: true,
       studentNumReq: false,
-      empIdReq: true,
-      deptReq: true,
-      deptPlaceholder: 'e.g. Guidance & Counseling Office',
-      deptLabel: 'Department / Office *',
-      empIdLabel: 'Employee / Staff ID *',
-      empIdPlaceholder: 'e.g. GC-2026-001',
+      empIdReq: false,
+      deptReq: false,
       validIdReq: false
     }
   };
@@ -613,16 +648,11 @@ $pageTitle = 'Create an Account';
   const dobInput = document.getElementById('dobInput');
   const contactInput = document.getElementById('contactInput');
   const studentNumInput = document.getElementById('studentNumberInput');
-  const empIdInput = document.getElementById('employeeIdInput');
+  const nurseEmpIdInput = document.getElementById('nurseEmployeeIdInput');
+  const teacherEmpIdInput = document.getElementById('teacherEmployeeIdInput');
   const deptInput = document.getElementById('deptInput');
   const validIdInput = document.getElementById('validIdInput');
-
-  // Label references
-  const genderLabel = document.getElementById('genderLabel');
-  const dobLabel = document.getElementById('dobLabel');
-  const empIdLabel = document.getElementById('employeeIdLabel');
-  const deptLabel = document.getElementById('deptLabel');
-  const validIdLabel = document.getElementById('validIdLabel');
+  const submitBtn = document.getElementById('submitBtn');
 
   function switchRole(roleKey) {
     if (!roleMeta[roleKey]) roleKey = 'student';
@@ -644,12 +674,15 @@ $pageTitle = 'Create an Account';
     document.getElementById('sideTitle').textContent = meta.sideTitle;
     document.getElementById('sideDesc').textContent = meta.sideDesc;
     document.getElementById('sideIcon').innerHTML = meta.sideIcon;
-    document.getElementById('submitBtn').textContent = meta.btnText;
+    submitBtn.textContent = meta.btnText;
+
+    submitBtn.className = 'btn ' + (meta.btnClass || 'btn-primary') + ' w-100 mt-3 mb-2 py-2 fw-semibold';
 
     // Toggle Role Sections
     document.querySelector('.section-student').style.display = (roleKey === 'student') ? 'block' : 'none';
-    document.querySelector('.section-staff').style.display = (roleKey !== 'student') ? 'block' : 'none';
-    document.querySelector('.section-teacher-note').style.display = (roleKey === 'teacher') ? 'block' : 'none';
+    document.querySelector('.section-nurse').style.display = (roleKey === 'nurse') ? 'block' : 'none';
+    document.querySelector('.section-teacher').style.display = (roleKey === 'teacher') ? 'block' : 'none';
+    document.querySelector('.section-admin').style.display = (roleKey === 'admin') ? 'block' : 'none';
 
     // Toggle Role Fields
     document.querySelectorAll('.role-field').forEach(el => {
@@ -660,27 +693,13 @@ $pageTitle = 'Create an Account';
       }
     });
 
-    // Labels & Placeholders
-    if (meta.genderReq) genderLabel.textContent = 'Gender *';
-    else genderLabel.textContent = 'Gender';
-
-    if (meta.dobReq) dobLabel.textContent = 'Date of Birth *';
-    else dobLabel.textContent = 'Date of Birth';
-
-    if (empIdLabel) empIdLabel.textContent = meta.empIdLabel || 'Employee ID';
-    if (empIdInput && meta.empIdPlaceholder) empIdInput.placeholder = meta.empIdPlaceholder;
-
-    if (deptLabel && meta.deptLabel) deptLabel.textContent = meta.deptLabel;
-    if (deptInput && meta.deptPlaceholder) deptInput.placeholder = meta.deptPlaceholder;
-
-    if (validIdLabel && meta.validIdLabel) validIdLabel.textContent = meta.validIdLabel;
-
     // Required Attributes Mapping
     if (genderInput) genderInput.required = meta.genderReq;
     if (dobInput) dobInput.required = meta.dobReq;
     if (contactInput) contactInput.required = meta.contactReq;
     if (studentNumInput) studentNumInput.required = meta.studentNumReq;
-    if (empIdInput) empIdInput.required = meta.empIdReq;
+    if (nurseEmpIdInput) nurseEmpIdInput.required = (roleKey === 'nurse');
+    if (teacherEmpIdInput) teacherEmpIdInput.required = (roleKey === 'teacher');
     if (deptInput) deptInput.required = meta.deptReq;
     if (validIdInput) validIdInput.required = meta.validIdReq;
   }
@@ -699,7 +718,6 @@ $pageTitle = 'Create an Account';
   // Form submit handler with password complexity validation
   const pw = document.getElementById('regPw');
   const confirmPw = document.getElementById('regConfirmPw');
-  const submitBtn = document.getElementById('submitBtn');
 
   function validPassword(v) {
     return v.length >= 8 && /[A-Z]/.test(v) && /[a-z]/.test(v) && /[0-9]/.test(v) && /[^A-Za-z0-9]/.test(v);
@@ -720,149 +738,11 @@ $pageTitle = 'Create an Account';
     }
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating Account...';
   });
 
 })();
 </script>
-<?php include __DIR__ . '/../components/footer.php'; ?>
-</body>
-</html>
-
-      <form method="POST" novalidate enctype="multipart/form-data">
-        <?= csrf_field() ?>
-        <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary)"><i class="bi bi-person-vcard me-1"></i> Personal Information</h6>
-        <div class="row g-2 mb-2">
-          <div class="col-md-4">
-            <label class="form-label small fw-semibold">First Name *</label>
-            <input type="text" name="first_name" class="form-control" required value="<?= e($old['first_name'] ?? '') ?>">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small fw-semibold">Middle Name</label>
-            <input type="text" name="middle_name" class="form-control" value="<?= e($old['middle_name'] ?? '') ?>">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small fw-semibold">Last Name *</label>
-            <input type="text" name="last_name" class="form-control" required value="<?= e($old['last_name'] ?? '') ?>">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Gender</label>
-            <select name="gender" class="form-select">
-              <option value="">Select</option>
-              <?php foreach (['Male','Female','Other'] as $g): ?>
-                <option <?= (($old['gender'] ?? '') === $g) ? 'selected' : '' ?>><?= $g ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Date of Birth</label>
-            <input type="date" name="date_of_birth" class="form-control" max="<?= date('Y-m-d') ?>" value="<?= e($old['date_of_birth'] ?? '') ?>">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Contact Number</label>
-            <input type="text" name="contact_number" class="form-control" value="<?= e($old['contact_number'] ?? '') ?>">
-          </div>
-        </div>
-
-        <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-mortarboard-fill me-1"></i> School Information</h6>
-        <div class="row g-2 mb-2">
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Student Number *</label>
-            <input type="text" name="student_number" class="form-control" required value="<?= e($old['student_number'] ?? '') ?>">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Course</label>
-            <input type="text" name="course" class="form-control" placeholder="e.g. BSIT" value="<?= e($old['course'] ?? '') ?>">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Year Level</label>
-            <select name="year_level" class="form-select">
-              <option value="">Select</option>
-              <?php foreach (['1st Year','2nd Year','3rd Year','4th Year'] as $y): ?>
-                <option <?= (($old['year_level'] ?? '') === $y) ? 'selected' : '' ?>><?= $y ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Section</label>
-            <input type="text" name="section" class="form-control" placeholder="e.g. A" value="<?= e($old['section'] ?? '') ?>">
-          </div>
-        </div>
-
-        <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-shield-lock-fill me-1"></i> Account Credentials</h6>
-        <div class="row g-2 mb-2">
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Email *</label>
-            <input type="email" name="email" class="form-control" required value="<?= e($old['email'] ?? '') ?>">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Username *</label>
-            <input type="text" name="username" class="form-control" required value="<?= e($old['username'] ?? '') ?>">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Password *</label>
-            <input type="password" name="password" class="form-control" required minlength="8">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Confirm Password *</label>
-            <input type="password" name="confirm_password" class="form-control" required minlength="8">
-          </div>
-        </div>
-
-        <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-card-image me-1"></i> Student Information & Uploads</h6>
-        <div class="row g-2 mb-2">
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Profile Picture *</label>
-            <input type="file" name="profile_picture" class="form-control" accept="image/*" required>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small fw-semibold">Student ID / Valid ID *</label>
-            <input type="file" name="valid_id" class="form-control" accept="image/*,.pdf" required>
-          </div>
-        </div>
-
-        <div class="form-check mt-3">
-          <input class="form-check-input" type="checkbox" name="certify" id="certify" required>
-          <label class="form-check-label small" for="certify">I certify that the information above is true and accurate.</label>
-        </div>
-
-        <button type="submit" class="btn btn-primary w-100 mt-3 mb-2 py-2 fw-semibold">Create Account</button>
-        <p class="text-center small text-muted mb-0">Not a student? <a href="register_hub.php" class="fw-medium">See other account types</a> &nbsp;·&nbsp; Already have an account? <a href="login.php" class="fw-medium">Sign in</a></p>
-      </form>
-    </div>
-  </div>
-</div>
-  <script>
-  // Client-side password validation + strength & prevent duplicate submits
-  (function () {
-    const form = document.querySelector('form');
-    const pw = form.querySelector('input[name="password"]');
-    const confirm = form.querySelector('input[name="confirm_password"]');
-    const submitBtn = form.querySelector('button[type="submit"]');
-
-    function validPassword(v) {
-      return v.length >= 8 && /[A-Z]/.test(v) && /[a-z]/.test(v) && /[0-9]/.test(v) && /[^A-Za-z0-9]/.test(v);
-    }
-
-    form.addEventListener('submit', function (e) {
-      if (!validPassword(pw.value)) {
-        e.preventDefault();
-        alert('Password does not meet complexity requirements. Please follow the password rules.');
-        pw.focus();
-        return false;
-      }
-      if (pw.value !== confirm.value) {
-        e.preventDefault();
-        alert('Passwords do not match.');
-        confirm.focus();
-        return false;
-      }
-      // Prevent double submit
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Creating...';
-    });
-  })();
-  </script>
 <?php include __DIR__ . '/../components/footer.php'; ?>
 </body>
 </html>

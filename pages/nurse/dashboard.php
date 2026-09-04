@@ -168,7 +168,7 @@ $pageTitle = 'Nurse Dashboard';
         <a href="#" class="quick-action-card-lg text-decoration-none" onclick="if(typeof MICA!=='undefined'&&MICA.open)MICA.open();return false;">
           <div class="qa-icon-lg"><i class="bi bi-robot"></i></div>
           <div class="qa-title-lg">Ask MICA</div>
-          <div class="qa-sub-lg">Health assistant guidance</div>
+          <div class="qa-sub-lg">Clinical AI assistant</div>
         </a>
       </div>
 
@@ -321,9 +321,9 @@ $pageTitle = 'Nurse Dashboard';
   </div>
 </div>
 
-<!-- Leaflet CSS & JS for OpenStreetMap -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<!-- Leaflet CSS & JS for OpenStreetMap (Local Vendor Assets) -->
+<link rel="stylesheet" href="<?= asset_url('vendor/leaflet/leaflet.css') ?>" />
+<script src="<?= asset_url('vendor/leaflet/leaflet.js') ?>"></script>
 
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 <script>

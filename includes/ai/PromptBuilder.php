@@ -21,7 +21,7 @@ class PromptBuilder
 
     public function __construct()
     {
-        $this->appName = defined('APP_NAME') ? APP_NAME : 'BPC School Clinic Management System with Health Monitoring and Appointment Assistance';
+        $this->appName = defined('APP_NAME') ? APP_NAME : 'AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement';
     }
 
     /**
@@ -42,9 +42,10 @@ class PromptBuilder
         string $dbContext,
         array $recentHistory = [],
         array $userInfo = [],
-        string $currentPage = ''
+        string $currentPage = '',
+        string $locationContext = ''
     ): array {
-        $system = $this->buildSystemPrompt($intent, $dbContext, $userInfo, $currentPage);
+        $system = $this->buildSystemPrompt($intent, $dbContext, $userInfo, $currentPage, $locationContext);
 
         $messages = [];
 
@@ -81,7 +82,8 @@ class PromptBuilder
         string $intent,
         string $dbContext,
         array $userInfo,
-        string $currentPage = ''
+        string $currentPage = '',
+        string $locationContext = ''
     ): string {
         $userFirstName = $userInfo['first_name'] ?? '';
         $userName = $userInfo['name'] ?? trim(($userInfo['first_name'] ?? '') . ' ' . ($userInfo['last_name'] ?? ''));
@@ -148,7 +150,7 @@ class PromptBuilder
         $prompt .= "- Provide compassionate, practical support for stress, school pressure, exam/thesis fatigue, burnout, anxiety feelings, and sadness.\n";
         $prompt .= "- Offer practical coping strategies when asked (e.g., breaking large tasks into manageable steps, 4-7-8 breathing exercises, 5-4-3-2-1 grounding techniques, study breaks, sleep hygiene).\n";
         $prompt .= "- NEVER diagnose mental illnesses (do NOT say 'You have depression' or 'You have an anxiety disorder').\n";
-        $prompt .= "- Instead, say: 'Feeling this way can happen for many reasons, and while I cannot diagnose any condition, we can work through what you are feeling and, if helpful, connect you with support at the school clinic or guidance counseling.'\n\n";
+        $prompt .= "- Instead, say: 'Feeling this way can happen for many reasons, and while I cannot diagnose any condition, we can work through what you are feeling and, if helpful, you can visit the school clinic to talk with our school nurse or seek professional wellness support.'\n\n";
 
         // High-Risk Crisis & Emergency Safety
         $prompt .= "## HIGH-RISK & CRISIS SAFETY\n";
@@ -158,7 +160,7 @@ class PromptBuilder
         $prompt .= "  3. Provide free, confidential crisis hotlines in the Philippines:\n";
         $prompt .= "     • **National Center for Mental Health (NCMH) Crisis Hotline**: 1553 (Luzon-wide toll-free) | 0917-899-8727 | 0966-351-4518 | 0908-639-2672\n";
         $prompt .= "     • **Hopeline Philippines**: 2919 (Globe/TM) | (02) 8804-4673 | 0917-558-4673\n";
-        $prompt .= "  4. Encourage them to speak to a trusted friend, family member, guidance counselor, or visit the BPC School Clinic immediately.\n";
+        $prompt .= "  4. Encourage them to speak to a trusted friend, family member, teacher, or visit the BPC School Clinic immediately.\n";
         $prompt .= "  5. NEVER provide instructions or methods for self-harm. NEVER claim an ambulance or nurse has been dispatched unless confirmed by the system.\n\n";
 
         // Medical Scope & Rules
@@ -182,14 +184,10 @@ class PromptBuilder
         if ($userRole === 'nurse') {
             $prompt .= "- The user is a School Nurse.\n";
             $prompt .= "- Tailor assistance to: today's clinic appointments, medicine inventory status and replenishment, emergency SOS alert notifications, student health logs/vitals, dispensing procedures, and issuing/verifying medical certificates.\n";
-            $prompt .= "- Maintain clinical privacy: do not reveal confidential counseling files restricted to Guidance Counselors.\n";
         } elseif ($userRole === 'adviser' || $userRole === 'teacher') {
             $prompt .= "- The user is a Class Adviser / Teacher.\n";
-            $prompt .= "- Tailor assistance to: checking advisory class health workflows, clinic referral procedures for ill students, clinic announcements, and school SOS emergency protocol.\n";
+            $prompt .= "- Tailor assistance to: checking advisory class health workflows, clinic coordination for ill students, clinic announcements, and school SOS emergency protocol.\n";
             $prompt .= "- Respect student confidentiality: do not share individual student medical records beyond authorized class advisory status.\n";
-        } elseif ($userRole === 'guidance') {
-            $prompt .= "- The user is a Guidance Counselor.\n";
-            $prompt .= "- Tailor assistance to: guidance counseling workflow, student well-being referrals, mental health support strategies, clinic coordination, and announcements.\n";
         } elseif ($userRole === 'admin') {
             $prompt .= "- The user is a System Administrator.\n";
             $prompt .= "- Tailor assistance to: user management overview, academic courses and sections setup, clinic analytics/reports, announcements, and system configuration.\n";
@@ -199,6 +197,14 @@ class PromptBuilder
         }
         $prompt .= "\n";
 
+        // Real-Time Browser Location Context (if present)
+        if (!empty(trim($locationContext))) {
+            $prompt .= $locationContext . "\n\n";
+        } else {
+            $prompt .= "## USER BROWSER LOCATION STATUS\n";
+            $prompt .= "- Location Status: NOT YET GRANTED / UNREQUESTED\n\n";
+        }
+
         // Real Database Context
         if (!empty(trim($dbContext))) {
             $prompt .= "## REAL DATABASE CONTEXT (LIVE CLINIC DATA)\n";
@@ -207,10 +213,21 @@ class PromptBuilder
         }
 
         // Factual Data Rules
-        $prompt .= "## DATA ACCURACY RULES\n";
+        $prompt .= "## DATA ACCURACY & LOCATION RULES\n";
         $prompt .= "- If asked 'When is my appointment?' or 'Do I have an appointment?', check the database appointments above. If an active appointment exists, state its exact date, time, status, and reason. If none exists, clearly say: 'I don't see any upcoming appointment scheduled for you right now' and explain the online booking process.\n";
         $prompt .= "- If asked about medicine availability (e.g. 'May available ba na paracetamol?'), check the clinic medicine inventory above. If available, confirm it is in stock. If not listed or out of stock, say it is currently unavailable.\n";
         $prompt .= "- If asked about announcements, refer to the active announcements in the database.\n";
+        $prompt .= "- Refer to the LOCATION STATUS in the Location Context above:\n";
+        $prompt .= "  * IF Location Status is 'AVAILABLE':\n";
+        $prompt .= "    1. If the user asks 'Do you know my location?', 'Where am I?', or 'Can you see my location?':\n";
+        $prompt .= "       - Confirm: 'Yes, I have access to your current location through your browser.'\n";
+        $prompt .= "    2. If the user asks for nearby emergency hospitals or clinics:\n";
+        $prompt .= "       - Provide the verified hospitals, distances, and Google Maps directions from the Location Context above. NEVER invent imaginary hospital names or fake distances.\n";
+        $prompt .= "    3. If the user asks for non-medical facilities (e.g. 'gas stations', 'pharmacies', 'stores'):\n";
+        $prompt .= "       - Confirm you have their coordinates, and provide a direct Google Maps search link: `https://www.google.com/maps/search/[facility]/@[lat],[lng],15z`.\n";
+        $prompt .= "  * IF Location Status is 'NOT YET GRANTED', 'UNREQUESTED', 'BLOCKED', or 'UNAVAILABLE':\n";
+        $prompt .= "    - Clearly state: 'I don't have access to your location yet. Please allow browser location access by clicking the microphone or location button.'\n";
+        $prompt .= "    - NEVER claim you have their location if the status is NOT YET GRANTED or BLOCKED.\n";
         $prompt .= "- Never invent appointments, medical records, or test results.\n\n";
 
         // Detected Intent Guidance
@@ -226,6 +243,7 @@ class PromptBuilder
     private function getIntentGuidance(string $intent): string
     {
         $guidance = [
+            'nearby_facilities'     => "The user is asking about their location or looking for nearby facilities (hospitals, clinics, ERs, pharmacies, gas stations, stores, etc.). If real-time GPS location is AVAILABLE in the context above: 1. If asking about location awareness (e.g. 'Do you know my location?'), confirm clearly that you have their location and ask what facility they need. 2. If looking for healthcare facilities, provide the closest verified facilities, their exact calculated distances, addresses, emergency hotlines, and Google Maps directions. 3. If looking for other facilities (e.g. gas stations), provide a Google Maps search link with their coordinates. If location permission is not granted yet, explain: \"I can help find nearby facilities, but I need your location first. Please allow location access in your browser.\" If permission was denied, explain: \"Location access is currently blocked. Please enable location permission for this website in your browser settings.\" NEVER hallucinate fake distances.",
             'mental_health'         => 'The user is talking about stress, anxiety, burnout, emotional struggle, or school pressure. Be deeply empathetic, validate their experience, and offer practical, calming advice (e.g. breaking down tasks, grounding, breathing) or school clinic/counselor connection without giving a clinical diagnosis.',
             'greeting'              => 'Greet the user warmly by name. Be friendly and invite them to share what they need help with regarding clinic services, health monitoring, or appointments.',
             'appointment'           => 'Explain the actual online Scheduled Services workflow: 1. Go to Scheduled Services in the sidebar, 2. Pick Date & Time, 3. Enter Reason, 4. Click Submit Request. Explain statuses (Pending, Approved, Rescheduled, Completed, Rejected, Cancelled). Check live database records to report exact active appointment details if one exists.',

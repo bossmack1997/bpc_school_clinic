@@ -24,9 +24,8 @@ function current_student_id($db, $userId) {
 // ---------------------------------------------------------------------
 // GET — fetch a well-being profile
 //   - student: only own profile (full access)
-//   - guidance: any student (full access to confidential mental/emotional info)
-//   - nurse: medical subset ONLY (known_medical_conditions, allergies, previous_illnesses, current_medications, other_medical_info)
-//   - adviser / admin / others: 403 Forbidden
+//   - nurse / admin: clinic medical information
+//   - adviser / others: 403 Forbidden
 // ---------------------------------------------------------------------
 if ($action === 'get') {
     $studentId = (int)($_GET['student_id'] ?? 0);
@@ -46,17 +45,12 @@ if ($action === 'get') {
     if ($role === 'student') {
         $own = current_student_id($db, $u['id']);
         if (!$own || $own !== $studentId) {
-            json_response(false, [], 'Access denied. You can only view your own well-being information.');
+            json_response(false, [], 'Access denied. You can only view your own medical health information.');
         }
-    } elseif ($role === 'guidance') {
-        // Guidance counselor has authorized access to full confidential well-being & counseling info
-        log_activity($u['id'], 'Viewed confidential student well-being profile', 'guidance', "Student #$studentId");
-    } elseif ($role === 'nurse') {
-        // Nurse has access ONLY to medical health fields for clinical care
-        log_activity($u['id'], 'Viewed student medical health profile', 'medical_records', "Student #$studentId");
+    } elseif ($role === 'nurse' || $role === 'admin') {
+        log_activity($u['id'], 'Viewed student medical information', 'medical_records', "Student #$studentId");
     } else {
-        // Advisers, Admins, and other roles have NO access to student well-being records
-        json_response(false, [], 'Access denied. Student well-being and counseling records are restricted to Guidance Counselors.');
+        json_response(false, [], 'Access denied.');
     }
 
     $stmt = $db->prepare("SELECT * FROM wellbeing_profiles WHERE student_id = ?");
@@ -84,7 +78,7 @@ if ($action === 'get') {
         json_response(true, ['profile' => $medicalProfile, 'exists' => true, 'scope' => 'medical_only']);
     }
 
-    // GUIDANCE & STUDENT receive full profile
+    // Student / Admin receive full profile
     json_response(true, ['profile' => $row, 'exists' => true, 'scope' => 'full']);
 }
 

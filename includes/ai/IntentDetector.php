@@ -44,14 +44,51 @@ class IntentDetector
         }
 
         // =========================================================
-        // 2. MENTAL HEALTH & EMOTIONAL SUPPORT
+        // 2. LOCATION & NEARBY FACILITIES (Location-aware)
+        // =========================================================
+        $locationQueryKeywords = [
+            // Location status & awareness inquiries
+            'do you know my location', 'do you know where i am', 'can you see my location', 'can you see where i am',
+            'what is my location', 'where am i', 'my location', 'do you have my location', 'do you have my gps',
+            'alam mo ba location ko', 'nasaan ako', 'alam mo ba kung nasaan ako', 'nasaan ba ako', 'ano location ko',
+            // General nearby inquiries
+            'what is near my location', 'what is near me', 'what\'s near my location', 'what\'s near me', 'whats near me',
+            'places near me', 'places nearby', 'ano malapit dito', 'ano malapit sa akin', 'anong malapit dito',
+            // Healthcare & emergency facilities
+            'hospital near me', 'nearest hospital', 'nearby hospital', 'where is the nearest hospital',
+            'what hospital is near me', 'find the nearest hospital', 'find nearby hospital', 'find hospital',
+            'nearest emergency room', 'emergency room near me', 'where is the nearest emergency room',
+            'i need medical help nearby', 'medical help nearby', 'nearest clinic', 'nearby clinic',
+            'hospital malapit', 'malapit na ospital', 'saan may ospital', 'saan ang pinakamalapit na ospital',
+            'pinakamalapit na ospital', 'emergency room malapit', 'nearest health center',
+            'nearby emergency facilities', 'nearest medical center', 'nearest doctor', 'nearby doctor',
+            'san may ospital', 'saan may clinic', 'pinakamalapit na clinic', 'where is the nearest clinic',
+            'closest hospital', 'closest clinic', 'closest emergency room', 'closest medical center', 'find emergency room',
+            'er near me', 'nearest er', 'nearby er', 'nearby healthcare', 'nearby facilities',
+            'may clinic ba malapit', 'may ospital ba malapit', 'hospital around here', 'clinic around here',
+            'er around here', 'find an er', 'find a hospital', 'find a clinic',
+            // Non-hospital nearby facilities (gas stations, pharmacies, convenience stores)
+            'nearest gas station', 'gas station near me', 'gas station nearby', 'gas station malapit', 'gasolinahan malapit',
+            'nearest pharmacy', 'pharmacy near me', 'pharmacy nearby', 'drugstore near me', 'botika malapit', 'mercury drug near me',
+            'nearest store', 'store near me', 'nearest convenience store', '7-eleven near me', 'seven eleven near me',
+        ];
+        if ($this->matchKeywords($lower, $locationQueryKeywords) ||
+            preg_match('/\b(nearest|nearby|closest|malapit|saan may|san may)\b.*\b(hospital|clinic|emergency|er|medical center|health center|ospital|gas station|gasolinahan|pharmacy|drugstore|botika|store|place|facility)\b/i', $lower) ||
+            preg_match('/\b(hospital|clinic|emergency|er|medical center|health center|ospital|gas station|gasolinahan|pharmacy|drugstore|botika|store)\b.*\b(near|nearby|around here|malapit|malapit dito)\b/i', $lower) ||
+            preg_match('/\b(know|see|have|tell|check|show)\b.*\b(my location|where i am|my gps|my coordinates)\b/i', $lower) ||
+            preg_match('/\b(nasaan|saan|alam mo)\b.*\b(ako|location ko|nasaan ako)\b/i', $lower)) {
+            return 'nearby_facilities';
+        }
+
+        // =========================================================
+        // 3. MENTAL HEALTH & EMOTIONAL SUPPORT
         // =========================================================
         $mentalHealthKeywords = [
             'stressed', 'stress', 'stressful', 'thesis', 'capstone', 'exam',
             'school pressure', 'burnout', 'burned out', 'anxious', 'anxiety',
             'panic attack', 'overwhelmed', 'depressed', 'depression', 'sad',
             'sadness', 'lonely', 'loneliness', 'mental health', 'emotional',
-            'counselor', 'counseling', 'guidance', 'trouble sleeping',
+            'trouble sleeping', 'wellness support', 'feeling down',
             'insomnia', 'can\'t sleep', 'cannot sleep', 'lack of sleep',
             'exhausted', 'pagod na pagod', 'nakaka-stress', 'sobrang stress',
             'nahihirapan', 'breathing exercise', 'grounding technique',

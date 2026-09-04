@@ -1,5 +1,5 @@
 /**
- * BPC School Clinic Management System — Service Worker
+ * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement — Service Worker
  * Version: bpc-clinic-static-v1
  *
  * Safe PWA caching strategy:

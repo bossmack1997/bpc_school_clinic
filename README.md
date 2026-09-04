@@ -1,6 +1,7 @@
-# BPC School Clinic Management System — Phase 1
+# AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
 
 ## Setup (XAMPP)
+
 1. Copy the `bpc_clinic_system` folder into `htdocs/`.
 2. Start Apache + MySQL in XAMPP.
 3. Open phpMyAdmin → Import → select `database/bpc_clinic_system.sql`. This creates the
@@ -14,6 +15,7 @@
    Nurse accounts are created by the admin (Nurse Management module — see roadmap).
 
 ## What's included in this phase
+
 - Full database schema (`database/bpc_clinic_system.sql`) — all 15+ tables from the spec.
 - Complete auth system: login, registration, forgot/reset password, change password,
   remember-me, CSRF protection, password hashing, role-based redirects, session mgmt.
@@ -33,6 +35,7 @@
 - Activity logging on every sensitive action (`activity_logs` table).
 
 ## Roadmap — next phases (not yet built)
+
 - Admin: Student Management, Nurse Management (add/edit/deactivate accounts).
 - Full Medical Records module (consultation entry, attachments, printable record).
 - Medical Certificate generator (PDF).

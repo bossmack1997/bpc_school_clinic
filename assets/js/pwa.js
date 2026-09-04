@@ -1,5 +1,5 @@
 /**
- * BPC School Clinic Management System — PWA Module
+ * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement — PWA Module
  * Handles Service Worker registration, install prompt banner, and offline detection.
  */
 (function () {

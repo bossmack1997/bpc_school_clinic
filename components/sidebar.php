@@ -26,37 +26,30 @@ $sbNav = [
             'Dashboard' => [
                 ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
             ],
-            'Patient Management' => [
-                ['people-fill', 'Students', 'students.php'],
-                ['file-earmark-medical-fill', 'Medical Records', 'medical_records.php'],
-                ['calendar-check-fill', 'Appointments', 'appointments.php'],
+            'User & Academics' => [
+                ['person-badge-fill', 'User Management', 'users.php'],
+                ['hourglass-split', 'Pending Accounts', 'pending_accounts.php'],
+                ['layers-fill', 'Courses & Sections', 'sections.php'],
             ],
-             'Clinic Services' => [
-               ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
-               ['file-earmark-bar-graph-fill', 'Reports', 'reports.php'],
-               ['graph-up', 'Health Analytics', 'analytics.php'],
-             ],
-             'Communication' => [
-                 ['bell-fill', 'Notifications', 'notifications.php'],
-                 ['megaphone-fill', 'Announcements', 'announcements.php'],
-             ],
-              'Administration' => [
-                  ['person-badge-fill', 'User Management', 'users.php'],
-                  ['layers-fill', 'Sections & Courses', 'sections.php'],
-                  ['hourglass-split', 'Pending Accounts', 'pending_accounts.php'],
-                  ['clock-history', 'Audit Logs', 'activity_logs.php'],
-                  ['cpu', 'PWA Diagnostics', 'pwa_debug.php'],
-                  ['gear-fill', 'System Settings', 'settings.php'],
-              ],
-              'QR System' => [
-                  ['qr-code', 'QR Management', 'qr_management.php'],
-              ],
-             'Account' => [
-                 ['person-circle', 'Profile', 'profile.php'],
-                 ['box-arrow-right', 'Logout', null, 'logout'],
-             ],
-         ],
-         'brand' => 'Management System',
+            'Clinic Operations' => [
+                ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
+                ['file-earmark-bar-graph-fill', 'Reports', 'reports.php'],
+                ['graph-up', 'Health Analytics', 'analytics.php'],
+            ],
+            'System & Logs' => [
+                ['clock-history', 'Audit Logs', 'activity_logs.php'],
+                ['gear-fill', 'System Settings', 'settings.php'],
+            ],
+            'Communication' => [
+                ['megaphone-fill', 'Announcements', 'announcements.php'],
+                ['bell-fill', 'Notifications', 'notifications.php'],
+            ],
+            'Account' => [
+                ['person-circle', 'Profile', 'profile.php'],
+                ['box-arrow-right', 'Logout', null, 'logout'],
+            ],
+        ],
+        'brand' => 'System Administrator',
     ],
 
     'nurse' => [
@@ -64,31 +57,27 @@ $sbNav = [
             'Dashboard' => [
                 ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
             ],
-            'Patient Management' => [
+            'Patient Care' => [
                 ['hospital-fill', 'Today\'s Patients', 'patients_today.php'],
-                ['person-walking', 'Walk-in Patients', 'walkin.php'],
+                ['person-walking', 'Clinic Visits / Walk-in', 'walkin.php'],
                 ['calendar-check-fill', 'Appointments', 'appointments.php'],
+                ['file-earmark-medical-fill', 'Medical Records', 'medical_records.php'],
                 ['clock-history', 'Patient History', 'patient_history.php'],
-                ['send-fill', 'Support Referrals', 'referrals.php'],
             ],
             'Clinic Services' => [
                 ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
-                ['file-earmark-medical-fill', 'Medical Records', 'medical_records.php'],
-                // 'prescription2' is not available in all Bootstrap Icon versions — use 'capsule' for consistency
                 ['capsule', 'Medicine Dispensing', 'dispensing.php'],
+                ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
                 ['file-medical-fill', 'Medical Certificates', 'certificates.php'],
             ],
-            'QR' => [
-              ['qr-code-scan', 'QR Scanner', 'qr_scanner.php'],
-              ['qr-code', 'QR Management', 'qr_management.php'],
+            'QR Check-in' => [
+                ['qr-code-scan', 'QR Scanner', 'qr_scanner.php'],
+                ['qr-code', 'QR Management', 'qr_management.php'],
             ],
-            'Inventory & Reports' => [
-                ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
+            'Reports & Communication' => [
                 ['file-earmark-bar-graph-fill', 'Reports', 'reports.php'],
-            ],
-            'Updates' => [
-                ['bell-fill', 'Notifications', 'notifications.php'],
                 ['megaphone-fill', 'Announcements', 'announcements.php'],
+                ['bell-fill', 'Notifications', 'notifications.php'],
             ],
             'Account' => [
                 ['person-circle', 'Profile', 'profile.php'],
@@ -104,22 +93,24 @@ $sbNav = [
                 ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
             ],
             'My Health' => [
-              ['qr-code', 'My QR Code', 'my_qr.php'],
-              ['file-earmark-medical-fill', 'Medical Record', 'medical_record.php'],
-              ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
-              ['shield-check', 'Vaccination Record', 'vaccination.php'],
-              ['person-heart', 'Health & Well-being', 'wellbeing.php'],
+                ['qr-code', 'My Clinic QR', 'my_qr.php'],
+                ['file-earmark-medical-fill', 'My Medical Records', 'medical_record.php'],
+                ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
+                ['shield-check', 'Vaccination Record', 'vaccination.php'],
             ],
             'Clinic Services' => [
-                ['calendar-check-fill', 'Scheduled Services', 'appointments.php'],
-                ['file-medical-fill', 'Medical Certificates', 'certificates.php'],
+                ['calendar-check-fill', 'Book Appointment', 'appointments.php'],
+                ['file-medical-fill', 'Medical Certificate', 'certificates.php'],
             ],
-            'Updates' => [
+            'AI Assistance' => [
+                ['robot', 'Ask MICA', '../ai_assistant.php'],
+            ],
+            'Communication' => [
                 ['megaphone-fill', 'Clinic Announcements', 'announcements.php'],
                 ['bell-fill', 'Notifications', 'notifications.php'],
             ],
             'Account' => [
-                ['person-circle', 'Profile', 'profile.php'],
+                ['person-circle', 'My Profile', 'profile.php'],
                 ['box-arrow-right', 'Logout', null, 'logout'],
             ],
         ],
@@ -131,15 +122,15 @@ $sbNav = [
             'Dashboard' => [
                 ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
             ],
-            'My Clinic' => [
-                ['qr-code', 'My QR Code', 'my_qr.php'],
-                ['file-earmark-medical-fill', 'My Consultations', 'consultations.php'],
-            ],
-            'Advisory' => [
-                ['people-fill', 'My Advisory Class', 'students.php'],
+            'Advisory Class' => [
+                ['people-fill', 'My Advisory Students', 'students.php'],
                 ['exclamation-triangle-fill', 'Emergency Reports', 'emergencies.php'],
+                ['file-earmark-medical-fill', 'Clinic Coordination', 'consultations.php'],
             ],
-            'Updates' => [
+            'My Clinic' => [
+                ['qr-code', 'My Staff QR', 'my_qr.php'],
+            ],
+            'Communication' => [
                 ['megaphone-fill', 'Clinic Announcements', 'announcements.php'],
                 ['bell-fill', 'Notifications', 'notifications.php'],
             ],
@@ -149,30 +140,6 @@ $sbNav = [
             ],
         ],
         'brand' => 'Adviser Portal',
-    ],
-
-    'guidance' => [
-        'sections' => [
-            'Dashboard' => [
-                ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
-            ],
-            'Support' => [
-                ['send-fill', 'Support Referrals', 'referrals.php'],
-                ['person-heart', 'Student Well-being', 'wellbeing.php'],
-            ],
-            'Clinic' => [
-                ['hospital-fill', 'Clinic Information', 'clinic.php'],
-                ['megaphone-fill', 'Clinic Announcements', 'announcements.php'],
-            ],
-            'Updates' => [
-                ['bell-fill', 'Notifications', 'notifications.php'],
-            ],
-            'Account' => [
-                ['person-circle', 'Profile', 'profile.php'],
-                ['box-arrow-right', 'Logout', null, 'logout'],
-            ],
-        ],
-        'brand' => 'Guidance Portal',
     ],
 ];
 

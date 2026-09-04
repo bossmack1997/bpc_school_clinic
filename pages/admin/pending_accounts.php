@@ -31,7 +31,7 @@ $pendingUsers = $db->query("
               <?php foreach ($pendingUsers as $u): ?>
               <tr>
                 <td><?= e($u['first_name'] . ' ' . $u['last_name']) ?></td>
-                <td><span class="badge bg-info"><?= ucfirst($u['role']) ?></span></td>
+                <td><span class="badge bg-info"><?= e(get_role_display_name($u['role'])) ?></span></td>
                 <td><?= e($u['student_number'] ?? $u['employee_id'] ?? '—') ?></td>
                 <td><?= e($u['email']) ?></td>
                 <td><span class="badge bg-warning text-dark">Pending</span></td>

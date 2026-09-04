@@ -51,7 +51,18 @@ header('Content-Type: application/json');
 
 $db = getDB();
 $user = current_user();
-$action = $_REQUEST['action'] ?? '';
+
+// Read and merge JSON body with $_POST / $_REQUEST
+$rawInput = file_get_contents('php://input');
+$jsonData = [];
+if (!empty($rawInput)) {
+    $decoded = json_decode($rawInput, true);
+    if (is_array($decoded)) {
+        $jsonData = $decoded;
+    }
+}
+$requestData = array_merge($_REQUEST, $jsonData);
+$action = $requestData['action'] ?? '';
 
 // ================================================================
 // Initialize AI config array
@@ -92,13 +103,72 @@ function detectEmergency(string $message): bool {
 // Process a chat message through the AI pipeline
 // Returns array with reply data + service status
 // ================================================================
-function processChatMessage(PDO $db, array $user, array $aiConfig, string $message, bool $debugMode): array {
-    // Initialize AI Service
-    $aiService = new AIService($db, $user, array_merge($aiConfig, ['page' => $_POST['page'] ?? $_GET['page'] ?? '']));
+function processChatMessage(PDO $db, array $user, array $aiConfig, string $message, bool $debugMode, array $req = []): array {
+    if (empty($req)) {
+        global $requestData;
+        $req = $requestData ?: array_merge($_POST, $_GET);
+    }
 
-    // Log incoming request
+    // Extract and sanitize browser geolocation parameters from flat or nested structure
+    $rawLoc = isset($req['location']) && is_array($req['location']) ? $req['location'] : [];
+
+    $lat = isset($rawLoc['latitude']) && is_numeric($rawLoc['latitude']) ? (float)$rawLoc['latitude'] :
+          (isset($rawLoc['lat']) && is_numeric($rawLoc['lat']) ? (float)$rawLoc['lat'] :
+          (isset($req['latitude']) && is_numeric($req['latitude']) ? (float)$req['latitude'] :
+          (isset($req['lat']) && is_numeric($req['lat']) ? (float)$req['lat'] : null)));
+
+    $lng = isset($rawLoc['longitude']) && is_numeric($rawLoc['longitude']) ? (float)$rawLoc['longitude'] :
+          (isset($rawLoc['lng']) && is_numeric($rawLoc['lng']) ? (float)$rawLoc['lng'] :
+          (isset($req['longitude']) && is_numeric($req['longitude']) ? (float)$req['longitude'] :
+          (isset($req['lng']) && is_numeric($req['lng']) ? (float)$req['lng'] : null)));
+
+    if ($lat !== null && ($lat < -90 || $lat > 90)) $lat = null;
+    if ($lng !== null && ($lng < -180 || $lng > 180)) $lng = null;
+
+    $accuracy = !empty($rawLoc['accuracy']) ? trim((string)$rawLoc['accuracy']) : (!empty($req['accuracy']) ? trim((string)$req['accuracy']) : null);
+    $accuracyMeters = isset($rawLoc['accuracy_meters']) && is_numeric($rawLoc['accuracy_meters']) ? (float)$rawLoc['accuracy_meters'] :
+                     (isset($req['accuracy_meters']) && is_numeric($req['accuracy_meters']) ? (float)$req['accuracy_meters'] : null);
+    if ($accuracyMeters === null && $accuracy !== null) {
+        $numAcc = (float)preg_replace('/[^0-9.]/', '', $accuracy);
+        if ($numAcc > 0) $accuracyMeters = $numAcc;
+    }
+
+    $isLowAccuracy = !empty($rawLoc['is_low_accuracy']) || !empty($req['is_low_accuracy']) || ($accuracyMeters !== null && $accuracyMeters > 1000);
+
+    $locStatus = !empty($rawLoc['status']) ? trim((string)$rawLoc['status']) :
+                (!empty($req['location_status']) ? trim((string)$req['location_status']) :
+                (!empty($rawLoc['available']) || $lat !== null ? 'granted' : 'unrequested'));
+
+    $locTime = !empty($rawLoc['timestamp']) ? trim((string)$rawLoc['timestamp']) :
+              (!empty($req['location_timestamp']) ? trim((string)$req['location_timestamp']) : date('Y-m-d H:i:s'));
+
+    $locationData = [
+        'latitude'        => $lat,
+        'longitude'       => $lng,
+        'accuracy'        => $accuracy,
+        'accuracy_meters' => $accuracyMeters,
+        'is_low_accuracy' => $isLowAccuracy,
+        'timestamp'       => $locTime,
+        'status'          => $locStatus,
+    ];
+
+    // Debug logging for location trace
+    error_log('[MICA LOCATION] RAW REQUEST RECEIVED');
+    error_log('[MICA LOCATION] Parsed input: ' . print_r($req, true));
+    error_log('[MICA LOCATION] Received location: ' . print_r($locationData, true));
+    error_log('[MICA LOCATION DEBUG] Location included in AI context: ' . ($lat !== null && $locStatus === 'granted' ? 'YES' : 'NO'));
+
+    // Initialize AI Service with location context
+    $aiService = new AIService($db, $user, array_merge($aiConfig, [
+        'page'     => $req['page'] ?? $_POST['page'] ?? $_GET['page'] ?? '',
+        'location' => $locationData,
+    ]));
+
+    // Log incoming request with location state
     error_log('[MICA Request] user_id=' . ($user['id'] ?? 'unknown')
         . ' | action=chat'
+        . ' | loc_status=' . $locStatus
+        . ($lat !== null ? " | lat={$lat},lng={$lng}" : '')
         . ' | message_length=' . mb_strlen($message)
         . ' | message_preview=' . mb_substr($message, 0, 100));
 

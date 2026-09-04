@@ -53,6 +53,18 @@
       wakeListening: false,
       activeRequestId: 0,
       continuousTimer: null,
+      locationState: 'unrequested', // unrequested | prompting | granted | denied | unavailable | timeout | unsupported | insecure
+      locationData: null,          // backward-compatibility pointer
+      micaLocation: {
+        latitude: null,
+        longitude: null,
+        accuracy: null,
+        accuracyMeters: null,
+        timestamp: null,
+        available: false,
+        lowAccuracy: false,
+        lastAcquired: 0
+      },
     },
     config: {
       csrfToken: '',
@@ -369,30 +381,73 @@ function escapeHtml(text) {
     return text;
   }
 
-  // If the response is too long, speak a concise summary + offer the rest.
-  function summarizeForSpeech(text) {
-    var words = text.split(/\s+/).filter(Boolean).length;
-    if (words <= 120) return text;
+  // Split long full responses into safe chunks without dropping any sentences or words.
+  function splitTextForTTS(text, maxLength) {
+    maxLength = maxLength || 450;
+    if (!text || typeof text !== 'string') return [];
+    var trimmed = text.trim();
+    if (trimmed.length <= maxLength) return [trimmed];
 
-    var cleaned = cleanSpeechText(text);
-    cleaned = makeSpeechNatural(cleaned);
-    var sentences = cleaned.split(/(?<=[.!?])\s+/);
-    var summary = [];
-    var count = 0;
-    var limit = Math.min(60, Math.floor(sentences.length / 2));
+    var chunks = [];
+    // Split on sentence terminators (. ! ?) or line breaks
+    var sentences = trimmed.split(/(?<=[.!?])\s+|\n+/).filter(Boolean);
+    var currentChunk = '';
+
     for (var i = 0; i < sentences.length; i++) {
-      if (count + sentences[i].split(/\s+/).length > limit) break;
-      summary.push(sentences[i]);
-      count += sentences[i].split(/\s+/).length;
-    }
-    if (summary.length === 0 && sentences.length) summary.push(sentences[0]);
+      var s = sentences[i].trim();
+      if (!s) continue;
 
-    var s = summary.join(' ').trim();
-    if (!s) s = cleaned.substring(0, 300);
-    return s.replace(/[.!?]\s*$/, '. ') + ' Would you like me to explain the rest?';
+      // If a single sentence is exceptionally long (> maxLength), split it by punctuation/clauses or words
+      if (s.length > maxLength) {
+        if (currentChunk) {
+          chunks.push(currentChunk.trim());
+          currentChunk = '';
+        }
+        var subParts = s.split(/(?<=[,;:])\s+/).filter(Boolean);
+        var subChunk = '';
+        for (var j = 0; j < subParts.length; j++) {
+          var p = subParts[j].trim();
+          if (!p) continue;
+          if (p.length > maxLength) {
+            // Split by words
+            var words = p.split(/\s+/).filter(Boolean);
+            for (var w = 0; w < words.length; w++) {
+              if ((subChunk + ' ' + words[w]).trim().length > maxLength) {
+                if (subChunk) chunks.push(subChunk.trim());
+                subChunk = words[w];
+              } else {
+                subChunk = (subChunk ? subChunk + ' ' : '') + words[w];
+              }
+            }
+          } else if ((subChunk + ' ' + p).trim().length > maxLength) {
+            if (subChunk) chunks.push(subChunk.trim());
+            subChunk = p;
+          } else {
+            subChunk = (subChunk ? subChunk + ' ' : '') + p;
+          }
+        }
+        if (subChunk) {
+          currentChunk = subChunk;
+        }
+        continue;
+      }
+
+      if ((currentChunk + ' ' + s).trim().length > maxLength) {
+        if (currentChunk) chunks.push(currentChunk.trim());
+        currentChunk = s;
+      } else {
+        currentChunk = (currentChunk ? currentChunk + ' ' : '') + s;
+      }
+    }
+
+    if (currentChunk && currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+
+    return chunks.filter(Boolean);
   }
 
-  // Final speech-ready text used by every TTS path.
+  // Final speech-ready text used by every TTS path. Returns full text without truncation.
   function makeSpeechNatural(text) {
     var t = text;
 
@@ -458,13 +513,11 @@ function escapeHtml(text) {
     return t;
   }
 
-  // Final speech-ready text used by every TTS path.
+  // Final speech-ready text used by every TTS path. Returns full text without truncation.
   function prepareSpeechText(text) {
     var cleaned = cleanSpeechText(text);
     if (!cleaned) return '';
     cleaned = makeSpeechNatural(cleaned);
-    var words = cleaned.split(/\s+/).filter(Boolean).length;
-    if (words > 120) return summarizeForSpeech(cleaned);
     return cleaned;
   }
 
@@ -473,7 +526,6 @@ function escapeHtml(text) {
     if (role === 'admin') return 'admin';
     if (role === 'nurse') return 'nurse';
     if (role === 'teacher' || role === 'adviser') return 'adviser';
-    if (role === 'guidance') return 'guidance';
     return 'student';
   }
 
@@ -643,6 +695,8 @@ function escapeHtml(text) {
     C.dom.clearHistoryBtn = widget.querySelector('#micaClearHistory');
     C.dom.newConvBtn = widget.querySelector('#micaNewConv');
     C.dom.testVoiceBtn = widget.querySelector('#micaTestVoice');
+    C.dom.locationIndicator = widget.querySelector('#micaLocationIndicator');
+    C.dom.locationText = widget.querySelector('#micaLocationText');
   }
 
   function buildWidgetHTML() {
@@ -657,6 +711,7 @@ function escapeHtml(text) {
         { icon: '📅', label: 'Appointments', action: 'appointments_nurse' },
         { icon: '💊', label: 'Medicine Stock', action: 'medicines' },
         { icon: '🚨', label: 'Emergencies', action: 'emergencies_nurse' },
+        { icon: '🏥', label: 'Nearby Hospitals', action: 'nearby_hospital' },
         { icon: '📄', label: 'Certificates', action: 'certificates_nurse' },
         { icon: '📢', label: 'Announcements', action: 'announcements' },
       ];
@@ -664,25 +719,21 @@ function escapeHtml(text) {
       quickActions = [
         { icon: '👥', label: 'My Advisory', action: 'advisory_teacher' },
         { icon: '🏥', label: 'Clinic Referrals', action: 'referrals_teacher' },
+        { icon: '🏥', label: 'Nearest Hospital', action: 'nearby_hospital' },
         { icon: '📢', label: 'Announcements', action: 'announcements' },
         { icon: '🚨', label: 'SOS Protocol', action: 'sos_protocol' },
-      ];
-    } else if (role === 'guidance') {
-      quickActions = [
-        { icon: '🤝', label: 'Support Workflow', action: 'guidance_workflow' },
-        { icon: '🏥', label: 'Referrals', action: 'referrals_guidance' },
-        { icon: '📢', label: 'Announcements', action: 'announcements' },
-        { icon: '💚', label: 'Wellness Tips', action: 'wellness_tips' },
       ];
     } else if (role === 'admin') {
       quickActions = [
         { icon: '👥', label: 'User Overview', action: 'users_admin' },
         { icon: '📚', label: 'Sections', action: 'sections_admin' },
+        { icon: '🏥', label: 'Nearby Hospitals', action: 'nearby_hospital' },
         { icon: '📊', label: 'Analytics', action: 'analytics_admin' },
         { icon: '📢', label: 'Announcements', action: 'announcements' },
       ];
     } else {
       quickActions = [
+        { icon: '🏥', label: 'Nearest Hospital', action: 'nearby_hospital' },
         { icon: '📊', label: 'BMI', action: 'bmi' },
         { icon: '📅', label: 'Appointments', action: 'appointments' },
         { icon: '📄', label: 'Records', action: 'records' },
@@ -729,7 +780,12 @@ function escapeHtml(text) {
         '</div>' +
       '</div>' +
 
+      '<div class="mica-location-indicator" id="micaLocationIndicator" style="display:none;" title="Browser GPS Status (Click to refresh)">' +
+        '<i class="bi bi-geo-alt-fill"></i><span id="micaLocationText">Location available</span>' +
+      '</div>' +
+
       '<div class="mica-chips" id="micaChips">' +
+        '<span class="mica-chip">Find the nearest hospital</span>' +
         '<span class="mica-chip">Book an appointment</span>' +
         '<span class="mica-chip">What is my BMI?</span>' +
         '<span class="mica-chip">Show my medical records</span>' +
@@ -870,9 +926,7 @@ function escapeHtml(text) {
     if (role === 'nurse') {
       roleScope = 'I can assist you with <strong>today\'s appointments</strong>, <strong>medicine inventory stock</strong>, <strong>emergency SOS alerts</strong>, <strong>dispensing logs</strong>, and <strong>medical certificates</strong>.<br><br>';
     } else if (role === 'teacher' || role === 'adviser') {
-      roleScope = 'I can assist you with <strong>advisory class health tracking</strong>, <strong>clinic referrals</strong>, <strong>clinic announcements</strong>, and <strong>emergency SOS guidelines</strong>.<br><br>';
-    } else if (role === 'guidance') {
-      roleScope = 'I can assist you with <strong>guidance counseling coordination</strong>, <strong>student well-being referrals</strong>, <strong>wellness support resources</strong>, and <strong>clinic announcements</strong>.<br><br>';
+      roleScope = 'I can assist you with <strong>advisory class health tracking</strong>, <strong>clinic coordination</strong>, <strong>clinic announcements</strong>, and <strong>emergency SOS guidelines</strong>.<br><br>';
     } else if (role === 'admin') {
       roleScope = 'I can assist you with <strong>user management overviews</strong>, <strong>course & section setup</strong>, <strong>system configuration</strong>, and <strong>clinic analytics & reports</strong>.<br><br>';
     } else {
@@ -909,12 +963,10 @@ function escapeHtml(text) {
       questions = ['Today\'s appointments', 'Medicine inventory stock', 'Recent emergency alerts', 'Clinic announcements'];
     } else if (role === 'teacher' || role === 'adviser') {
       questions = ['My advisory students', 'Clinic referral process', 'Clinic announcements', 'Emergency SOS guidelines'];
-    } else if (role === 'guidance') {
-      questions = ['Counseling workflow', 'Student clinic referrals', 'Clinic announcements', 'Wellness & support tips'];
     } else if (role === 'admin') {
       questions = ['System user overview', 'Course & section list', 'Recent activity summary', 'Clinic announcements'];
     } else {
-      questions = ['Book an appointment', 'What is my BMI?', 'Show my medical records', 'Medicine availability'];
+      questions = ['Find the nearest hospital', 'Book an appointment', 'What is my BMI?', 'Medicine availability'];
     }
 
     C.dom.micaChips.innerHTML = '';
@@ -929,6 +981,216 @@ function escapeHtml(text) {
 
   function hideChips() {
     if (C.dom.micaChips) C.dom.micaChips.style.display = 'none';
+  }
+
+  // ================================================================
+  // Geolocation helpers: real-time browser location access
+  // ================================================================
+  function isLocationQuery(text) {
+    if (!text) return false;
+    var lower = String(text).toLowerCase();
+    var kws = [
+      'hospital near me', 'nearest hospital', 'nearby hospital', 'where is the nearest hospital',
+      'find the nearest hospital', 'find nearby hospital', 'find hospital', 'nearest emergency room',
+      'emergency room near me', 'where is the nearest emergency room', 'medical help nearby',
+      'nearest clinic', 'nearby clinic', 'malapit na ospital', 'saan may ospital', 'pinakamalapit na ospital',
+      'emergency room malapit', 'nearest health center', 'nearby emergency facilities', 'nearest medical center',
+      'nearest doctor', 'nearby doctor', 'san may ospital', 'saan may clinic', 'pinakamalapit na clinic',
+      'where is the nearest clinic', 'closest hospital', 'closest clinic', 'closest emergency room',
+      'find emergency room', 'er near me', 'nearest er', 'nearby er', 'nearby healthcare', 'nearby facilities'
+    ];
+    for (var i = 0; i < kws.length; i++) {
+      if (lower.indexOf(kws[i]) !== -1) return true;
+    }
+    return false;
+  }
+
+  function isLocationStale() {
+    if (!C.state.micaLocation || !C.state.micaLocation.available) return true;
+    var age = Date.now() - (C.state.micaLocation.lastAcquired || 0);
+    return age > 600000; // 10 minutes
+  }
+
+  function requestLocation(forceFresh, retryCount) {
+    retryCount = retryCount || 0;
+    return new Promise(function (resolve) {
+      var isSecure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (!isSecure && window.location.protocol !== 'https:') {
+        C.state.locationState = 'insecure';
+        C.state.micaLocation.available = false;
+        C.state.locationData = null;
+        updateLocationBadge();
+        resolve(null);
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        C.state.locationState = 'unsupported';
+        C.state.micaLocation.available = false;
+        C.state.locationData = null;
+        updateLocationBadge();
+        resolve(null);
+        return;
+      }
+
+      // If already available, fresh (< 10 minutes), and not forced, return cached location
+      if (!forceFresh && C.state.micaLocation && C.state.micaLocation.available && !isLocationStale()) {
+        resolve(C.state.micaLocation);
+        return;
+      }
+
+      C.state.locationState = 'prompting';
+      updateLocationBadge();
+
+      navigator.geolocation.getCurrentPosition(
+        function (pos) {
+          var lat = pos.coords.latitude;
+          var lng = pos.coords.longitude;
+          var rawAcc = pos.coords.accuracy || 0;
+          var time = new Date(pos.timestamp || Date.now()).toISOString().replace('T', ' ').substring(0, 19);
+
+          // If accuracy is poor (> 1000m) and we haven't retried yet, retry once with maximumAge: 0
+          if (rawAcc > 1000 && retryCount < 1) {
+            console.log('[MICA Geolocation] Low accuracy detected (' + Math.round(rawAcc) + 'm). Retrying for GPS lock... (attempt ' + (retryCount + 1) + ')');
+            requestLocation(true, retryCount + 1).then(resolve);
+            return;
+          }
+
+          var isLow = (rawAcc > 1000);
+          var accFormatted = rawAcc >= 1000 ? (Math.round(rawAcc / 1000) + 'km') : (Math.round(rawAcc) + 'm');
+
+          C.state.locationState = 'granted';
+          C.state.micaLocation = {
+            latitude: lat,
+            longitude: lng,
+            accuracy: accFormatted,
+            accuracyMeters: Math.round(rawAcc),
+            timestamp: time,
+            available: true,
+            lowAccuracy: isLow,
+            lastAcquired: Date.now()
+          };
+
+          C.state.locationData = {
+            lat: lat,
+            lng: lng,
+            accuracy: accFormatted,
+            accuracyMeters: Math.round(rawAcc),
+            isLowAccuracy: isLow,
+            timestamp: time,
+            lastUpdated: Date.now()
+          };
+
+          // Synchronize global SOS location cache
+          window.__MICA_SOS_LOCATION__ = { lat: lat, lng: lng, accuracy: accFormatted, rawAccuracy: rawAcc };
+          window.__MICA_SOS_LOC_TIME__ = Date.now();
+
+          updateLocationBadge();
+          console.log('[MICA LOCATION DEBUG] Browser location: lat=' + lat + ', lng=' + lng + ', acc=' + accFormatted);
+          console.log('[MICA LOCATION DEBUG] State:', C.state.micaLocation);
+          console.log('[MICA Geolocation] Location granted:', lat, lng, accFormatted, (isLow ? '(Low accuracy)' : '(Precise)'));
+          resolve(C.state.micaLocation);
+        },
+        function (err) {
+          console.warn('[MICA Geolocation] Error:', err.code, err.message);
+          if (err.code === 1) { // PERMISSION_DENIED
+            C.state.locationState = 'denied';
+          } else if (err.code === 3) { // TIMEOUT
+            C.state.locationState = 'timeout';
+          } else { // POSITION_UNAVAILABLE
+            C.state.locationState = 'unavailable';
+          }
+          C.state.micaLocation.available = false;
+          C.state.locationData = null;
+          updateLocationBadge();
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+  }
+
+  function updateLocationBadge() {
+    if (!C.dom.locationIndicator || !C.dom.locationText) return;
+    var st = C.state.locationState;
+    if (st === 'granted' && C.state.micaLocation && C.state.micaLocation.available) {
+      if (C.state.micaLocation.lowAccuracy) {
+        C.dom.locationIndicator.className = 'mica-location-indicator unavailable';
+        C.dom.locationText.textContent = '📍 Coarse Location (±' + (C.state.micaLocation.accuracy || '50km') + ') • Tap to refine';
+      } else {
+        C.dom.locationIndicator.className = 'mica-location-indicator active';
+        C.dom.locationText.textContent = '📍 Location available • Accuracy: ±' + (C.state.micaLocation.accuracy || '20m');
+      }
+      C.dom.locationIndicator.style.display = 'flex';
+    } else if (st === 'prompting') {
+      C.dom.locationIndicator.className = 'mica-location-indicator';
+      C.dom.locationText.textContent = '📍 Requesting location permission...';
+      C.dom.locationIndicator.style.display = 'flex';
+    } else if (st === 'denied') {
+      C.dom.locationIndicator.className = 'mica-location-indicator denied';
+      C.dom.locationText.textContent = '📍 Location blocked in browser (Tap to allow)';
+      C.dom.locationIndicator.style.display = 'flex';
+    } else if (st === 'timeout' || st === 'unavailable') {
+      C.dom.locationIndicator.className = 'mica-location-indicator unavailable';
+      C.dom.locationText.textContent = '📍 GPS unavailable (Tap to retry)';
+      C.dom.locationIndicator.style.display = 'flex';
+    } else {
+      C.dom.locationIndicator.style.display = 'none';
+    }
+  }
+
+  // ================================================================
+  // Quick Actions handler
+  // ================================================================
+  function handleQuickAction(action) {
+    if (!action) return;
+    if (action === 'sos') {
+      showSOSPrompt();
+      return;
+    }
+    if (action === 'nearby_hospital' || action === 'hospital') {
+      requestLocation(true).then(function () {
+        sendMessage('Find the nearest hospital');
+      });
+      return;
+    }
+    if (action === 'bmi') {
+      sendMessage('What is my BMI?');
+      return;
+    }
+    if (action === 'appointments' || action === 'appointments_nurse') {
+      sendMessage('Check my scheduled appointments');
+      return;
+    }
+    if (action === 'records') {
+      sendMessage('Show my medical records');
+      return;
+    }
+    if (action === 'medicines') {
+      sendMessage('Check medicine availability');
+      return;
+    }
+    if (action === 'vaccines') {
+      sendMessage('Show my vaccination records');
+      return;
+    }
+    if (action === 'announcements') {
+      sendMessage('Show latest clinic announcements');
+      return;
+    }
+    if (action === 'emergencies_nurse') {
+      sendMessage('Show recent emergency alerts and SOS requests');
+      return;
+    }
+    if (action === 'advisory_teacher') {
+      sendMessage('Show my advisory class health summary');
+      return;
+    }
+    if (action === 'users_admin') {
+      sendMessage('Show system user management overview');
+      return;
+    }
+    sendMessage(action.replace(/_/g, ' '));
   }
 
   // ================================================================
@@ -956,76 +1218,107 @@ function escapeHtml(text) {
     addMessage('user', message);
     hideChips();
 
-    setMode('thinking');
-    C.state.conversationCount++;
+    function dispatchChatFetch() {
+      setMode('thinking');
+      C.state.conversationCount++;
 
-    var formData = new FormData();
-    formData.append('action', 'mica_chat');
-    formData.append('message', message);
-    formData.append('first_message', C.state.isFirstMessage ? '1' : '0');
-    formData.append('csrf_token', C.config.csrfToken);
-    formData.append('page', window.MICA_CURRENT_PAGE || '');
-    C.state.isFirstMessage = false;
+      var formData = new FormData();
+      formData.append('action', 'mica_chat');
+      formData.append('message', message);
+      formData.append('first_message', C.state.isFirstMessage ? '1' : '0');
+      formData.append('csrf_token', C.config.csrfToken);
+      formData.append('page', window.MICA_CURRENT_PAGE || '');
 
-    fetch(C.config.appUrl + '/api/ai_assistant.php', {
-      method: 'POST',
-      body: formData,
-    })
-      .then(function (res) {
-        console.log('[MICA] Chat request — HTTP ' + res.status + ' for url: ' + C.config.appUrl + '/api/ai_assistant.php');
-        if (res.status === 401) {
-          // Session expired — show message and redirect to login
-          addMessage('ai', 'Your session has expired. Redirecting to login...');
-          if (!C.state.isPlaying) setMode('idle');
-          setTimeout(function () {
-            window.location.href = C.config.appUrl + '/auth/login.php';
-          }, 1500);
-          return null;
-        }
-        if (!res.ok) {
-          return res.json().catch(function () { return null; }).then(function (errData) {
-            var detail = (errData && errData.message) ? errData.message : 'HTTP ' + res.status;
-            throw new Error(detail);
-          });
-        }
-        return res.json();
+      // Real-time browser location metadata
+      var loc = C.state.micaLocation || {};
+      var hasCoords = (loc.latitude !== null && loc.latitude !== undefined && loc.longitude !== null && loc.longitude !== undefined);
+      var isGranted = (C.state.locationState === 'granted' || loc.available === true);
+
+      console.log('[MICA LOCATION DEBUG] State:', C.state.micaLocation);
+      console.log('[MICA LOCATION DEBUG] Sending location to backend:', {
+        latitude: hasCoords ? loc.latitude : null,
+        longitude: hasCoords ? loc.longitude : null,
+        accuracy: hasCoords ? (loc.accuracy || '') : null,
+        status: isGranted && hasCoords ? 'granted' : (C.state.locationState || 'unrequested')
+      });
+
+      if (hasCoords && isGranted) {
+        formData.append('latitude', loc.latitude);
+        formData.append('longitude', loc.longitude);
+        formData.append('accuracy', loc.accuracy || '');
+        formData.append('accuracy_meters', loc.accuracyMeters || '');
+        formData.append('is_low_accuracy', loc.lowAccuracy ? '1' : '0');
+        formData.append('location_status', 'granted');
+        formData.append('location_timestamp', loc.timestamp || '');
+      } else {
+        formData.append('location_status', C.state.locationState || 'unrequested');
+      }
+
+      C.state.isFirstMessage = false;
+
+      fetch(C.config.appUrl + '/api/ai_assistant.php', {
+        method: 'POST',
+        body: formData,
       })
-      .then(function (data) {
-        if (!data) return; // 401 handled above
-        if (data.success) {
-          var reply = data.reply || 'I\'m not sure how to respond. Could you ask me something else?';
-          addMessage('ai', reply);
-          C.state.lastResponse = reply;
-
-          if (data.sos_required || data.emergency) {
-            showSOSPrompt();
+        .then(function (res) {
+          console.log('[MICA] Chat request — HTTP ' + res.status + ' for url: ' + C.config.appUrl + '/api/ai_assistant.php');
+          if (res.status === 401) {
+            // Session expired — show message and redirect to login
+            addMessage('ai', 'Your session has expired. Redirecting to login...');
+            if (!C.state.isPlaying) setMode('idle');
+            setTimeout(function () {
+              window.location.href = C.config.appUrl + '/auth/login.php';
+            }, 1500);
+            return null;
           }
+          if (!res.ok) {
+            return res.json().catch(function () { return null; }).then(function (errData) {
+              var detail = (errData && errData.message) ? errData.message : 'HTTP ' + res.status;
+              throw new Error(detail);
+            });
+          }
+          return res.json();
+        })
+        .then(function (data) {
+          if (!data) return; // 401 handled above
+          if (data.success) {
+            var reply = data.reply || 'I\'m not sure how to respond. Could you ask me something else?';
+            addMessage('ai', reply);
+            C.state.lastResponse = reply;
 
-          // HYBRID RULE: only VOICE input activates Text-to-Speech.
-          // Typed conversations display text ONLY — never speak.
-          if (C.state.lastInputMode === 'voice') {
-            stopSpeaking();
-            speakQueued(reply);
+            if (data.sos_required || data.emergency) {
+              showSOSPrompt();
+            }
+
+            // HYBRID RULE: only VOICE input activates Text-to-Speech.
+            // Typed conversations display text ONLY — never speak.
+            if (C.state.lastInputMode === 'voice') {
+              stopSpeaking();
+              speakQueued(reply);
+            } else {
+              setMode('idle');
+            }
           } else {
+            addMessage('ai', data.message || 'Sorry, I am having trouble connecting right now. Please try again.');
+            if (!C.state.isPlaying) setMode('idle');
+          }
+        })
+        .catch(function (err) {
+          console.error('[MICA] Chat error:', err);
+          addMessage('ai', 'Sorry, I am having trouble connecting right now. Please try again.');
+          if (!C.state.isPlaying) setMode('idle');
+        })
+        .finally(function () {
+          if (C.dom.micaInput) C.dom.micaInput.disabled = false;
+          if (C.dom.sendBtn) C.dom.sendBtn.disabled = false;
+          if (!C.state.isPlaying && C.state.mode === 'thinking') {
             setMode('idle');
           }
-        } else {
-          addMessage('ai', data.message || 'Sorry, I am having trouble connecting right now. Please try again.');
-          if (!C.state.isPlaying) setMode('idle');
-        }
-      })
-      .catch(function (err) {
-        console.error('[MICA] Chat error:', err);
-        addMessage('ai', 'Sorry, I am having trouble connecting right now. Please try again.');
-        if (!C.state.isPlaying) setMode('idle');
-      })
-      .finally(function () {
-        if (C.dom.micaInput) C.dom.micaInput.disabled = false;
-        if (C.dom.sendBtn) C.dom.sendBtn.disabled = false;
-        if (!C.state.isPlaying && C.state.mode === 'thinking') {
-          setMode('idle');
-        }
-      });
+        });
+    }
+
+    // Always dispatch directly without non-gesture async geolocation requests
+    dispatchChatFetch();
   }
 
   // ================================================================
@@ -1035,9 +1328,13 @@ function escapeHtml(text) {
     if (C.state.currentAudio) {
       try { C.state.currentAudio.pause(); C.state.currentAudio = null; } catch (e) { /* ignore */ }
     }
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    }
     C.state.isPlaying = false;
     C.state.synthQueue = [];
+    C.state.synthTotalChunks = 0;
+    C.state.synthCurrentChunk = 0;
   }
 
   // ================================================================
@@ -1220,6 +1517,10 @@ function escapeHtml(text) {
       });
   }
 
+  // Reliable recognition state variables to eliminate all race conditions
+  var isRecognitionRunning = false;
+  var isStartingRecognition = false;
+
   // Initialize recognition ONCE — never create duplicate instances
   function initRecognition() {
     if (!supportsSpeechRecognition) {
@@ -1237,6 +1538,8 @@ function escapeHtml(text) {
     // onstart confirms browser-side recognition is live
     recognition.onstart = function () {
       console.log('[MICA] Recognition started');
+      isRecognitionRunning = true;
+      isStartingRecognition = false;
       C.state.recognitionState = 'listening';
       C.state.isListening = true;
       if (C.dom.micaInput) C.dom.micaInput.placeholder = '🎤 Listening...';
@@ -1263,6 +1566,8 @@ function escapeHtml(text) {
 
     recognition.onerror = function (event) {
       console.warn('[MICA] Speech recognition error:', event.error);
+      isRecognitionRunning = false;
+      isStartingRecognition = false;
       C.state.isListening = false;
       C.state.recognitionState = 'error';
 
@@ -1278,8 +1583,8 @@ function escapeHtml(text) {
       } else if (event.error === 'no-speech') {
         if (C.config.continuousMode && C.state.isOpen) {
           setTimeout(function () {
-            if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying && !C.state.isListening) {
-              startListening();
+            if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying && !isRecognitionRunning && !isStartingRecognition) {
+              startRecognition();
             }
           }, 400);
         } else {
@@ -1296,13 +1601,15 @@ function escapeHtml(text) {
 
     recognition.onend = function () {
       console.log('[MICA] Recognition ended');
+      isRecognitionRunning = false;
+      isStartingRecognition = false;
       C.state.isListening = false;
       C.state.recognitionState = 'idle';
       if (C.state.mode === 'listening') {
         if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying) {
           setTimeout(function () {
-            if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying && !C.state.isListening) {
-              startListening();
+            if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying && !isRecognitionRunning && !isStartingRecognition) {
+              startRecognition();
             }
           }, 300);
         } else {
@@ -1317,26 +1624,16 @@ function escapeHtml(text) {
     console.log('[MICA] SpeechRecognition initialized');
   }
 
-  // Safely restart recognition after it ends (with state protection)
-  function tryRestartRecognition() {
-    if (!C.state.recognition) return;
-    if (C.state.recognitionState !== 'idle') return;
-    try {
-      C.state.recognition.start();
-      C.state.recognitionState = 'starting';
-      C.state.isListening = true;
-    } catch (e) {
-      console.warn('[MICA] Restart failed:', e.message);
-      C.state.isListening = false;
-      C.state.recognitionState = 'idle';
-      setMode('idle');
-    }
-  }
-
-  function startListening() {
+  // Single centralized function responsible for starting recognition
+  function startRecognition() {
     if (!supportsSpeechRecognition) {
       showStatus('Voice recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
       if (C.dom.micaInput) C.dom.micaInput.focus();
+      return;
+    }
+
+    if (isRecognitionRunning || isStartingRecognition) {
+      console.log('[MICA] Recognition already starting/running — ignoring duplicate start');
       return;
     }
 
@@ -1346,77 +1643,68 @@ function escapeHtml(text) {
       stopSpeaking();
     }
 
-    // STATE PROTECTION: never start if already listening or starting
-    if (C.state.isListening || C.state.recognitionState === 'starting' || C.state.recognitionState === 'listening') {
-      console.log('[MICA] Already listening, stopping first');
-      stopListening();
+    initRecognition();
+    if (!C.state.recognition) {
+      showStatus('Voice input is not supported by this browser.');
+      setMode('idle');
       return;
     }
 
-    console.log('[MICA] Starting listening');
+    isStartingRecognition = true;
     setMode('listening');
     if (C.dom.micaInput) C.dom.micaInput.placeholder = '🎤 Listening...';
     showStatus('🎤 Listening...');
     C.state.recognitionState = 'starting';
 
-    // Ensure recognition instance exists (creates it once if needed)
-    initRecognition();
-
-    if (!C.state.recognition) {
-      showStatus('Voice input is not supported by this browser. Please use Google Chrome or Microsoft Edge.');
-      setMode('idle');
-      C.state.recognitionState = 'idle';
-      return;
-    }
-
-    // Request getUserMedia on first attempt to trigger browser permission dialog seamlessly
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && micAccessibilityUnknown) {
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(function (stream) {
-          micAccessible = true;
-          micAccessibilityUnknown = false;
-          stream.getTracks().forEach(function (t) { t.stop(); });
-          try {
-            C.state.isListening = true;
-            C.state.recognition.start();
-          } catch (e) {
-            console.warn('[MICA] Recognition start after gUM:', e);
-          }
-        })
-        .catch(function (err) {
-          micAccessible = false;
-          micAccessibilityUnknown = false;
-          console.warn('[MICA] getUserMedia denied:', err);
-          showStatus('Microphone permission was denied. Please allow microphone access in your browser settings.');
-          setMode('idle');
-          C.state.recognitionState = 'idle';
-          C.state.isListening = false;
-        });
-      return;
-    }
-
     try {
-      C.state.isListening = true;
       C.state.recognition.start();
-      console.log('[MICA] recognition.start() called');
-    } catch (e) {
-      console.error('[MICA] Recognition start failed:', e.name, e.message);
-      C.state.isListening = false;
-      C.state.recognitionState = 'idle';
-      setMode('idle');
-      if (e.name === 'InvalidStateError') {
-        showStatus('Microphone is already active. Click again to start voice input.');
+      console.log('[MICA] Starting browser SpeechRecognition instance');
+    } catch (error) {
+      if (error.name === 'InvalidStateError') {
+        console.warn('[MICA] Recognition is already running');
+        isRecognitionRunning = true;
       } else {
-        showStatus('Could not start voice input. Try typing.');
+        console.error('[MICA] Recognition start error:', error);
+        C.state.isListening = false;
+        C.state.recognitionState = 'idle';
+        setMode('idle');
       }
+    } finally {
+      isStartingRecognition = false;
     }
+  }
+
+  // Safely restart recognition after it ends (with state protection)
+  function tryRestartRecognition() {
+    if (!C.state.recognition) return;
+    if (isRecognitionRunning || isStartingRecognition) return;
+    startRecognition();
+  }
+
+  // User gesture handler for microphone button click
+  function handleMicBtnClick() {
+    if (isRecognitionRunning || isStartingRecognition || C.state.isListening || C.state.recognitionState === 'listening' || C.state.recognitionState === 'starting') {
+      stopListening();
+      return;
+    }
+    // GESTURE-BASED GEOLOCATION REQUEST:
+    // Prompt for browser geolocation directly inside the user gesture handler.
+    // If location is unrequested, not yet available, or stale (> 10 mins), request it now!
+    if (navigator.geolocation && (C.state.locationState === 'unrequested' || !C.state.micaLocation.available || isLocationStale())) {
+      requestLocation(false).catch(function () {});
+    }
+    startRecognition();
+  }
+
+  function startListening() {
+    startRecognition();
   }
 
   function stopListening() {
     console.log('[MICA] stopListening called');
     if (C.state.recognition) {
       try {
-        if (C.state.recognitionState === 'starting') {
+        if (isStartingRecognition || C.state.recognitionState === 'starting') {
           C.state.recognition.abort();
         } else {
           C.state.recognition.stop();
@@ -1425,6 +1713,8 @@ function escapeHtml(text) {
         console.warn('[MICA] stop failed:', e.message);
       }
     }
+    isRecognitionRunning = false;
+    isStartingRecognition = false;
     C.state.isListening = false;
     C.state.recognitionState = 'idle';
     if (C.state.mode === 'listening') setMode('idle');
@@ -1485,8 +1775,21 @@ function escapeHtml(text) {
   // Voice: TTS + audio queue
   // ================================================================
   function speakQueued(text) {
-    if (!text || text.length < 3) return;
-    C.state.synthQueue.push(text);
+    if (!text || text.length < 2) return;
+    var fullClean = prepareSpeechText(text);
+    if (!fullClean) return;
+
+    var chunks = splitTextForTTS(fullClean, 450);
+    if (!chunks.length) return;
+
+    console.log('[MICA TTS] Full response length:', text.length);
+    console.log('[MICA TTS] Full response:', text);
+    console.log('[MICA TTS] Number of chunks:', chunks.length);
+
+    C.state.synthQueue = chunks.slice();
+    C.state.synthTotalChunks = chunks.length;
+    C.state.synthCurrentChunk = 0;
+
     processSynthQueue();
   }
 
@@ -1494,9 +1797,12 @@ function escapeHtml(text) {
     // SELF-HEARING PREVENTION: Always stop microphone before MICA speaks!
     stopListening();
 
-    if (C.state.synthQueue.length === 0) {
+    if (!C.state.synthQueue || C.state.synthQueue.length === 0) {
+      console.log('[MICA TTS] COMPLETE — entire response spoken');
       C.state.isPlaying = false;
       C.state.currentAudio = null;
+      C.state.synthTotalChunks = 0;
+      C.state.synthCurrentChunk = 0;
       if (C.config.continuousMode && C.state.isOpen) {
         setMode('idle');
         showStatus('🎤 Listening...');
@@ -1511,13 +1817,46 @@ function escapeHtml(text) {
       return;
     }
 
-    var next = C.state.synthQueue.shift();
-    if (typeof window.MICA_VOICE !== 'undefined' && window.MICA_VOICE && window.MICA_VOICE.speakText) {
-      window.MICA_VOICE.speakText(next).then(processSynthQueue).catch(processSynthQueue);
-    } else {
-      // Use built-in speechSynthesis as fallback
-      speakWithNativeTTS(next).then(processSynthQueue).catch(processSynthQueue);
-    }
+    var chunk = C.state.synthQueue.shift();
+    C.state.synthCurrentChunk = (C.state.synthCurrentChunk || 0) + 1;
+    var currentIdx = C.state.synthCurrentChunk;
+    var total = C.state.synthTotalChunks || 1;
+    console.log('[MICA TTS] Speaking chunk ' + currentIdx + '/' + total);
+
+    speakSingleChunk(chunk)
+      .then(function () {
+        processSynthQueue();
+      })
+      .catch(function (err) {
+        console.warn('[MICA TTS] Chunk ' + currentIdx + ' playback failed, proceeding to next:', err);
+        processSynthQueue();
+      });
+  }
+
+  function speakSingleChunk(chunkText) {
+    return new Promise(function (resolve) {
+      if (!chunkText || !chunkText.trim()) { resolve(); return; }
+
+      if (C.state.currentAudio) {
+        try { C.state.currentAudio.pause(); C.state.currentAudio = null; } catch (e) { /* ignore */ }
+      }
+      if ('speechSynthesis' in window) {
+        try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+      }
+
+      var provider = C.config.ttsProvider || 'elevenlabs';
+      if (provider === 'elevenlabs') {
+        ttsViaServer(chunkText).then(resolve).catch(function (err) {
+          console.warn('[MICA TTS] ElevenLabs chunk failed (' + (err && err.message ? err.message : err) + '), using browser speech fallback.');
+          if ('speechSynthesis' in window) {
+            try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+          }
+          speakWithNativeTTS(chunkText).then(resolve);
+        });
+      } else {
+        speakWithNativeTTS(chunkText).then(resolve);
+      }
+    });
   }
 
   // ================================================================
@@ -1555,10 +1894,10 @@ function escapeHtml(text) {
     return C.config.preferredFemaleVoice;
   }
 
-   function speakWithNativeTTS(text) {
+  function speakWithNativeTTS(text) {
     return new Promise(function (resolve) {
       if (!('speechSynthesis' in window)) { resolve(); return; }
-      var clean = prepareSpeechText(text);
+      var clean = text ? text.trim() : '';
       if (!clean) { resolve(); return; }
 
       var utter = new SpeechSynthesisUtterance(clean);
@@ -1566,8 +1905,16 @@ function escapeHtml(text) {
       utter.volume = C.config.voiceVolume;
       var fv = pickFemaleVoice();
       if (fv) utter.voice = fv;
-      utter.onend = function () { C.state.isPlaying = false; C.state.currentAudio = null; resolve(); };
-      utter.onerror = function () { C.state.isPlaying = false; C.state.currentAudio = null; resolve(); };
+
+      utter.onend = function () {
+        C.state.isPlaying = false;
+        resolve();
+      };
+      utter.onerror = function () {
+        C.state.isPlaying = false;
+        resolve();
+      };
+
       C.state.isPlaying = true;
       setMode('speaking');
       window.speechSynthesis.speak(utter);
@@ -1677,10 +2024,8 @@ function escapeHtml(text) {
       emergencies_nurse: 'Are there any active emergency alerts or SOS requests?',
       certificates_nurse: 'How do I issue or verify a medical certificate?',
       advisory_teacher: 'How do I check my advisory students in the clinic system?',
-      referrals_teacher: 'How do I refer a student to the school clinic?',
+      referrals_teacher: 'How do I coordinate a student visit to the school clinic?',
       sos_protocol: 'What is the emergency SOS protocol for teachers?',
-      guidance_workflow: 'How does the guidance counseling workflow integrate with the clinic?',
-      referrals_guidance: 'How do student well-being referrals work?',
       wellness_tips: 'What student wellness support techniques can be recommended?',
       users_admin: 'Provide a summary of user roles and accounts in the system',
       sections_admin: 'How are courses and sections configured in the clinic system?',
@@ -1849,6 +2194,20 @@ function escapeHtml(text) {
       });
     }
 
+    if (C.dom.locationIndicator) {
+      C.dom.locationIndicator.addEventListener('click', function () {
+        requestLocation(true).then(function (loc) {
+          if (loc) {
+            showStatus('📍 Location updated: ±' + (loc.accuracy || '20m'));
+          } else if (C.state.locationState === 'denied') {
+            showStatus('⚠️ Location blocked in browser settings.');
+          } else {
+            showStatus('⚠️ Unable to obtain GPS coordinates.');
+          }
+        });
+      });
+    }
+
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && C.state.isOpen) setOpen(false);
     });
@@ -1955,62 +2314,63 @@ function escapeHtml(text) {
       return C.state.isListening;
     },
 
+    // Browser Geolocation API integration
+    requestLocation: function (force) {
+      return requestLocation(force);
+    },
+
+    getLocationState: function () {
+      return {
+        state: C.state.locationState,
+        data: C.state.locationData
+      };
+    },
+
+    isLocationAvailable: function () {
+      return C.state.locationState === 'granted' && !!C.state.locationData;
+    },
+
     // Voice test — exposed for a "Test Voice" button
     testVoice: function () { testVoice(); },
   };
 
-   // Voice sub-API — browser Speech Synthesis + Speech Recognition helpers
+  // Voice sub-API — browser Speech Synthesis + Speech Recognition helpers
   window.MICA_VOICE = {
     initRecognition: initRecognition,
     startListening: startListening,
     stopListening: stopListening,
     handleVoiceInput: handleVoiceInput,
+    prepareSpeechText: prepareSpeechText,
+    splitTextForTTS: splitTextForTTS,
+    speakQueued: speakQueued,
+    stopSpeaking: stopSpeaking,
     speakText: function (text) {
-      return new Promise(function (resolve) {
-        // SINGLE SOURCE OF TRUTH + dual-voice guard:
-        // 1. Stop ALL previous playback (HTML audio + browser speechSynthesis)
-        //    before starting ANY new speech. This guarantees only ONE engine
-        //    is ever active at a time.
-        // 2. Try ElevenLabs (female voice). If it fails, fall back to browser
-        //    speechSynthesis (female voice) — but NEVER while ElevenLabs is
-        //    still playing. The .catch() only fires when ElevenLabs fully fails.
-        if (C.state.currentAudio) {
-          try { C.state.currentAudio.pause(); C.state.currentAudio = null; } catch (e) { /* ignore */ }
-        }
-        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-        C.state.isPlaying = false;
-
-        var provider = C.config.ttsProvider || 'elevenlabs';
-        if (provider === 'elevenlabs') {
-          ttsViaServer(text).then(resolve).catch(function (e) {
-            console.warn('[MICA] ElevenLabs TTS failed, falling back to browser:', (e && e.message) ? e.message : e);
-            // Cancel any speechSynthesis that might have been triggered by ElevenLabs error
-            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-            speakWithNativeTTS(text).then(resolve);
-          });
-        } else {
-          speakWithNativeTTS(text).then(resolve);
-        }
-      });
+      stopSpeaking();
+      speakQueued(text);
+      return Promise.resolve();
     },
-    interruptSpeaking: interruptSpeaking,
+    interruptSpeaking: function () {
+      stopSpeaking();
+      setMode('listening');
+    },
     processSynthQueue: processSynthQueue,
     setVolume: setVolume,
     setSpeed: setSpeed,
-     isSupported: supportsSpeechRecognition,
-     isListening: function () { return C.state.isListening; },
-   };
+    getState: function () { return C.state; },
+    isSupported: supportsSpeechRecognition,
+    isListening: function () { return C.state.isListening; },
+  };
 
   // TTS via server proxy (api/mica_tts.php) — key never exposed
   function ttsViaServer(text) {
     return new Promise(function (resolve, reject) {
-      if (!text || text.length < 3) { resolve(); return; }
-       var cleanText = prepareSpeechText(text);
-       if (!cleanText) { resolve(); return; }
+      if (!text || text.length < 2) { resolve(); return; }
+      var cleanText = text.trim();
+      if (!cleanText) { resolve(); return; }
 
       var cacheKey = cleanText.substring(0, 100);
       if (C.config.audioCache[cacheKey]) {
-        playBlob(C.config.audioCache[cacheKey], resolve, reject);
+        playBlob(C.config.audioCache[cacheKey]).then(resolve).catch(reject);
         return;
       }
 
@@ -2021,64 +2381,75 @@ function escapeHtml(text) {
 
       fetch(C.config.appUrl + '/api/mica_tts.php', { method: 'POST', body: formData })
         .then(function (response) {
-          if (!response.ok) throw new Error('TTS HTTP ' + response.status);
-          var contentType = response.headers.get('Content-Type') || '';
+          var contentType = (response.headers && typeof response.headers.get === 'function') ? (response.headers.get('Content-Type') || '') : '';
           if (contentType.includes('application/json')) {
-            return response.json().then(function (data) { throw new Error(data.error || 'TTS failed'); });
+            return response.json().then(function (data) {
+              throw new Error((data && data.error) || 'TTS server fallback');
+            });
+          }
+          if (!response.ok) {
+            throw new Error('TTS HTTP ' + response.status);
           }
           return response.blob();
         })
         .then(function (blob) {
           if (blob.size < 100) throw new Error('TTS returned empty audio');
           C.config.audioCache[cacheKey] = blob;
-          playBlob(blob, resolve, reject);
+          return playBlob(blob);
         })
-        .catch(function (err) {
-          console.warn('[MICA] TTS server error:', err.message);
-          reject(err);
-        });
+        .then(resolve)
+        .catch(reject);
     });
   }
 
-  function playBlob(blob, resolve, reject) {
-    var url = URL.createObjectURL(blob);
-    var audio = new Audio(url);
-    C.state.currentAudio = audio;
-    audio.volume = C.config.voiceVolume || 1.0;
-    audio.playbackRate = C.config.voiceSpeed || 1.0;
+  function playBlob(blob) {
+    return new Promise(function (resolve, reject) {
+      if (!blob || !(blob instanceof Blob)) {
+        reject(new Error('Invalid audio Blob'));
+        return;
+      }
+      var audioBlob = (blob.type && blob.type.indexOf('audio') !== -1) ? blob : new Blob([blob], { type: 'audio/mpeg' });
+      var url = URL.createObjectURL(audioBlob);
+      var audio = new Audio();
+      C.state.currentAudio = audio;
+      audio.src = url;
+      audio.volume = C.config.voiceVolume || 1.0;
+      audio.playbackRate = C.config.voiceSpeed || 1.0;
 
-    audio.onended = function () {
-      URL.revokeObjectURL(url);
-      C.state.isPlaying = false;
-      C.state.currentAudio = null;
-      processSynthQueue();
-      resolve();
-    };
+      audio.onended = function () {
+        URL.revokeObjectURL(url);
+        C.state.isPlaying = false;
+        C.state.currentAudio = null;
+        resolve();
+      };
 
-    audio.onerror = function () {
-      URL.revokeObjectURL(url);
-      try { audio.pause(); } catch (e) { /* ignore */ }
-      C.state.isPlaying = false;
-      C.state.currentAudio = null;
-      // Reject — do NOT call processSynthQueue() here. The rejection flows
-      // through MICA_VOICE.speakText's .catch() which falls back to browser
-      // TTS, and processSynthQueue is called when that completes.
-      reject(new Error('Audio playback error'));
-    };
+      audio.onerror = function () {
+        URL.revokeObjectURL(url);
+        try { audio.pause(); } catch (e) { /* ignore */ }
+        C.state.isPlaying = false;
+        C.state.currentAudio = null;
+        reject(new Error('Audio playback error'));
+      };
 
-    C.state.isPlaying = true;
-    setMode('speaking');
+      C.state.isPlaying = true;
+      setMode('speaking');
 
-    audio.play().catch(function (err) {
-      // Autoplay blocked or play failed — reject so the fallback (browser TTS)
-      // engages automatically via MICA_VOICE.speakText's .catch() handler.
-      console.warn('[MICA] Audio play error:', err.message);
-      try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
-      C.state.isPlaying = false;
-      C.state.currentAudio = null;
-      setMode('idle');
-      reject(new Error('Audio play failed: ' + err.message));
+      try {
+        audio.load();
+      } catch (e) { /* ignore */ }
+
+      audio.play().catch(function (err) {
+        console.warn('[MICA] Audio play error:', err.message);
+        try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
+        C.state.isPlaying = false;
+        C.state.currentAudio = null;
+        reject(new Error('Audio play failed: ' + err.message));
+      });
     });
   }
 })();
+
+
+
+
 

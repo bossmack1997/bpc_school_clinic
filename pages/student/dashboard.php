@@ -47,7 +47,8 @@ $pageTitle = 'My Dashboard';
           <div class="welcome-desc">Student No. <?= e($student['student_number']) ?> · <?= e($student['course'] ?: '—') ?> <?= e($student['year_level'] ?: '') ?></div>
           <div class="welcome-actions">
             <a href="my_qr.php" class="btn btn-white"><i class="bi bi-qr-code-scan me-1"></i> Visit Clinic / Check-in</a>
-            <a href="wellbeing.php" class="btn btn-outline-white"><i class="bi bi-person-heart me-1"></i> My Health &amp; Well-being</a>
+            <a href="appointments.php" class="btn btn-outline-white"><i class="bi bi-calendar-check me-1"></i> Book Appointment</a>
+            <a href="medical_record.php" class="btn btn-outline-white"><i class="bi bi-file-earmark-medical me-1"></i> Medical Records</a>
             <a href="#" class="btn btn-outline-white" onclick="if(typeof MICA!=='undefined'&&MICA.open)MICA.open();return false;"><i class="bi bi-robot me-1"></i> Ask MICA</a>
             <button type="button" class="btn btn-danger shadow-sm" data-bs-toggle="modal" data-bs-target="#sosModal"><i class="bi bi-shield-fill-exclamation me-1"></i> 🚨 SOS Emergency</button>
           </div>
@@ -112,10 +113,10 @@ $pageTitle = 'My Dashboard';
           <div class="qa-title-lg">Visit Clinic / Check-in</div>
           <div class="qa-sub-lg">Walk in or scan your QR</div>
         </a>
-        <a href="wellbeing.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-person-heart"></i></div>
-          <div class="qa-title-lg">Health &amp; Well-being</div>
-          <div class="qa-sub-lg">Share info voluntarily</div>
+        <a href="health_monitoring.php" class="quick-action-card-lg text-decoration-none">
+          <div class="qa-icon-lg"><i class="bi bi-heart-pulse-fill"></i></div>
+          <div class="qa-title-lg">Health Monitoring</div>
+          <div class="qa-sub-lg">Check vitals &amp; BMI</div>
         </a>
         <a href="medical_record.php" class="quick-action-card-lg text-decoration-none">
           <div class="qa-icon-lg"><i class="bi bi-file-earmark-medical-fill"></i></div>

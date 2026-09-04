@@ -47,8 +47,8 @@ define('AI_OPENROUTER_MODEL', getenv('OPENROUTER_MODEL') ?: 'openai/gpt-4o-mini'
 // Get your API key at: https://elevenlabs.io
 // ============================================================
 define('ELEVENLABS_API_KEY', getenv('ELEVENLABS_API_KEY') ?: '');
-define('ELEVENLABS_VOICE_ID', getenv('ELEVENLABS_VOICE_ID') ?: 'BZgkqPqms7Kj9ulSkVzn');
-define('ELEVENLABS_API_ENDPOINT', ELEVENLABS_VOICE_ID ? 'https://api.elevenlabs.io/v1/text-to-speech/' . ELEVENLABS_VOICE_ID : 'BZgkqPqms7Kj9ulSkVzn ');
+define('ELEVENLABS_VOICE_ID', getenv('ELEVENLABS_VOICE_ID') ?: 'EXAVITQu4vr4xnSDxMaL');
+define('ELEVENLABS_API_ENDPOINT', 'https://api.elevenlabs.io/v1/text-to-speech/' . ELEVENLABS_VOICE_ID);
 
 // ============================================================
 // MICA Configuration

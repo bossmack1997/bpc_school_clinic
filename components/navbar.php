@@ -10,7 +10,7 @@
 $u = current_user();
 // Role directory used for absolute links (works on every page, including
 // the consolidated pages/ai_assistant.php at the pages/ root).
-$validRoleDirs = ['admin', 'nurse', 'student', 'adviser', 'guidance'];
+$validRoleDirs = ['admin', 'nurse', 'student', 'adviser'];
 $navRoleDir = in_array($u['role'] ?? '', $validRoleDirs, true) ? $u['role'] : 'student';
 ?>
 <!-- Page Loader Overlay -->
@@ -66,7 +66,7 @@ $navRoleDir = in_array($u['role'] ?? '', $validRoleDirs, true) ? $u['role'] : 's
         <?php $profileImage = trim((string)($u['profile_picture'] ?? '')); ?>
         <img src="<?= e($profileImage !== '' ? app_url($profileImage) : asset_url('images/default-avatar.svg')) ?>" onerror="this.src='https://via.placeholder.com/32/0B6B3A/ffffff?text=U'" class="avatar" alt="Profile">
         <span class="name d-none d-md-inline"><?= e($u['first_name'] . ' ' . $u['last_name']) ?></span>
-        <span class="role-badge bg-primary-light text-primary d-none d-lg-inline"><?= e(ucfirst($u['role'])) ?></span>
+        <span class="role-badge bg-primary-light text-primary d-none d-lg-inline"><?= e(get_role_display_name($u['role'])) ?></span>
       </button>
       <ul class="dropdown-menu dropdown-menu-end shadow">
         <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/profile.php"><i class="bi bi-person me-2"></i>My Profile</a></li>

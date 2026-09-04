@@ -19,11 +19,11 @@ if ($action === 'approve') {
     if ($target['status'] === 'active') json_response(false, [], 'Account is already active.');
 
     // -----------------------------------------------------------------
-    // Adviser / Guidance self-registration: activate + provision staff
+    // Teacher / Adviser self-registration: activate + provision staff
     // record + teacher QR (advisory sections are chosen by the teacher
     // themselves in the portal — NOT assigned here).
     // -----------------------------------------------------------------
-    if (in_array($target['role'], ['adviser', 'guidance'], true)) {
+    if (in_array($target['role'], ['adviser', 'teacher'], true)) {
         try {
             $db->beginTransaction();
 
@@ -165,6 +165,92 @@ if ($action === 'bulk_approve') {
     }
 
     json_response(true, [], count($approveIds) . ' account' . (count($approveIds) > 1 ? 's' : '') . ' approved successfully.');
+}
+
+if ($action === 'create_nurse') {
+    csrf_verify_or_die();
+    $firstName     = trim($_POST['first_name'] ?? '');
+    $middleName    = trim($_POST['middle_name'] ?? '');
+    $lastName      = trim($_POST['last_name'] ?? '');
+    $email         = trim($_POST['email'] ?? '');
+    $username      = trim($_POST['username'] ?? '');
+    $password      = $_POST['password'] ?? '';
+    $employeeId    = trim($_POST['employee_id'] ?? '');
+    $licenseNumber = trim($_POST['license_number'] ?? '');
+    $contact       = trim($_POST['contact_number'] ?? '');
+    $gender        = trim($_POST['gender'] ?? '');
+    $dob           = trim($_POST['date_of_birth'] ?? '');
+
+    if (!$firstName || !$lastName || !$email || !$username || !$password) {
+        json_response(false, [], 'First name, last name, email, username, and password are required.');
+    }
+    if (!validate_email($email)) {
+        json_response(false, [], 'Please enter a valid email address.');
+    }
+    if (!validate_username($username)) {
+        json_response(false, [], 'Username must be 3-50 characters (letters, numbers, underscores only).');
+    }
+    $pwErrors = validate_password_strength($password);
+    if (!empty($pwErrors)) {
+        json_response(false, [], implode(' ', $pwErrors));
+    }
+
+    $chk = $db->prepare("SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1");
+    $chk->execute([$username, $email]);
+    if ($chk->fetch()) {
+        json_response(false, [], 'A user with this username or email already exists.');
+    }
+
+    if ($employeeId !== '') {
+        $empChk = $db->prepare("SELECT id FROM nurses WHERE employee_id = ? LIMIT 1");
+        $empChk->execute([$employeeId]);
+        if ($empChk->fetch()) {
+            json_response(false, [], 'A nurse with this Employee ID already exists.');
+        }
+    }
+
+    try {
+        $db->beginTransaction();
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+
+        $stmt = $db->prepare("
+            INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, profile_picture, status)
+            VALUES ('nurse', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'assets/images/default-avatar.png', 'active')
+        ");
+        $stmt->execute([
+            $username,
+            $email,
+            $hash,
+            $firstName,
+            $middleName ?: null,
+            $lastName,
+            $gender ?: null,
+            $dob ?: null,
+            $contact ?: null,
+        ]);
+        $newUserId = (int)$db->lastInsertId();
+
+        $stmt = $db->prepare("
+            INSERT INTO nurses (user_id, employee_id, license_number, gender, date_of_birth, contact_number, profile_picture)
+            VALUES (?, ?, ?, ?, ?, ?, 'assets/images/default-avatar.png')
+        ");
+        $stmt->execute([
+            $newUserId,
+            $employeeId ?: null,
+            $licenseNumber ?: null,
+            $gender ?: null,
+            $dob ?: null,
+            $contact ?: null,
+        ]);
+
+        $db->commit();
+        log_activity($user['id'], 'Created nurse account', 'users', "Nurse #$newUserId ({$firstName} {$lastName})");
+        json_response(true, ['user_id' => $newUserId], "Nurse account for {$firstName} {$lastName} created successfully.");
+    } catch (Exception $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        error_log('Nurse creation error: ' . $e->getMessage());
+        json_response(false, [], 'Failed to create nurse account: ' . $e->getMessage());
+    }
 }
 
 json_response(false, [], 'Unknown action');

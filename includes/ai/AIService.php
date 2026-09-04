@@ -21,6 +21,7 @@ require_once __DIR__ . '/DatabaseContext.php';
 require_once __DIR__ . '/PromptBuilder.php';
 require_once __DIR__ . '/OpenRouter.php';
 require_once __DIR__ . '/ChatHistory.php';
+require_once __DIR__ . '/NearbyHospitalService.php';
 
 class AIService
 {
@@ -32,17 +33,43 @@ class AIService
     private PDO $db;
     private array $user;
     private string $page = '';
+    private array $locationData = [
+        'latitude' => null,
+        'longitude' => null,
+        'accuracy' => null,
+        'timestamp' => null,
+        'status' => 'unrequested',
+    ];
 
     public function __construct(PDO $db, array $user, array $config = [])
     {
         $this->db = $db;
         $this->user = $user;
         $this->page = $config['page'] ?? '';
+        if (isset($config['location']) && is_array($config['location'])) {
+            $this->setLocationData($config['location']);
+        }
         $this->intentDetector = new IntentDetector();
         $this->databaseContext = new DatabaseContext($db, $user);
         $this->promptBuilder = new PromptBuilder();
         $this->openRouter = new OpenRouter($config);
         $this->chatHistory = new ChatHistory();
+    }
+
+    public function setLocationData(array $loc): void
+    {
+        $lat = isset($loc['latitude']) && is_numeric($loc['latitude']) ? (float)$loc['latitude'] : (isset($loc['lat']) && is_numeric($loc['lat']) ? (float)$loc['lat'] : null);
+        $lng = isset($loc['longitude']) && is_numeric($loc['longitude']) ? (float)$loc['longitude'] : (isset($loc['lng']) && is_numeric($loc['lng']) ? (float)$loc['lng'] : null);
+        if ($lat !== null && ($lat < -90 || $lat > 90)) $lat = null;
+        if ($lng !== null && ($lng < -180 || $lng > 180)) $lng = null;
+
+        $this->locationData = [
+            'latitude'  => $lat,
+            'longitude' => $lng,
+            'accuracy'  => isset($loc['accuracy']) && $loc['accuracy'] !== '' ? (string)$loc['accuracy'] : null,
+            'timestamp' => isset($loc['timestamp']) && $loc['timestamp'] !== '' ? (string)$loc['timestamp'] : null,
+            'status'    => isset($loc['status']) && $loc['status'] !== '' ? (string)$loc['status'] : ($lat !== null ? 'granted' : 'unrequested'),
+        ];
     }
 
     public function getOpenRouter(): OpenRouter
@@ -91,7 +118,7 @@ class AIService
                 $reply .= "  📱 **0917-899-8727** / **0966-351-4518** / **0908-639-2672**\n\n";
                 $reply .= "• **Hopeline Philippines**:\n";
                 $reply .= "  📞 **2919** (Globe/TM) | **(02) 8804-4673**\n\n";
-                $reply .= "You can also visit the **BPC School Clinic** or talk to a guidance counselor, teacher, family member, or trusted friend right now. Please reach out to someone who can be with you.";
+                $reply .= "You can also visit the **BPC School Clinic** or talk to a teacher, family member, or trusted friend right now. Please reach out to someone who can be with you.";
 
                 $this->chatHistory->addMessage('user', $message, 'emergency');
                 $this->chatHistory->addMessage('assistant', $reply);
@@ -144,13 +171,24 @@ class AIService
             'section'        => $profile['section'] ?? '',
         ];
 
+        $locationContext = NearbyHospitalService::buildLocationContext(
+            $this->locationData['latitude'],
+            $this->locationData['longitude'],
+            $this->locationData['accuracy'],
+            $this->locationData['timestamp'],
+            $this->locationData['status'],
+            !empty($this->locationData['is_low_accuracy']),
+            isset($this->locationData['accuracy_meters']) ? (float)$this->locationData['accuracy_meters'] : null
+        );
+
         $promptData = $this->promptBuilder->build(
             $intent,
             $message,
             $dbContext,
             $this->chatHistory->exportForApi(10),
             $userInfo,
-            $this->page
+            $this->page,
+            $locationContext
         );
 
         // 5. Query OpenRouter API with multi-turn context
@@ -211,11 +249,23 @@ class AIService
         $name = $this->firstName();
 
         return match ($intent) {
+            'nearby_facilities' => NearbyHospitalService::buildFallbackReply(
+                $this->locationData['latitude'],
+                $this->locationData['longitude'],
+                $this->locationData['status'],
+                $name,
+                $this->locationData['accuracy'] ?? null,
+                $this->locationData['timestamp'] ?? null,
+                !empty($this->locationData['is_low_accuracy']),
+                isset($this->locationData['accuracy_meters']) ? (float)$this->locationData['accuracy_meters'] : null,
+                $message
+            ),
+
             'mental_health' => "I hear you, {$name}. Dealing with academic pressure, stress, or burnout can feel heavy.\n\n"
                 . "Here are a few quick things that can help right now:\n"
                 . "• **Take a pause:** Step away from the screen for 5 minutes and take 3 deep, slow breaths.\n"
                 . "• **Break it down:** Write down just the single next task you need to do, rather than the whole project.\n"
-                . "• **Talk to someone:** Sharing what you feel with a trusted friend, family member, or the school clinic/guidance counselor makes a real difference.\n\n"
+                . "• **Talk to someone:** Sharing what you feel with a trusted friend, family member, or visiting the school clinic to talk with our nurse makes a real difference.\n\n"
                 . "Would you like to try a quick breathing exercise together, or talk more about what is on your mind?",
 
             'greeting' => "Hello {$name}! 👋 I'm MICA, your Medical Intelligent Clinic Assistant from BPC.\n\n"
@@ -328,6 +378,12 @@ class AIService
                 'vaccination'           => $this->dataReplyVaccination(),
                 'medicine_availability' => $this->dataReplyMedicines($message),
                 'announcements'         => $this->dataReplyAnnouncements(),
+                'nearby_facilities'     => NearbyHospitalService::buildFallbackReply(
+                    $this->locationData['latitude'],
+                    $this->locationData['longitude'],
+                    $this->locationData['status'],
+                    $this->firstName()
+                ),
                 default                 => null,
             };
         } catch (\Throwable $e) {

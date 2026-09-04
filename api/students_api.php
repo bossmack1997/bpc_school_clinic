@@ -1,22 +1,97 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
-require_role(['nurse','admin']);
+require_role(['nurse', 'admin']);
 header('Content-Type: application/json');
 
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
 
-if ($action === 'search') {
-    $q = '%' . ($_GET['q'] ?? '') . '%';
+if ($action === 'get_student' || $action === 'get') {
+    $id = (int)($_GET['id'] ?? $_GET['student_id'] ?? 0);
+    if ($id <= 0) {
+        json_response(false, [], 'Invalid student ID.');
+    }
+    $stmt = $db->prepare("
+        SELECT s.id, s.user_id, s.student_number, s.course, s.year_level, s.section,
+               u.first_name, u.last_name, u.email, u.phone, u.profile_picture, 'student' AS patient_type
+        FROM students s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.id = ?
+        LIMIT 1
+    ");
+    $stmt->execute([$id]);
+    $student = $stmt->fetch();
+    if (!$student) {
+        json_response(false, [], 'Student not found.');
+    }
+    json_response(true, ['data' => $student]);
+}
+
+if ($action === 'search' || $action === 'list') {
+    $rawQ = trim($_GET['q'] ?? '');
+    $patientType = trim($_GET['patient_type'] ?? '');
+    $limit = min(max((int)($_GET['limit'] ?? 50), 1), 100);
+
+    if ($rawQ === '') {
+        // Return default list of students
+        $stmt = $db->prepare("
+            SELECT s.id, s.user_id, s.student_number, s.course, s.year_level, s.section,
+                   u.first_name, u.last_name, u.email, u.phone, u.profile_picture, 'student' AS patient_type
+            FROM students s
+            JOIN users u ON u.id = s.user_id
+            ORDER BY u.last_name ASC, u.first_name ASC
+            LIMIT ?
+        ");
+        $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        $data = $stmt->fetchAll();
+        json_response(true, ['data' => $data]);
+    }
+
+    $q = '%' . $rawQ . '%';
     // Students
-    $stmt = $db->prepare("SELECT s.id, s.student_number, s.course, s.year_level, s.section, u.first_name, u.last_name, u.email, u.phone, u.profile_picture, 'student' AS patient_type FROM students s JOIN users u ON u.id=s.user_id WHERE s.student_number LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? ORDER BY u.last_name LIMIT 20");
-    $stmt->execute([$q, $q, $q]);
+    $stmt = $db->prepare("
+        SELECT s.id, s.user_id, s.student_number, s.course, s.year_level, s.section,
+               u.first_name, u.last_name, u.email, u.phone, u.profile_picture, 'student' AS patient_type
+        FROM students s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.student_number LIKE ?
+           OR u.first_name LIKE ?
+           OR u.last_name LIKE ?
+           OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+           OR s.course LIKE ?
+        ORDER BY u.last_name ASC, u.first_name ASC
+        LIMIT ?
+    ");
+    $stmt->bindValue(1, $q, PDO::PARAM_STR);
+    $stmt->bindValue(2, $q, PDO::PARAM_STR);
+    $stmt->bindValue(3, $q, PDO::PARAM_STR);
+    $stmt->bindValue(4, $q, PDO::PARAM_STR);
+    $stmt->bindValue(5, $q, PDO::PARAM_STR);
+    $stmt->bindValue(6, $limit, PDO::PARAM_INT);
+    $stmt->execute();
     $data = $stmt->fetchAll();
-    // Teachers/Staff
-    $stmt2 = $db->prepare("SELECT t.id, t.employee_id AS student_number, t.department AS course, '' AS year_level, 'Teacher/Staff' AS section, t.first_name, t.last_name, t.email, t.phone, u.profile_picture, 'teacher' AS patient_type FROM teachers t JOIN users u ON u.id=t.user_id WHERE t.employee_id LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? ORDER BY u.last_name LIMIT 20");
-    $stmt2->execute([$q, $q, $q]);
-    $data = array_merge($data, $stmt2->fetchAll());
+
+    // Teachers/Staff (only if not restricted to student)
+    if ($patientType !== 'student') {
+        $stmt2 = $db->prepare("
+            SELECT t.id, t.employee_id AS student_number, t.department AS course, '' AS year_level,
+                   'Teacher/Staff' AS section, t.first_name, t.last_name, t.email, t.phone,
+                   u.profile_picture, 'teacher' AS patient_type
+            FROM teachers t
+            JOIN users u ON u.id = t.user_id
+            WHERE t.employee_id LIKE ?
+               OR u.first_name LIKE ?
+               OR u.last_name LIKE ?
+               OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+            ORDER BY u.last_name ASC, u.first_name ASC
+            LIMIT 20
+        ");
+        $stmt2->execute([$q, $q, $q, $q]);
+        $data = array_merge($data, $stmt2->fetchAll());
+    }
+
     json_response(true, ['data' => $data]);
 }
 

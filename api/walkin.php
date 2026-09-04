@@ -1,7 +1,7 @@
 <?php
 /**
  * Walk-in Patient Management API
- * BPC School Clinic Management System
+ * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  */
 
 require_once __DIR__ . '/../config/config.php';

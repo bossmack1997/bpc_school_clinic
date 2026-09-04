@@ -59,6 +59,7 @@ if ($action === 'list') {
                 $where .= " AND m.expiration_date IS NOT NULL AND m.expiration_date < ?";
                 $params[] = $today;
                 break;
+            case 'expiring_soon':
             case 'near_expiration':
                 $where .= " AND m.expiration_date IS NOT NULL AND m.expiration_date BETWEEN ? AND DATE_ADD(?, INTERVAL 30 DAY)";
                 $params[] = $today;

@@ -1,7 +1,7 @@
 <?php
 /**
  * MICA Text-to-Speech API
- * BPC School Clinic Management System
+ * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  *
  * ElevenLabs TTS secure server-side proxy.
  */
@@ -16,9 +16,16 @@ require_once __DIR__ . '/../config/config.php';
 function mica_tts_error(
     int $status,
     string $message,
-    ?string $debug = null
+    ?string $debug = null,
+    bool $allowFallback = true
 ): never {
-    http_response_code($status);
+    // When upstream service is degraded/unavailable, return 200 with fallback instructions
+    // so the browser does not log a 502 crash while switching gracefully to speech synthesis.
+    if ($allowFallback && in_array($status, [500, 502, 503, 504, 402, 403, 429], true)) {
+        http_response_code(200);
+    } else {
+        http_response_code($status);
+    }
 
     // Make sure no previous output corrupts JSON/audio response.
     if (ob_get_length()) {
@@ -29,8 +36,9 @@ function mica_tts_error(
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
     $response = [
-        'success' => false,
-        'error'   => $message,
+        'success'  => false,
+        'error'    => $message,
+        'fallback' => 'browser',
     ];
 
     // Only expose technical information when explicitly enabled.
@@ -347,34 +355,24 @@ if ($action === 'synthesize') {
 
 
     // --------------------------------------------------------
-    // ELEVENLABS AUTH ERROR
+    // ELEVENLABS AUTH / PAYMENT ERROR
     // --------------------------------------------------------
     if ($httpCode === 401) {
-
-        error_log(
-            'MICA TTS: ElevenLabs returned HTTP 401.'
-        );
-
-        mica_tts_error(
-            502,
-            'TTS authentication failed. Please check your ElevenLabs API key.'
-        );
+        error_log('MICA TTS: ElevenLabs returned HTTP 401 (Invalid API Key).');
+        mica_tts_error(502, 'TTS authentication failed. Please check your ElevenLabs API key.');
     }
 
+    if ($httpCode === 402) {
+        error_log('MICA TTS: ElevenLabs returned HTTP 402 (Payment/Plan limitation - e.g. community voice or quota).');
+        mica_tts_error(502, 'TTS plan or voice limitation on ElevenLabs. Using browser speech synthesis fallback.');
+    }
 
     // --------------------------------------------------------
     // ELEVENLABS FORBIDDEN
     // --------------------------------------------------------
     if ($httpCode === 403) {
-
-        error_log(
-            'MICA TTS: ElevenLabs returned HTTP 403.'
-        );
-
-        mica_tts_error(
-            502,
-            'TTS request was rejected by ElevenLabs.'
-        );
+        error_log('MICA TTS: ElevenLabs returned HTTP 403.');
+        mica_tts_error(502, 'TTS request was rejected by ElevenLabs.');
     }
 
 

@@ -20,14 +20,12 @@ function getNotificationPageUrl() {
   if (role === 'admin') return base + '/pages/admin/notifications.php';
   if (role === 'nurse') return base + '/pages/nurse/notifications.php';
   if (role === 'teacher' || role === 'adviser') return base + '/pages/adviser/notifications.php';
-  if (role === 'guidance') return base + '/pages/guidance/notifications.php';
   if (role === 'student') return base + '/pages/student/notifications.php';
 
   var path = window.location.pathname || '';
   if (path.includes('/admin/')) return base + '/pages/admin/notifications.php';
   if (path.includes('/nurse/')) return base + '/pages/nurse/notifications.php';
   if (path.includes('/adviser/')) return base + '/pages/adviser/notifications.php';
-  if (path.includes('/guidance/')) return base + '/pages/guidance/notifications.php';
   if (path.includes('/student/')) return base + '/pages/student/notifications.php';
 
   return base + '/pages/student/notifications.php';

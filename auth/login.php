@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Invalid username or password.';
             } elseif ($user['status'] !== 'active') {
                 login_rate_limit_clear($clientIp);
-                $errors[] = 'Your account is not active yet. Please contact the clinic administrator.';
+                $errors[] = 'Your account is not active yet. Please contact the system administrator.';
             } else {
                 login_user($user);
                 login_rate_limit_clear($clientIp);
@@ -69,8 +69,8 @@ $pageTitle = 'Login';
 <div class="auth-wrapper">
   <div class="auth-card" data-aos="fade-up" data-aos-duration="800">
     <div class="auth-side">
-      <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo" style="width:70px;height: 70px;px;object-fit:contain;"></div>
-      <h2 class="mb-2">School Clinic Management System for Bulacan Polytechnic College Healthcare Services Improvement</h2>
+      <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo" style="width:70px;height: 70px;object-fit:contain;"></div>
+      <h2 class="mb-2">AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</h2>
       <p class="mb-0">Digital health records, appointments, and clinic monitoring for Bulacan Polytechnic College with health monitoring and clinic assistance.</p>
     </div>
     <div class="auth-form-side">
@@ -136,7 +136,16 @@ $pageTitle = 'Login';
           <span class="btn-label">Sign In</span>
           <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
         </button>
-        <p class="text-center small text-muted mb-0">Don't have an account? <a href="register_hub.php" class="fw-medium">Create an account</a> (Student, Nurse, Teacher, or Guidance Counselor)</p>
+        <div class="text-center mt-3 pt-2 border-top">
+          <p class="small text-muted mb-2">Don't have an account? Choose your role to register:</p>
+          <div class="d-flex justify-content-center gap-2 flex-wrap mb-2">
+            <a href="register_student.php" class="btn btn-sm btn-outline-primary"><i class="bi bi-mortarboard me-1"></i> Student</a>
+            <a href="register_teacher.php" class="btn btn-sm btn-outline-primary"><i class="bi bi-person-video3 me-1"></i> Teacher / Adviser</a>
+            <a href="register_nurse.php" class="btn btn-sm btn-outline-success"><i class="bi bi-person-badge-fill me-1"></i> Nurse</a>
+            <a href="register_admin.php" class="btn btn-sm btn-outline-dark"><i class="bi bi-shield-lock me-1"></i> Administrator</a>
+          </div>
+          <p class="small text-muted mb-0"><a href="register_hub.php" class="text-secondary text-decoration-none fw-medium"><i class="bi bi-grid-fill me-1"></i>Choose Account Type Hub</a></p>
+        </div>
       </form>
     </div>
   </div>

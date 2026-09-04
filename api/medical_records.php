@@ -50,94 +50,40 @@ if ($action === 'list') {
 
 if ($action === 'upload') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'admin'], true)) {
-        json_response(false, [], 'Not authorized. Only clinic staff can upload medical records.');
-    }
+    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized. Only nurses can upload medical records.');
 
     $consultationId = (int)($_POST['consultation_id'] ?? 0);
     $studentId = (int)($_POST['student_id'] ?? 0);
     $description = trim($_POST['description'] ?? '');
 
-    if ($studentId <= 0) {
-        json_response(false, [], 'Invalid student. Please select a student.');
-    }
+    if ($consultationId <= 0 || $studentId <= 0) json_response(false, [], 'Invalid consultation or student.');
 
     if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-        $uploadErrors = [
-            UPLOAD_ERR_INI_SIZE   => 'File exceeds upload_max_filesize limit.',
-            UPLOAD_ERR_FORM_SIZE  => 'File exceeds MAX_FILE_SIZE limit in form.',
-            UPLOAD_ERR_PARTIAL    => 'File was only partially uploaded.',
-            UPLOAD_ERR_NO_FILE    => 'Please select a file to upload.',
-            UPLOAD_ERR_NO_TMP_DIR => 'Server temporary directory missing.',
-            UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk.',
-            UPLOAD_ERR_EXTENSION  => 'A PHP extension stopped the file upload.'
-        ];
-        $errMsg = $uploadErrors[$_FILES['file']['error'] ?? 0] ?? 'Please select a valid file to upload.';
-        json_response(false, [], $errMsg);
+        json_response(false, [], 'Please select a file to upload.');
     }
 
+    $allowed = ['application/pdf','image/jpeg','image/png','image/webp','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
     $file = $_FILES['file'];
+    if (!in_array($file['type'], $allowed, true)) json_response(false, [], 'Invalid file type. Allowed: PDF, JPG, PNG, DOC.');
+
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     $allowedExts = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'doc', 'docx'];
-    if (!in_array($ext, $allowedExts, true)) {
-        json_response(false, [], 'Invalid file extension. Allowed: PDF, JPG, PNG, WEBP, DOC, DOCX.');
-    }
+    if (!in_array($ext, $allowedExts, true)) json_response(false, [], 'Invalid file extension. Allowed: PDF, JPG, PNG, DOC.');
 
-    // Prevent executable scripts
-    $dangerous = ['php', 'phtml', 'phar', 'exe', 'sh', 'bat', 'cmd', 'js', 'jsp', 'asp', 'cgi', 'pl', 'py'];
-    if (in_array($ext, $dangerous, true)) {
-        json_response(false, [], 'Executable files are not allowed.');
-    }
+    // Prevent executable uploads
+    $dangerous = ['php', 'phtml', 'phar', 'exe', 'sh', 'bat', 'cmd', 'js', 'jsp', 'asp'];
+    if (in_array($ext, $dangerous, true)) json_response(false, [], 'Executable files are not allowed.');
 
-    // Verify MIME type using finfo if available
-    if (function_exists('finfo_open')) {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime = finfo_file($finfo, $file['tmp_name']);
-        finfo_close($finfo);
-        $allowedMimes = [
-            'application/pdf', 'application/x-pdf',
-            'image/jpeg', 'image/pjpeg', 'image/png', 'image/x-png', 'image/webp',
-            'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/zip', 'application/octet-stream'
-        ];
-        if ($mime && !in_array($mime, $allowedMimes, true) && !in_array($ext, $allowedExts, true)) {
-            json_response(false, [], 'Invalid file type content.');
-        }
-    }
-
-    // Ensure uploads/medical_records directory exists
-    $uploadDir = BASE_PATH . '/uploads/medical_records';
-    if (!is_dir($uploadDir)) {
-        if (!@mkdir($uploadDir, 0777, true) && !is_dir($uploadDir)) {
-            json_response(false, [], 'Failed to create uploads directory on server.');
-        }
-    }
-
-    $filename = 'record_' . $studentId . '_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+    $filename = 'record_' . $studentId . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
     $destRel = 'uploads/medical_records/' . $filename;
     $destAbs = BASE_PATH . '/' . $destRel;
 
     if (!move_uploaded_file($file['tmp_name'], $destAbs)) {
-        json_response(false, [], 'Failed to save uploaded file to destination.');
+        json_response(false, [], 'Failed to upload file.');
     }
 
-    // If no consultation is selected, auto-create a general consultation entry for this record
-    if ($consultationId <= 0) {
-        $nurseId = null;
-        if ($user['role'] === 'nurse') {
-            $nStmt = $db->prepare("SELECT id FROM nurses WHERE user_id = ? LIMIT 1");
-            $nStmt->execute([$user['id']]);
-            $nurseId = $nStmt->fetchColumn() ?: null;
-        }
-
-        $cStmt = $db->prepare("INSERT INTO consultations (student_id, nurse_id, visit_type, consultation_date, chief_complaint, diagnosis, treatment, remarks) VALUES (?, ?, 'walk-in', NOW(), 'Medical Document Submission', 'Archived Medical Record', 'Document Uploaded', ?)");
-        $cStmt->execute([$studentId, $nurseId, $description ?: 'Uploaded medical document']);
-        $consultationId = (int)$db->lastInsertId();
-    }
-
-    $fileMime = $file['type'] ?: 'application/octet-stream';
     $stmt = $db->prepare("INSERT INTO medical_records (consultation_id, student_id, file_path, file_type, description) VALUES (?,?,?,?,?)");
-    $stmt->execute([$consultationId, $studentId, $destRel, $fileMime, $description]);
+    $stmt->execute([$consultationId, $studentId, $destRel, $file['type'], $description]);
 
     log_activity($user['id'], 'Uploaded medical record', 'medical_records', "Student #$studentId");
     json_response(true, ['path' => APP_URL . '/' . $destRel], 'File uploaded successfully.');

@@ -7,7 +7,8 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
 define('BASE_PATH', dirname(__DIR__));
-define('APP_NAME', 'BPC School Clinic Management System with Health Monitoring and Appointment Assistance');
+define('APP_NAME', 'AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement');
+define('APP_SHORT_NAME', 'BPC School Clinic');
 
 // ============================================================
 // .env Loader — environment variables for secrets & API keys

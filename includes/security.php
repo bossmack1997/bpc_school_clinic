@@ -1,7 +1,7 @@
 <?php
 /**
  * Centralized Security Helpers
- * BPC School Clinic Management System
+ * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  *
  * Provides:
  *  - Login rate limiting
@@ -288,7 +288,7 @@ function validate_date(string $date): bool {
  * Validate a role value.
  */
 function validate_role(string $role): bool {
-    return in_array($role, ['student', 'nurse', 'admin', 'adviser', 'guidance'], true);
+    return in_array($role, ['student', 'nurse', 'admin', 'adviser'], true);
 }
 
 /**
@@ -334,6 +334,7 @@ function send_security_headers(): void {
         "img-src 'self' {$scheme}: data: https:; " .
         "font-src 'self' {$scheme}: data:; " .
         "connect-src 'self' {$scheme}:; " .
+        "media-src 'self' {$scheme}: blob:; " .
         "frame-src 'self' {$scheme}:; " .
         "object-src 'none'; " .
         "base-uri 'self';");

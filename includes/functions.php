@@ -38,6 +38,21 @@ function get_flash() {
     return null;
 }
 
+/**
+ * Return user-friendly display name for authentication roles.
+ */
+function get_role_display_name(?string $role): string {
+    $role = strtolower(trim($role ?? ''));
+    return match ($role) {
+        'admin'              => 'System Administrator',
+        'nurse'              => 'Nurse',
+        'student'            => 'Student',
+        'teacher', 'adviser' => 'Teacher / Adviser',
+        default              => ucfirst($role ?: 'User'),
+    };
+}
+
+
 function json_response($success, $data = [], $message = '') {
     if (ob_get_length()) { ob_clean(); }
     header('Content-Type: application/json');
@@ -263,19 +278,31 @@ function ensure_student_qr($db, $studentId, $generatedBy = null) {
 
 /**
  * Compute the inventory status of a medicine.
- * Returns one of: Available | Low Stock | Out of Stock | Near Expiration | Expired
+ * Returns one of: Available | Low Stock | Out of Stock | Expiring Soon | Expired
  */
 function medicine_status($quantity, $reorderLevel, $expirationDate) {
     $qty = (int)$quantity;
     $reorder = (int)$reorderLevel;
-    $exp = $expirationDate;
+    $exp = $expirationDate ? trim((string)$expirationDate) : null;
 
-    if ($exp) {
-        $today = strtotime(date('Y-m-d'));
-        $expTs = strtotime($exp);
-        $days  = (int)(($expTs - $today) / 86400);
-        if ($expTs < $today) return 'Expired';
-        if ($days <= 30)     return 'Near Expiration';
+    if ($exp !== null && $exp !== '' && $exp !== '0000-00-00') {
+        $todayStr = (new DateTime('today', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+        $expDateObj = DateTime::createFromFormat('Y-m-d', $exp, new DateTimeZone('Asia/Manila'));
+        
+        if ($expDateObj !== false) {
+            $expStr = $expDateObj->format('Y-m-d');
+            if ($expStr < $todayStr) {
+                return 'Expired';
+            }
+            
+            $todayTs = strtotime($todayStr);
+            $expTs = strtotime($expStr);
+            $daysLeft = (int)round(($expTs - $todayTs) / 86400);
+            
+            if ($daysLeft >= 0 && $daysLeft <= 30) {
+                return 'Expiring Soon';
+            }
+        }
     }
     if ($qty <= 0)          return 'Out of Stock';
     if ($qty <= $reorder)   return 'Low Stock';
@@ -290,12 +317,14 @@ function notify_staff_medicine_alert($db, $medicine, $status) {
     $titles = [
         'Low Stock'       => '⚠️ Low Stock: ' . $mname,
         'Out of Stock'    => '🚫 Out of Stock: ' . $mname,
-        'Near Expiration' => '🕒 Near Expiration: ' . $mname,
+        'Expiring Soon'   => '🕒 Expiring Soon: ' . $mname,
+        'Near Expiration' => '🕒 Expiring Soon: ' . $mname,
         'Expired'         => '⛔ Expired: ' . $mname,
     ];
     $msgs = [
         'Low Stock'       => "Stock for {$mname} has reached its minimum (qty: {$medicine['quantity']}). Please reorder.",
         'Out of Stock'    => "{$mname} is now out of stock. Please restock.",
+        'Expiring Soon'   => "{$mname} expires within 30 days (" . ($medicine['expiration_date'] ?? 'N/A') . ').',
         'Near Expiration' => "{$mname} expires within 30 days (" . ($medicine['expiration_date'] ?? 'N/A') . ').',
         'Expired'         => "{$mname} expired on " . ($medicine['expiration_date'] ?? 'N/A') . '. Do not dispense.',
     ];

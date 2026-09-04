@@ -1372,3 +1372,79 @@
   background: transparent;
 }
 
+/* ------------------------------------------------------------------ */
+/* MICA Real-Time Geolocation UI Indicators                           */
+/* ------------------------------------------------------------------ */
+.mica-location-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(11, 107, 58, 0.08);
+  border-bottom: 1px solid rgba(11, 107, 58, 0.12);
+  font-size: 0.76rem;
+  color: var(--mica-primary-dark);
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.mica-location-indicator.active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #0b6b3a;
+}
+
+.mica-location-indicator.denied,
+.mica-location-indicator.unavailable {
+  background: rgba(220, 53, 69, 0.1);
+  color: #dc3545;
+}
+
+.mica-location-indicator i {
+  font-size: 0.85rem;
+}
+
+.mica-location-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.70rem;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(11, 107, 58, 0.12);
+  color: var(--mica-primary);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.mica-location-badge.active {
+  background: rgba(34, 197, 94, 0.2);
+  color: #0b6b3a;
+}
+
+.mica-location-badge.denied {
+  background: rgba(220, 53, 69, 0.15);
+  color: #dc3545;
+}
+
+.mica-btn-location {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid #198754;
+  background: #ffffff;
+  color: #198754;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 6px;
+}
+
+.mica-btn-location:hover {
+  background: #198754;
+  color: #ffffff;
+}
+
+
