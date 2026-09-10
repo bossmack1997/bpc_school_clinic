@@ -38,7 +38,10 @@ function check_session_timeout() {
 function require_role($roles) {
     require_login();
     $roles = is_array($roles) ? $roles : [$roles];
-    $userRole = current_user()['role'] ?? '';
+    // `adviser` is a legacy database value.  The application deliberately
+    // exposes it as Teacher while the data migration is being applied.
+    $roles = array_map('canonical_role', $roles);
+    $userRole = canonical_role(current_user()['role'] ?? '');
     if (!in_array($userRole, $roles, true)) {
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
             http_response_code(403);
@@ -51,10 +54,24 @@ function require_role($roles) {
     }
 }
 
+/** Return one of the four supported application roles. */
+function canonical_role($role) {
+    $role = strtolower(trim((string)$role));
+    return match ($role) {
+        'administrator' => 'admin',
+        'adviser' => 'teacher',
+        default => $role,
+    };
+}
+
+function is_supported_role($role) {
+    return in_array(canonical_role($role), ['student', 'nurse', 'teacher', 'admin'], true);
+}
+
 function login_user(array $userRow) {
     $_SESSION['user'] = [
         'id'         => (int)$userRow['id'],
-        'role'       => $userRow['role'],
+        'role'       => canonical_role($userRow['role']),
         'username'   => $userRow['username'],
         'email'      => $userRow['email'],
         'first_name' => $userRow['first_name'],
@@ -166,13 +183,15 @@ function attempt_remember_me_login() {
 
 /** Returns the dashboard URL for a given role */
 function dashboard_url_for($role) {
-    $role = strtolower(trim((string)$role));
+    $role = canonical_role($role);
     return match ($role) {
-        'admin'              => APP_URL . '/pages/admin/dashboard.php',
-        'nurse'              => APP_URL . '/pages/nurse/dashboard.php',
-        'student'            => APP_URL . '/pages/student/dashboard.php',
-        'adviser', 'teacher' => APP_URL . '/pages/adviser/dashboard.php',
-        default              => APP_URL . '/auth/login.php',
+        'admin'   => APP_URL . '/pages/admin/dashboard.php',
+        'nurse'   => APP_URL . '/pages/nurse/dashboard.php',
+        'student' => APP_URL . '/pages/student/dashboard.php',
+        // Existing adviser pages are retained as the teacher portal while
+        // their filenames are migrated; their access checks use canonical roles.
+        'teacher' => APP_URL . '/pages/adviser/dashboard.php',
+        default   => APP_URL . '/auth/login.php',
     };
 }
 
@@ -384,7 +403,7 @@ function require_adviser_student_access($db, $studentId) {
         echo json_encode(['success' => false, 'message' => 'Access denied.']);
         exit;
     }
-    if (($u['role'] ?? '') === 'adviser') {
+    if (canonical_role($u['role'] ?? '') === 'teacher') {
         if (!adviser_can_access_student($db, $u['id'], $studentId)) {
             http_response_code(403);
             echo json_encode(['success' => false, 'message' => 'You do not have access to this student.']);
@@ -407,4 +426,3 @@ function require_adviser_student_access($db, $studentId) {
 function can_view_medical_info($viewerRole) {
     return in_array($viewerRole, ['nurse', 'admin', 'student'], true);
 }
-

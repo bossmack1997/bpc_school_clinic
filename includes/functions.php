@@ -44,11 +44,11 @@ function get_flash() {
 function get_role_display_name(?string $role): string {
     $role = strtolower(trim($role ?? ''));
     return match ($role) {
-        'admin'              => 'System Administrator',
-        'nurse'              => 'Nurse',
-        'student'            => 'Student',
-        'teacher', 'adviser' => 'Teacher / Adviser',
-        default              => ucfirst($role ?: 'User'),
+        'admin'   => 'System Administrator',
+        'doctor'  => 'Doctor / Medical Officer',
+        'nurse'   => 'Nurse',
+        'student' => 'Student',
+        default   => ucfirst($role ?: 'User'),
     };
 }
 
@@ -86,10 +86,12 @@ function handle_error($severity, $message, $file, $line) {
 function log_activity($userId, $action, $module = null, $details = null) {
     try {
         $db = getDB();
+        $uid = ($userId && (int)$userId > 0) ? (int)$userId : null;
         $stmt = $db->prepare(
             "INSERT INTO activity_logs (user_id, action, module, details, ip_address) VALUES (?, ?, ?, ?, ?)"
         );
         $stmt->execute([$userId, $action, $module, $details, $_SERVER['REMOTE_ADDR'] ?? null]);
+        $stmt->execute([$uid, $action, $module, $details, $_SERVER['REMOTE_ADDR'] ?? null]);
     } catch (Exception $e) {
         error_log('log_activity failed: ' . $e->getMessage());
     }
@@ -340,6 +342,11 @@ function notify_staff_medicine_alert($db, $medicine, $status) {
     $nurseStmt = $db->query("SELECT user_id FROM nurses");
     foreach ($nurseStmt->fetchAll() as $n) {
         push_notification($n['user_id'], 'medicine', $title, $msg, $link, null, $priority, $relId);
+    }
+    // Doctors
+    $docStmt = $db->query("SELECT user_id FROM doctors");
+    foreach ($docStmt->fetchAll() as $d) {
+        push_notification($d['user_id'], 'medicine', $title, $msg, APP_URL . '/pages/doctor/prescriptions.php', null, $priority, $relId);
     }
     // Admins
     $adminStmt = $db->query("SELECT id FROM users WHERE role = 'admin'");

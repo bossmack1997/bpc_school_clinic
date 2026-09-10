@@ -24,6 +24,9 @@ function current_student_id($db, $userId) {
 // ---------------------------------------------------------------------
 // GET — fetch a well-being profile
 //   - student: only own profile (full access)
+//   - guidance: any student (full access to confidential mental/emotional info)
+//   - nurse: medical subset ONLY (known_medical_conditions, allergies, previous_illnesses, current_medications, other_medical_info)
+//   - adviser / admin / others: 403 Forbidden
 //   - nurse / admin: clinic medical information
 //   - adviser / others: 403 Forbidden
 // ---------------------------------------------------------------------

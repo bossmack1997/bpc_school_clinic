@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
-require_role(['nurse','admin']);
+require_role('nurse');
 header('Content-Type: application/json');
 
 $db = getDB();

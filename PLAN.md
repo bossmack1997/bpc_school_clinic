@@ -1,3 +1,4 @@
+
 # AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement — System Plan
 
 ## Information Gathered

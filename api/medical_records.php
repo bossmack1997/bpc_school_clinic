@@ -91,7 +91,7 @@ if ($action === 'upload') {
 
 if ($action === 'delete') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse','admin'], true)) json_response(false, [], 'Not authorized.');
+    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
 
     $id = (int)($_POST['id'] ?? 0);
     $stmt = $db->prepare("SELECT * FROM medical_records WHERE id=?");
@@ -107,7 +107,7 @@ if ($action === 'delete') {
 }
 
 if ($action === 'consultations') {
-    if (!in_array($user['role'], ['nurse','admin'], true)) json_response(false, [], 'Not authorized.');
+    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
     $studentId = (int)($_GET['student_id'] ?? 0);
     if ($studentId <= 0) json_response(false, [], 'Invalid student.');
 
@@ -117,7 +117,7 @@ if ($action === 'consultations') {
 }
 
 if ($action === 'detail') {
-    if (!in_array($user['role'], ['nurse','admin'], true)) json_response(false, [], 'Not authorized.');
+    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
     $visitId = (int)($_GET['visit_id'] ?? 0);
     if ($visitId <= 0) json_response(false, [], 'Invalid visit.');
 

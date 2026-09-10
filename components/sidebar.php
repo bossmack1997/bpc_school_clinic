@@ -117,21 +117,18 @@ $sbNav = [
         'brand' => 'Student Portal',
     ],
 
-    'adviser' => [
+    'teacher' => [
         'sections' => [
             'Dashboard' => [
                 ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
             ],
-            'Advisory Class' => [
-                ['people-fill', 'My Advisory Students', 'students.php'],
-                ['exclamation-triangle-fill', 'Emergency Reports', 'emergencies.php'],
-                ['file-earmark-medical-fill', 'Clinic Coordination', 'consultations.php'],
-            ],
-            'My Clinic' => [
-                ['qr-code', 'My Staff QR', 'my_qr.php'],
+            'Clinic Services' => [
+                ['clipboard2-pulse-fill', 'Clinic Referral', 'consultations.php'],
+                ['exclamation-triangle-fill', 'Emergency Report', 'emergencies.php'],
+                ['clock-history', 'Request History', 'my_advisory.php'],
             ],
             'Communication' => [
-                ['megaphone-fill', 'Clinic Announcements', 'announcements.php'],
+                ['megaphone-fill', 'Announcements', 'announcements.php'],
                 ['bell-fill', 'Notifications', 'notifications.php'],
             ],
             'Account' => [
@@ -139,7 +136,7 @@ $sbNav = [
                 ['box-arrow-right', 'Logout', null, 'logout'],
             ],
         ],
-        'brand' => 'Adviser Portal',
+        'brand' => 'Teacher Portal',
     ],
 ];
 
@@ -177,7 +174,8 @@ $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
         $sbClass  = $sbType === 'logout' ? 'nav-link logout-link' : 'nav-link';
         // Absolute, role-prefixed URL — works from role subdirectories AND
         // the consolidated pages/ai_assistant.php at the pages/ root.
-        $sbHref   = $sbType === 'logout' ? '#' : APP_URL . '/pages/' . $sbRole . '/' . $sbFile;
+        $sbDirectory = $sbRole === 'teacher' ? 'adviser' : $sbRole;
+        $sbHref   = $sbType === 'logout' ? '#' : APP_URL . '/pages/' . $sbDirectory . '/' . $sbFile;
         $sbExtra  = $sbType === 'logout' ? ' data-logout-url="' . APP_URL . '/auth/logout.php"' : '';
         ?>
         <a class="<?= $sbClass ?> <?= $sbActive ?>" href="<?= $sbHref ?>"<?= $sbExtra ?>>
@@ -206,4 +204,3 @@ $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
     </div>
   </div>
 </aside>
-

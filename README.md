@@ -1,3 +1,4 @@
+# BPC School Clinic Management System — Phase 1
 # AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
 
 ## Setup (XAMPP)

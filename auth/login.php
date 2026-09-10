@@ -40,6 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif ($user['status'] !== 'active') {
                 login_rate_limit_clear($clientIp);
                 $errors[] = 'Your account is not active yet. Please contact the system administrator.';
+            } elseif (!is_supported_role($user['role'])) {
+                // Never permit retired or un-migrated roles to receive a session.
+                $errors[] = 'This account role is not available. Please contact the system administrator.';
             } else {
                 login_user($user);
                 login_rate_limit_clear($clientIp);
@@ -69,7 +72,7 @@ $pageTitle = 'Login';
 <div class="auth-wrapper">
   <div class="auth-card" data-aos="fade-up" data-aos-duration="800">
     <div class="auth-side">
-      <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo" style="width:70px;height: 70px;object-fit:contain;"></div>
+      <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo" style="width:70px;height:70px;object-fit:contain;"></div>
       <h2 class="mb-2">AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</h2>
       <p class="mb-0">Digital health records, appointments, and clinic monitoring for Bulacan Polytechnic College with health monitoring and clinic assistance.</p>
     </div>
@@ -140,7 +143,7 @@ $pageTitle = 'Login';
           <p class="small text-muted mb-2">Don't have an account? Choose your role to register:</p>
           <div class="d-flex justify-content-center gap-2 flex-wrap mb-2">
             <a href="register_student.php" class="btn btn-sm btn-outline-primary"><i class="bi bi-mortarboard me-1"></i> Student</a>
-            <a href="register_teacher.php" class="btn btn-sm btn-outline-primary"><i class="bi bi-person-video3 me-1"></i> Teacher / Adviser</a>
+            <a href="register_teacher.php" class="btn btn-sm btn-outline-info"><i class="bi bi-person-workspace me-1"></i> Teacher</a>
             <a href="register_nurse.php" class="btn btn-sm btn-outline-success"><i class="bi bi-person-badge-fill me-1"></i> Nurse</a>
             <a href="register_admin.php" class="btn btn-sm btn-outline-dark"><i class="bi bi-shield-lock me-1"></i> Administrator</a>
           </div>

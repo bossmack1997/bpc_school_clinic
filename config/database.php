@@ -1,6 +1,7 @@
 <?php
 /**
  * Database connection (PDO)
+ * BPC School Clinic Management System
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  */
 

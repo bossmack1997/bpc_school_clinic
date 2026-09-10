@@ -80,6 +80,7 @@ function send_password_reset_email($toEmail, $resetLink, $subject = '', $bodyHtm
                         <td style="padding:32px;">
                           <p style="margin:0 0 16px;color:#333333;font-size:15px;line-height:1.6;">Hello,</p>
                           <p style="margin:0 0 16px;color:#333333;font-size:15px;line-height:1.6;">
+                            We received a request to reset your password for the <strong>BPC School Clinic Management System</strong>.
                             We received a request to reset your password for the <strong>AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</strong>.
                           </p>
                           <p style="margin:0 0 24px;color:#333333;font-size:15px;line-height:1.6;">
@@ -108,6 +109,7 @@ function send_password_reset_email($toEmail, $resetLink, $subject = '', $bodyHtm
                       </tr>
                       <tr>
                         <td style="background-color:#f4f6f8;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
+                          <p style="margin:0;color:#888888;font-size:12px;">&copy; ' . date('Y') . ' BPC School Clinic Management System</p>
                           <p style="margin:0;color:#888888;font-size:12px;">&copy; ' . date('Y') . ' AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</p>
                         </td>
                       </tr>

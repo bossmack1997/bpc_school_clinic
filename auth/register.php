@@ -2,17 +2,16 @@
 /**
  * auth/register.php
  * ------------------------------------------------------------------
- * Unified Self-Registration System for BPC School Clinic.
- * Supports dedicated self-registration for:
+ * Unified Medical Self-Registration System for BPC School Clinic.
+ * Supports dedicated self-registration for EXACTLY 4 roles:
  *   1. Student
- *   2. Nurse
- *   3. Teacher / Adviser
+ *   2. Teacher
+ *   3. Nurse
  *   4. Administrator
- *
- * Each role has a distinct registration process and assigned role.
  * ------------------------------------------------------------------
  */
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/ai/MICARegistrationValidator.php';
 
 // Prevent caching of authentication pages
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -28,12 +27,11 @@ $errors = [];
 $old = $_POST ?? [];
 
 // Determine default role selection from GET/POST
-$rawRoleReq = trim($_REQUEST['role'] ?? $_REQUEST['type'] ?? $_REQUEST['account_type'] ?? 'student');
+$rawRoleReq = strtolower(trim($_REQUEST['role'] ?? $_REQUEST['type'] ?? $_REQUEST['account_type'] ?? 'student'));
 $roleNormMap = [
     'student'       => 'student',
+    'teacher'       => 'teacher',
     'nurse'         => 'nurse',
-    'teacher'       => 'adviser',
-    'adviser'       => 'adviser',
     'admin'         => 'admin',
     'administrator' => 'admin',
 ];
@@ -72,13 +70,13 @@ if (!function_exists('upload_registration_file')) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
 
-    $rawRole = trim($_POST['account_type'] ?? $_POST['role'] ?? 'student');
+    $rawRole = strtolower(trim($_POST['account_type'] ?? $_POST['role'] ?? 'student'));
 
     if (!isset($roleNormMap[$rawRole])) {
-        $errors[] = 'Invalid account type selected. Please choose Student, Nurse, Teacher, or Administrator.';
+        $errors[] = 'Invalid account type selected. Please choose Student, Teacher, Nurse, or Administration.';
         $role = 'student';
     } else {
-        $role = $roleNormMap[$rawRole]; // Internal role: student, nurse, adviser, admin
+        $role = $roleNormMap[$rawRole];
     }
 
     $selectedRole = $role;
@@ -94,129 +92,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contact     = trim($_POST['contact_number'] ?? '');
     $gender      = trim($_POST['gender'] ?? '');
     $dob         = trim($_POST['date_of_birth'] ?? '');
-    $certify     = isset($_POST['certify']);
 
-    // Common validations
-    if (!$firstName || !$lastName || !$email || !$username || !$password) {
-        $errors[] = 'Please fill in all required fields.';
-    }
-    if ($email && !validate_email($email)) {
-        $errors[] = 'Please enter a valid email address.';
-    }
-    if ($username && !validate_username($username)) {
-        $errors[] = 'Username must be 3-50 characters (letters, numbers, underscores only).';
-    }
-    foreach (validate_password_strength($password) as $pwErr) {
-        $errors[] = $pwErr;
-    }
-    if ($password !== $confirm) {
-        $errors[] = 'Passwords do not match.';
-    }
-    if (!$certify) {
-        $errors[] = 'You must certify that the information provided is true and accurate.';
-    }
+    // Process file uploads first so validator can evaluate uploaded ID
+    $profilePicRel = upload_registration_file('profile_picture', 'assets/images/profiles', 'user', ['image/jpeg','image/png','image/webp'])
+                     ?: 'assets/images/default-avatar.png';
+    $validIdRel = upload_registration_file('valid_id', 'assets/images/student_ids', 'valid_id', ['image/jpeg','image/png','image/webp','application/pdf']);
 
-    // Role-specific field extractions & validations
-    if ($role === 'student') {
-        $studentNo = trim($_POST['student_number'] ?? '');
-        $course    = trim($_POST['course'] ?? '');
-        $yearLevel = trim($_POST['year_level'] ?? '');
-        $section   = trim($_POST['section'] ?? '');
+    // MICA Intelligent Registration Validation
+    $validator = new MICARegistrationValidator($db);
+    $validation = $validator->validateRegistration($_POST, !empty($validIdRel));
 
-        if (!$studentNo) {
-            $errors[] = 'Student Number is required.';
-        }
-        if ($dob !== '') {
-            if (!validate_date($dob)) {
-                $errors[] = 'Please enter a valid birthdate (YYYY-MM-DD).';
-            } elseif ($dob > date('Y-m-d')) {
-                $errors[] = 'Birthdate cannot be a future date.';
-            }
-        }
-        if (!$errors && $studentNo !== '') {
-            $stmt = $db->prepare("SELECT id FROM students WHERE student_number = ? LIMIT 1");
-            $stmt->execute([$studentNo]);
-            if ($stmt->fetch()) {
-                $errors[] = 'Student number is already registered.';
-            }
-        }
-    } elseif ($role === 'nurse') {
-        $employeeId    = trim($_POST['employee_id'] ?? '');
-        $licenseNumber = trim($_POST['license_number'] ?? '');
-
-        if (!$employeeId) {
-            $errors[] = 'Nurse / Employee ID is required.';
-        }
-        if (!$gender) {
-            $errors[] = 'Gender is required for Nurse registration.';
-        }
-        if (!$dob) {
-            $errors[] = 'Date of Birth is required for Nurse registration.';
-        } elseif (!validate_date($dob)) {
-            $errors[] = 'Please enter a valid birthdate (YYYY-MM-DD).';
-        } elseif ($dob > date('Y-m-d')) {
-            $errors[] = 'Birthdate cannot be a future date.';
-        }
-        if (!$contact) {
-            $errors[] = 'Contact Number is required for Nurse registration.';
-        }
-        if (!$errors && $employeeId !== '') {
-            $stmt = $db->prepare("SELECT id FROM nurses WHERE employee_id = ? LIMIT 1");
-            $stmt->execute([$employeeId]);
-            if ($stmt->fetch()) {
-                $errors[] = 'This Nurse Employee ID is already registered.';
-            }
-        }
-    } elseif ($role === 'adviser') {
-        $employeeId = trim($_POST['employee_id'] ?? '');
-        $department = trim($_POST['department'] ?? '');
-
-        if (!$employeeId) {
-            $errors[] = 'Employee / Faculty ID is required.';
-        }
-        if (!$department) {
-            $errors[] = 'Department / College is required.';
-        }
-
-        if (!$errors && $employeeId !== '') {
-            $stmt = $db->prepare("SELECT id FROM teachers WHERE employee_id = ? LIMIT 1");
-            $stmt->execute([$employeeId]);
-            if ($stmt->fetch()) {
-                $errors[] = 'This Employee/Faculty ID is already registered.';
-            } else {
-                $stmt = $db->prepare("SELECT id FROM teacher_registration_requests WHERE teacher_id_number = ? AND status IN ('pending','approved') LIMIT 1");
-                $stmt->execute([$employeeId]);
-                if ($stmt->fetch()) {
-                    $errors[] = 'A registration using this Employee/Faculty ID is already underway.';
-                }
-            }
-        }
-
-        if (!$errors) {
-            $stmt = $db->prepare("
-                SELECT r.id FROM teacher_registration_requests r
-                JOIN users u ON u.id = r.user_id
-                WHERE u.email = ? AND r.status = 'pending' LIMIT 1
-            ");
-            $stmt->execute([$email]);
-            if ($stmt->fetch()) {
-                $errors[] = 'You already have a pending teacher registration. Please wait for administrator review.';
-            }
-        }
-    } elseif ($role === 'admin') {
-        $adminOffice = trim($_POST['admin_office'] ?? '');
-        if (!$contact) {
-            $errors[] = 'Contact number is required for Administrator registration.';
-        }
-    }
-
-    // Common duplicate check across ALL user accounts
-    if (!$errors) {
-        $stmt = $db->prepare("SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1");
-        $stmt->execute([$username, $email]);
-        if ($stmt->fetch()) {
-            $errors[] = 'Username or email is already registered.';
-        }
+    if (!empty($validation['errors'])) {
+        $errors = $validation['errors'];
+    } elseif ($validation['decision'] === 'rejected') {
+        $errors[] = $validation['reason'] ?: 'Registration rejected based on automated credential validation.';
     }
 
     if (!$errors) {
@@ -224,16 +113,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->beginTransaction();
             $hash = password_hash($password, PASSWORD_DEFAULT);
 
-            $profilePicRel = upload_registration_file('profile_picture', 'assets/images/profiles', 'user', ['image/jpeg','image/png','image/webp'])
-                             ?: 'assets/images/default-avatar.png';
-            $validIdRel = upload_registration_file('valid_id', 'assets/images/student_ids', 'valid_id', ['image/jpeg','image/png','image/webp','application/pdf']);
-
-            // Admin accounts activate immediately; Student, Nurse, Teacher enter pending verification
-            $accountStatus = ($role === 'admin') ? 'active' : 'pending';
+            $decision      = $validation['decision']; // 'approved' or 'review'
+            $accountStatus = ($decision === 'approved') ? 'active' : 'pending';
+            $regStatus     = ($decision === 'approved') ? 'approved' : 'review';
+            $valReason     = $validation['reason'];
+            $valConfidence = $validation['confidence'];
 
             $stmt = $db->prepare("
-                INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, profile_picture, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, profile_picture, status, registration_status, validation_reason, validation_confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $role,
@@ -247,11 +135,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $dob ?: null,
                 $contact ?: null,
                 $profilePicRel,
-                $accountStatus
+                $accountStatus,
+                $regStatus,
+                $valReason,
+                $valConfidence
             ]);
             $userId = (int)$db->lastInsertId();
 
             if ($role === 'student') {
+                $studentNo = $validation['metadata']['student_number'] ?? trim($_POST['student_number'] ?? '');
+                $course    = $validation['metadata']['course'] ?? trim($_POST['course'] ?? '');
+                $yearLevel = $validation['metadata']['year_level'] ?? trim($_POST['year_level'] ?? '');
+                $section   = $validation['metadata']['section'] ?? trim($_POST['section'] ?? '');
+
                 $stmt = $db->prepare("
                     INSERT INTO students (user_id, student_number, course, year_level, section, valid_id_path)
                     VALUES (?, ?, ?, ?, ?, ?)
@@ -259,16 +155,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$userId, $studentNo, $course ?: null, $yearLevel ?: null, $section ?: null, $validIdRel]);
                 $studentId = (int)$db->lastInsertId();
 
-                try {
-                    ensure_student_qr($db, $studentId, $userId);
-                } catch (Exception $qrE) {
-                    error_log('QR generation on registration failed: ' . $qrE->getMessage());
+                if ($accountStatus === 'active') {
+                    try {
+                        ensure_student_qr($db, $studentId, $userId);
+                    } catch (Exception $qrE) {
+                        error_log('QR generation on registration failed: ' . $qrE->getMessage());
+                    }
                 }
 
-                log_activity($userId, 'Registered new student account', 'auth');
-                set_flash('success', 'Student registration submitted! Your account is pending administrator approval.');
+                log_activity($userId, 'Registered new student account (' . $regStatus . ')', 'auth');
+
+            } elseif ($role === 'teacher') {
+                $employeeId = $validation['metadata']['employee_id'] ?? trim($_POST['employee_id'] ?? '');
+                $department = $validation['metadata']['department'] ?? trim($_POST['department'] ?? '');
+
+                $stmt = $db->prepare("
+                    INSERT INTO teachers (user_id, employee_id, first_name, last_name, department, email, phone)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $userId,
+                    $employeeId,
+                    $firstName,
+                    $lastName,
+                    $department ?: null,
+                    $email,
+                    $contact ?: null
+                ]);
+
+                log_activity($userId, 'Registered new teacher account (' . $regStatus . ')', 'auth');
 
             } elseif ($role === 'nurse') {
+                $employeeId    = $validation['metadata']['employee_id'] ?? trim($_POST['employee_id'] ?? '');
+                $licenseNumber = $validation['metadata']['license_number'] ?? trim($_POST['license_number'] ?? '');
+
                 $stmt = $db->prepare("
                     INSERT INTO nurses (user_id, employee_id, license_number, gender, date_of_birth, contact_number, valid_id_path, profile_picture)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -284,22 +204,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $profilePicRel
                 ]);
 
-                log_activity($userId, 'Registered new nurse account', 'auth');
-                set_flash('success', 'Nurse registration submitted! Your account is pending administrator approval.');
-
-            } elseif ($role === 'adviser') {
-                $stmt = $db->prepare("
-                    INSERT INTO teacher_registration_requests (user_id, requested_role, teacher_id_number, requested_sections, status)
-                    VALUES (?, 'adviser', ?, NULL, 'pending')
-                ");
-                $stmt->execute([$userId, $employeeId ?: null]);
-
-                log_activity($userId, 'Submitted teacher account request', 'auth');
-                set_flash('success', 'Teacher account request submitted! You can log in after the administrator approves your account.');
+                log_activity($userId, 'Registered new nurse account (' . $regStatus . ')', 'auth');
 
             } elseif ($role === 'admin') {
-                log_activity($userId, 'Self-registered new administrator account', 'auth', 'Administrator: ' . $username);
-                set_flash('success', 'Administrator account created successfully! You can now sign in with your credentials.');
+                log_activity($userId, 'Registered administration account request (' . $regStatus . ')', 'auth', 'Administrator: ' . $username);
+            }
+
+            // If account is flagged for review, create an AI action item for administrators
+            if ($decision === 'review') {
+                $validator->logReviewAction($userId, $validation);
+                set_flash('info', 'Registration submitted! Your account is undergoing clinic administrative verification (' . $valReason . '). You will be able to log in once approved.');
+            } else {
+                set_flash('success', 'Registration approved! Your account is active. You can now sign in.');
             }
 
             $db->commit();
@@ -340,6 +256,18 @@ $pageTitle = 'Create an Account';
     color: #ffffff !important;
     box-shadow: 0 4px 12px rgba(11, 107, 58, 0.25);
   }
+  .role-btn.btn-doctor.active {
+    background: #0284c7 !important;
+    border-color: #0284c7 !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+  }
+  .role-btn.btn-nurse.active {
+    background: #059669 !important;
+    border-color: #059669 !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
+  }
   .role-btn.btn-admin.active {
     background: #0f172a !important;
     border-color: #0f172a !important;
@@ -373,7 +301,7 @@ $pageTitle = 'Create an Account';
       <form method="POST" novalidate enctype="multipart/form-data" id="unifiedRegForm">
         <?= csrf_field() ?>
 
-        <!-- Account Type Selector (Student, Nurse, Teacher, Administrator) -->
+        <!-- Account Type Selector (Student, Teacher, Nurse, Administration) -->
         <div class="mb-3">
           <label class="form-label fw-bold small text-dark d-block mb-2">
             <i class="bi bi-person-badge me-1 text-primary"></i> Select Account Type:
@@ -386,15 +314,15 @@ $pageTitle = 'Create an Account';
               </button>
             </div>
             <div class="col-6 col-sm-3">
-              <button type="button" class="btn role-btn w-100 py-2 text-center <?= $selectedRole === 'nurse' ? 'active' : '' ?>" data-role="nurse">
-                <i class="bi bi-person-badge-fill d-block mb-1"></i>
-                <span>Nurse</span>
+              <button type="button" class="btn role-btn btn-doctor w-100 py-2 text-center <?= $selectedRole === 'teacher' ? 'active' : '' ?>" data-role="teacher">
+                <i class="bi bi-person-workspace d-block mb-1"></i>
+                <span>Teacher</span>
               </button>
             </div>
             <div class="col-6 col-sm-3">
-              <button type="button" class="btn role-btn w-100 py-2 text-center <?= $selectedRole === 'adviser' ? 'active' : '' ?>" data-role="teacher">
-                <i class="bi bi-person-video3 d-block mb-1"></i>
-                <span>Teacher</span>
+              <button type="button" class="btn role-btn btn-nurse w-100 py-2 text-center <?= $selectedRole === 'nurse' ? 'active' : '' ?>" data-role="nurse">
+                <i class="bi bi-person-badge-fill d-block mb-1"></i>
+                <span>Nurse</span>
               </button>
             </div>
             <div class="col-6 col-sm-3">
@@ -404,7 +332,7 @@ $pageTitle = 'Create an Account';
               </button>
             </div>
           </div>
-          <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole === 'adviser' ? 'teacher' : $selectedRole) ?>">
+          <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole) ?>">
         </div>
 
         <!-- Section: Personal Information -->
@@ -422,7 +350,7 @@ $pageTitle = 'Create an Account';
             <label class="form-label small fw-semibold">Last Name *</label>
             <input type="text" name="last_name" class="form-control" required maxlength="80" value="<?= e($old['last_name'] ?? '') ?>" placeholder="Last name">
           </div>
-          <div class="col-md-6 role-field field-gender field-student field-nurse">
+          <div class="col-md-6 role-field field-gender field-student field-nurse field-teacher">
             <label class="form-label small fw-semibold" id="genderLabel">Gender</label>
             <select name="gender" id="genderInput" class="form-select">
               <option value="">Select</option>
@@ -431,11 +359,11 @@ $pageTitle = 'Create an Account';
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="col-md-6 role-field field-dob field-student field-nurse">
+          <div class="col-md-6 role-field field-dob field-student field-nurse field-teacher">
             <label class="form-label small fw-semibold" id="dobLabel">Date of Birth</label>
             <input type="date" name="date_of_birth" id="dobInput" class="form-control" max="<?= date('Y-m-d') ?>" value="<?= e($old['date_of_birth'] ?? '') ?>">
           </div>
-          <div class="col-md-6 role-field field-contact field-student field-nurse field-teacher field-admin">
+          <div class="col-md-6 role-field field-contact field-student field-teacher field-nurse field-admin">
             <label class="form-label small fw-semibold" id="contactLabel">Contact Number *</label>
             <input type="text" name="contact_number" id="contactInput" class="form-control" maxlength="30" placeholder="e.g. 09171234567" value="<?= e($old['contact_number'] ?? '') ?>">
           </div>
@@ -469,6 +397,29 @@ $pageTitle = 'Create an Account';
           </div>
         </div>
 
+        <!-- Section: Teacher Details (Teacher Only) -->
+        <div class="role-section section-teacher">
+          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-person-workspace me-1 text-primary"></i> Teacher Details</h6>
+          <div class="row g-2 mb-2">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Teacher Employee ID *</label>
+              <input type="text" name="employee_id" id="teacherEmployeeIdInput" class="form-control" maxlength="50" placeholder="e.g. TCH-2026-001" value="<?= e($old['employee_id'] ?? '') ?>">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Department</label>
+              <input type="text" name="department" id="teacherDepartmentInput" class="form-control" maxlength="100" placeholder="e.g. College Department" value="<?= e($old['department'] ?? '') ?>">
+            </div>
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold">Assigned Section (optional)</label>
+              <input type="text" name="section" class="form-control" placeholder="e.g. BSIT 1-A" value="<?= e($old['section'] ?? '') ?>">
+            </div>
+          </div>
+          <div class="card p-2 mb-2 small" style="background:#e0f2fe;border:none;color:#0369a1;">
+            <div class="fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i> Privacy-limited access</div>
+            <div>Teachers can submit clinic referrals and emergency reports. They cannot access confidential medical records or medicines.</div>
+          </div>
+        </div>
+
         <!-- Section: Nurse Employment Info (Nurse Only) -->
         <div class="role-section section-nurse">
           <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-hospital-fill me-1"></i> Nurse Credentials</h6>
@@ -484,25 +435,6 @@ $pageTitle = 'Create an Account';
           </div>
         </div>
 
-        <!-- Section: Teacher Employment Info (Teacher Only) -->
-        <div class="role-section section-teacher">
-          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-briefcase-fill me-1"></i> Faculty Information</h6>
-          <div class="row g-2 mb-2">
-            <div class="col-md-6">
-              <label class="form-label small fw-semibold">Employee / Faculty ID *</label>
-              <input type="text" name="employee_id" id="teacherEmployeeIdInput" class="form-control" maxlength="50" placeholder="e.g. T-2026-001" value="<?= e($old['employee_id'] ?? '') ?>">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label small fw-semibold">Department / College *</label>
-              <input type="text" name="department" id="deptInput" class="form-control" maxlength="120" placeholder="e.g. College of Computer Studies" value="<?= e($old['department'] ?? '') ?>">
-            </div>
-          </div>
-          <div class="card p-2 mb-2 small" style="background:var(--primary-light,#EAF7EF);border:none;">
-            <div class="fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i> Advisory Section Assignment</div>
-            <div class="text-muted">You will be able to select and manage your advisory class inside the Adviser Portal once your account is approved.</div>
-          </div>
-        </div>
-
         <!-- Section: Administrator Info (Admin Only) -->
         <div class="role-section section-admin">
           <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-shield-check me-1"></i> Administrative Office</h6>
@@ -514,7 +446,7 @@ $pageTitle = 'Create an Account';
           </div>
           <div class="card p-2 mb-2 small bg-dark text-white border-0 rounded-3">
             <div class="fw-semibold mb-1"><i class="bi bi-shield-lock-fill me-1 text-warning"></i> Administrator Privileges</div>
-            <div class="text-light opacity-75">Administrator accounts hold system-wide management authority (user approvals, course &amp; section management, reports, and system settings).</div>
+            <div class="text-light opacity-75">Administration accounts manage users, clinic configuration, reports, and system settings. Approval is required before access is granted.</div>
           </div>
         </div>
 
@@ -547,8 +479,8 @@ $pageTitle = 'Create an Account';
             <label class="form-label small fw-semibold">Profile Picture</label>
             <input type="file" name="profile_picture" class="form-control" accept="image/*">
           </div>
-          <div class="col-md-6 role-field field-valid_id field-student field-nurse">
-            <label class="form-label small fw-semibold" id="validIdLabel">Student ID / Valid ID *</label>
+          <div class="col-md-6 role-field field-valid_id field-student field-nurse field-teacher">
+            <label class="form-label small fw-semibold" id="validIdLabel">Valid ID / PRC ID</label>
             <input type="file" name="valid_id" id="validIdInput" class="form-control" accept="image/*,.pdf">
           </div>
         </div>
@@ -587,45 +519,43 @@ $pageTitle = 'Create an Account';
       contactReq: false,
       studentNumReq: true,
       empIdReq: false,
-      deptReq: false,
       validIdReq: true,
       validIdLabel: 'Student ID / Valid ID *'
+    },
+    teacher: {
+      title: 'Teacher Registration',
+      sideTitle: 'Teacher Portal',
+      sideDesc: 'Register as a teacher to submit authorized clinic referrals and emergency reports.',
+      sideIcon: '<i class="bi bi-person-workspace"></i>',
+      btnText: 'Register Teacher Account',
+      btnClass: 'btn-info text-white',
+      genderReq: false,
+      dobReq: false,
+      contactReq: true,
+      studentNumReq: false,
+      empIdReq: true,
+      validIdReq: false,
+      validIdLabel: 'School ID / Valid ID'
     },
     nurse: {
       title: 'Nurse Registration',
       sideTitle: 'Nurse Station',
-      sideDesc: 'Register as a school nurse to manage health records, patient consultations, and clinic operations.',
+      sideDesc: 'Register as a school nurse to manage health records, patient consultations, vital signs, and clinic operations.',
       sideIcon: '<i class="bi bi-person-badge-fill"></i>',
       btnText: 'Register Nurse Account',
-      btnClass: 'btn-primary',
+      btnClass: 'btn-success',
       genderReq: true,
       dobReq: true,
       contactReq: true,
       studentNumReq: false,
       empIdReq: true,
-      deptReq: false,
       validIdReq: false,
-      validIdLabel: 'Valid ID / PRC ID'
-    },
-    teacher: {
-      title: 'Teacher Registration',
-      sideTitle: 'Faculty Portal',
-      sideDesc: 'Register as a teacher. After administrator review, manage your advisory section and student clinic care.',
-      sideIcon: '<i class="bi bi-person-video3"></i>',
-      btnText: 'Submit Teacher Request',
-      btnClass: 'btn-primary',
-      genderReq: false,
-      dobReq: false,
-      contactReq: false,
-      studentNumReq: false,
-      empIdReq: true,
-      deptReq: true,
-      validIdReq: false
+      validIdLabel: 'PRC ID / Valid ID'
     },
     admin: {
       title: 'Administrator Registration',
       sideTitle: 'System Administration',
-      sideDesc: 'Register as an Administrator to oversee clinic operations, user accounts, sections, and reporting.',
+      sideDesc: 'Register as an Administrator to oversee clinic operations, doctor & nurse accounts, inventory, and reporting.',
       sideIcon: '<i class="bi bi-shield-lock-fill"></i>',
       btnText: 'Register Administrator Account',
       btnClass: 'btn-dark',
@@ -634,8 +564,8 @@ $pageTitle = 'Create an Account';
       contactReq: true,
       studentNumReq: false,
       empIdReq: false,
-      deptReq: false,
-      validIdReq: false
+      validIdReq: false,
+      validIdLabel: 'Valid ID (Optional)'
     }
   };
 
@@ -648,9 +578,9 @@ $pageTitle = 'Create an Account';
   const dobInput = document.getElementById('dobInput');
   const contactInput = document.getElementById('contactInput');
   const studentNumInput = document.getElementById('studentNumberInput');
-  const nurseEmpIdInput = document.getElementById('nurseEmployeeIdInput');
   const teacherEmpIdInput = document.getElementById('teacherEmployeeIdInput');
-  const deptInput = document.getElementById('deptInput');
+  const teacherDepartmentInput = document.getElementById('teacherDepartmentInput');
+  const nurseEmpIdInput = document.getElementById('nurseEmployeeIdInput');
   const validIdInput = document.getElementById('validIdInput');
   const submitBtn = document.getElementById('submitBtn');
 
@@ -680,8 +610,8 @@ $pageTitle = 'Create an Account';
 
     // Toggle Role Sections
     document.querySelector('.section-student').style.display = (roleKey === 'student') ? 'block' : 'none';
-    document.querySelector('.section-nurse').style.display = (roleKey === 'nurse') ? 'block' : 'none';
     document.querySelector('.section-teacher').style.display = (roleKey === 'teacher') ? 'block' : 'none';
+    document.querySelector('.section-nurse').style.display = (roleKey === 'nurse') ? 'block' : 'none';
     document.querySelector('.section-admin').style.display = (roleKey === 'admin') ? 'block' : 'none';
 
     // Toggle Role Fields
@@ -698,10 +628,12 @@ $pageTitle = 'Create an Account';
     if (dobInput) dobInput.required = meta.dobReq;
     if (contactInput) contactInput.required = meta.contactReq;
     if (studentNumInput) studentNumInput.required = meta.studentNumReq;
-    if (nurseEmpIdInput) nurseEmpIdInput.required = (roleKey === 'nurse');
     if (teacherEmpIdInput) teacherEmpIdInput.required = (roleKey === 'teacher');
-    if (deptInput) deptInput.required = meta.deptReq;
+    if (teacherDepartmentInput) teacherDepartmentInput.required = false;
+    if (nurseEmpIdInput) nurseEmpIdInput.required = (roleKey === 'nurse');
     if (validIdInput) validIdInput.required = meta.validIdReq;
+    const vLabel = document.getElementById('validIdLabel');
+    if (vLabel && meta.validIdLabel) vLabel.textContent = meta.validIdLabel;
   }
 
   // Bind click handlers to role buttons

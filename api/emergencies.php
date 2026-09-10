@@ -21,8 +21,8 @@ $action = (string)($_REQUEST['action'] ?? '');
 // 1. ADVISER REPORT EMERGENCY (Manual Location)
 // ---------------------------------------------------------------------
 if ($action === 'report') {
-    if ($role !== 'adviser') {
-        json_response(false, [], 'Only advisers can submit advisory emergency reports.');
+    if ($role !== 'teacher') {
+        json_response(false, [], 'Only teachers can submit teacher emergency reports.');
     }
     csrf_verify_or_die();
 
@@ -377,12 +377,12 @@ if ($action === 'live_tracking' || $action === 'get_location') {
 // 7. LIST EMERGENCIES (Nurse / Admin / Adviser)
 // ---------------------------------------------------------------------
 if ($action === 'list') {
-    if (!in_array($role, ['nurse', 'admin', 'adviser'], true)) {
+    if (!in_array($role, ['nurse', 'admin', 'teacher'], true)) {
         json_response(false, [], 'Access denied.');
     }
     $where = '';
     $params = [];
-    if ($role === 'adviser') {
+    if ($role === 'teacher') {
         $where = "WHERE se.source = 'adviser' AND se.user_id = ?";
         $params[] = $u['id'];
     } else {

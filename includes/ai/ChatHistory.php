@@ -62,6 +62,22 @@ class ChatHistory
     }
 
     /**
+     * Get messages alias
+     */
+    public function getMessages(): array
+    {
+        return $this->getHistory();
+    }
+
+    /**
+     * Get messages formatted for prompt injection
+     */
+    public function getMessagesForPrompt(int $count = 10): array
+    {
+        return $this->getRecent($count);
+    }
+
+    /**
      * Clear the chat history.
      */
     public function clear(): void

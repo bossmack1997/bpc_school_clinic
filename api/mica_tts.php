@@ -1,6 +1,7 @@
 <?php
 /**
  * MICA Text-to-Speech API
+ * BPC School Clinic Management System
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  *
  * ElevenLabs TTS secure server-side proxy.

@@ -1,12 +1,13 @@
 <?php
 /**
  * Walk-in Patient Management API
+ * BPC School Clinic Management System
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  */
 
 require_once __DIR__ . '/../config/config.php';
 require_login();
-if (current_user()['role'] !== 'nurse' && current_user()['role'] !== 'admin') {
+if (current_user()['role'] !== 'nurse') {
     json_response(false, [], 'Access denied.');
 }
 header('Content-Type: application/json');

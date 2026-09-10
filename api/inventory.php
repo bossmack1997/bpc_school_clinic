@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
-require_role(['admin','nurse']);
+require_role(['admin', 'nurse']);
 header('Content-Type: application/json');
 
 $db = getDB();
@@ -153,7 +153,7 @@ if ($action === 'categories') {
 // ================================================================
 if ($action === 'add') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can add medicines.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $medicineName   = trim($_POST['medicine_name'] ?? '');
     $genericName    = trim($_POST['generic_name'] ?? '');
@@ -287,7 +287,7 @@ if ($action === 'add') {
 // ================================================================
 if ($action === 'update') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can update medicines.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $id = (int)($_POST['id'] ?? 0);
     if ($id <= 0) json_response(false, [], 'Invalid medicine.');
@@ -323,7 +323,7 @@ if ($action === 'update') {
 // ================================================================
 if ($action === 'stock_update') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can update stock.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $id = (int)$_POST['id'];
     $type = $_POST['type']; // stock_in / stock_out / adjustment
@@ -359,7 +359,7 @@ if ($action === 'stock_update') {
 // ================================================================
 if ($action === 'delete') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can delete medicines.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $id = (int)($_POST['id'] ?? 0);
     $hard = !empty($_POST['hard']);
     if ($hard) {
@@ -376,7 +376,7 @@ if ($action === 'delete') {
 // ================================================================
 if ($action === 'bulk_delete' || $action === 'bulk_archive') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can perform bulk actions.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $ids = $_POST['ids'] ?? [];
     if (!is_array($ids) || !$ids) json_response(false, [], 'No medicines selected.');
     $safe = array_values(array_filter(array_map('intval', $ids), fn($i) => $i > 0));
@@ -398,7 +398,7 @@ if ($action === 'bulk_delete' || $action === 'bulk_archive') {
 // ================================================================
 if ($action === 'bulk_stock_update') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can perform bulk actions.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $ids = $_POST['ids'] ?? [];
     $delta = (int)($_POST['delta'] ?? 0); // + adds, - subtracts
     if (!is_array($ids) || !$ids || $delta === 0) json_response(false, [], 'Invalid input.');
@@ -413,7 +413,7 @@ if ($action === 'bulk_stock_update') {
 
 if ($action === 'bulk_category') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can perform bulk actions.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $ids = $_POST['ids'] ?? [];
     $category = trim($_POST['category'] ?? '');
     if (!is_array($ids) || !$ids || !$category) json_response(false, [], 'Invalid input.');
@@ -428,7 +428,7 @@ if ($action === 'bulk_category') {
 // ================================================================
 if ($action === 'import_preview') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can import medicines.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     // Accept BOTH: a file upload (CSV via fgetcsv) OR a JSON rows array
     // (sent from the client-side SheetJS/CSV parser).
@@ -590,7 +590,7 @@ if ($action === 'import_preview') {
 // ================================================================
 if ($action === 'import_commit') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Only nurses can import medicines.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $items = $_POST['items'] ?? [];
     if (!is_array($items) || !$items) json_response(false, [], 'No valid items to import.');
 

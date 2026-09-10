@@ -9,7 +9,7 @@ $action = $_REQUEST['action'] ?? '';
 
 if ($action === 'list') {
     $audience = $user['role'];
-    if ($audience === 'admin' || $audience === 'nurse') {
+    if (in_array($audience, ['admin', 'nurse', 'doctor'], true)) {
         $stmt = $db->query("SELECT a.*, u.first_name, u.last_name FROM announcements a LEFT JOIN users u ON u.id = a.posted_by ORDER BY a.is_pinned DESC, a.created_at DESC");
     } else {
         $stmt = $db->prepare("SELECT a.*, u.first_name, u.last_name FROM announcements a LEFT JOIN users u ON u.id = a.posted_by WHERE a.audience IN ('all', ?) ORDER BY a.is_pinned DESC, a.created_at DESC");
@@ -20,7 +20,7 @@ if ($action === 'list') {
 
 if ($action === 'add') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized. Only nurses can post announcements.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $title = trim($_POST['title'] ?? '');
     $content = trim($_POST['content'] ?? '');
@@ -36,7 +36,7 @@ if ($action === 'add') {
 
     $targetRoles = [];
     if ($audience === 'all') {
-        $targetRoles = ['admin', 'student', 'nurse', 'adviser'];
+        $targetRoles = ['admin', 'student', 'nurse', 'doctor'];
     } elseif ($audience === 'students') {
         $targetRoles = ['student'];
     } elseif ($audience === 'teachers') {
@@ -72,7 +72,7 @@ if ($action === 'add') {
 
 if ($action === 'delete') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $id = (int)($_POST['id'] ?? 0);
     $stmt = $db->prepare("DELETE FROM announcements WHERE id=?");
@@ -83,7 +83,7 @@ if ($action === 'delete') {
 
 if ($action === 'edit') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $id = (int)($_POST['id'] ?? 0);
     $title = trim($_POST['title'] ?? '');
@@ -101,7 +101,7 @@ if ($action === 'edit') {
 
 if ($action === 'toggle_pin') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
+    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $id = (int)($_POST['id'] ?? 0);
     $stmt = $db->prepare("UPDATE announcements SET is_pinned = NOT is_pinned WHERE id=?");

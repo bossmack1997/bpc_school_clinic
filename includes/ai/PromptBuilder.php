@@ -21,6 +21,7 @@ class PromptBuilder
 
     public function __construct()
     {
+        $this->appName = defined('APP_NAME') ? APP_NAME : 'BPC School Clinic Management System with Health Monitoring and Appointment Assistance';
         $this->appName = defined('APP_NAME') ? APP_NAME : 'AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement';
     }
 

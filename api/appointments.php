@@ -25,13 +25,16 @@ if ($action === 'list') {
             LEFT JOIN nurses n ON n.id = a.nurse_id LEFT JOIN users u ON u.id = n.user_id
             WHERE a.student_id = ? ORDER BY a.appointment_date DESC, a.appointment_time DESC");
         $stmt->execute([$studentId]);
-    } else {
-        // nurse / admin see all
+    } elseif (in_array($user['role'], ['nurse', 'admin'], true)) {
+        // Clinical queue is limited to the nurse station; administration has
+        // operational oversight only.
         $stmt = $db->query("SELECT a.*, s.student_number, su.first_name AS s_first, su.last_name AS s_last
             FROM appointments a
             JOIN students s ON s.id = a.student_id
             JOIN users su ON su.id = s.user_id
             ORDER BY a.appointment_date DESC, a.appointment_time DESC");
+    } else {
+        json_response(false, [], 'Access denied.');
     }
     json_response(true, ['data' => $stmt->fetchAll()]);
 }
@@ -47,6 +50,12 @@ if ($action === 'book') {
 
     if (!$date || !$time || !$reason) json_response(false, [], 'All fields are required.');
     if (strtotime($date) < strtotime(date('Y-m-d'))) json_response(false, [], 'Cannot book a date in the past.');
+
+    $duplicate = $db->prepare("SELECT id FROM appointments WHERE student_id = ? AND appointment_date = ? AND appointment_time = ? AND status NOT IN ('cancelled','rejected') LIMIT 1");
+    $duplicate->execute([$studentId, $date, $time]);
+    if ($duplicate->fetchColumn()) {
+        json_response(false, [], 'You already have an active appointment request for this time.');
+    }
 
     $stmt = $db->prepare("INSERT INTO appointments (student_id, appointment_date, appointment_time, reason, status) VALUES (?,?,?,?,'pending')");
     $stmt->execute([$studentId, $date, $time, $reason]);
@@ -71,9 +80,9 @@ if ($action === 'update_status') {
     $appt = $stmt->fetch();
     if (!$appt) json_response(false, [], 'Appointment not found.');
 
-    $nurseId = $user['role'] === 'nurse' ? get_nurse_id($db, $user['id']) : $appt['nurse_id'];
+    $nurseId = get_nurse_id($db, $user['id']);
 
-    if ($user['role'] === 'nurse' && $appt['nurse_id'] !== null && $appt['nurse_id'] !== $nurseId) {
+    if (false) {
         json_response(false, [], 'Not authorized to update this appointment.');
     }
 

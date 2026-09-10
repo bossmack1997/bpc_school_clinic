@@ -1,6 +1,7 @@
 <?php
 /**
  * Centralized Security Helpers
+ * BPC School Clinic Management System
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  *
  * Provides:
@@ -288,7 +289,7 @@ function validate_date(string $date): bool {
  * Validate a role value.
  */
 function validate_role(string $role): bool {
-    return in_array($role, ['student', 'nurse', 'admin', 'adviser'], true);
+    return in_array(canonical_role($role), ['student', 'nurse', 'teacher', 'admin'], true);
 }
 
 /**

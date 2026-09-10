@@ -67,6 +67,17 @@ class OpenRouter
      *   http_code: int
      * }
      */
+    public function complete(string $systemPrompt, array $messages): array
+    {
+        $res = $this->chat($systemPrompt, $messages);
+        return [
+            'success' => !empty($res['success']) && !empty($res['content']),
+            'reply'   => $res['content'] ?? '',
+            'model'   => $res['model'] ?? $this->model,
+            'error'   => $res['error'] ?? null,
+        ];
+    }
+
     public function chat(string $systemPrompt, array $messages): array
     {
         if (!$this->enabled) {

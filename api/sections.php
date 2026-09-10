@@ -43,7 +43,7 @@ if ($action === 'list') {
         SELECT u.id, u.first_name, u.last_name, u.email, t.employee_id, t.department
         FROM users u
         LEFT JOIN teachers t ON t.user_id = u.id
-        WHERE u.role = 'adviser' AND u.status = 'active'
+        WHERE u.role = 'teacher' AND u.status = 'active'
         ORDER BY u.last_name, u.first_name
     ")->fetchAll();
 
@@ -303,4 +303,3 @@ if ($action === 'section_students') {
 }
 
 json_response(false, [], 'Unknown action.');
-
