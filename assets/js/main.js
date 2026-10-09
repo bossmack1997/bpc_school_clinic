@@ -404,6 +404,46 @@ $(function () {
     }
   });
 
+  // ================================================================
+  // Double-submit guard
+  // ----------------------------------------------------------------
+  // Disables a form's submit button while its request is in
+  // flight, then restores it. Prevents the duplicate records
+  // caused by an impatient double-click.
+  //
+  //   * The button is disabled the moment the form submits.
+  //   * It is restored as soon as the POST that the submit
+  //     triggered completes (background GET polling never
+  //     restores it, so a slow save cannot be re-clicked).
+  //   * A safety sweep restores buttons that were disabled
+  //     by a submit which never reached the network (for
+  //     example, one stopped by client-side validation), so
+  //     no form is ever left permanently disabled.
+  //   * Opt out with the .no-auto-disable class.
+  // ================================================================
+  $(document).on('submit', 'form', function () {
+    var $btn = $(this).find(
+      'button[type="submit"]:not(.no-auto-disable), input[type="submit"]:not(.no-auto-disable)'
+    ).first();
+    if ($btn.length) {
+      $btn.prop('disabled', true).addClass('is-busy');
+    }
+  });
+
+  $(document).on('ajaxComplete', function (event, xhr, settings) {
+    if (settings && settings.type && String(settings.type).toUpperCase() === 'POST') {
+      $('form .is-busy').prop('disabled', false).removeClass('is-busy');
+    }
+  });
+
+  // Safety sweep: only runs when no request is in flight, so a
+  // genuinely busy save is never interrupted.
+  setInterval(function () {
+    if (window.jQuery && jQuery.active === 0) {
+      $('form .is-busy').prop('disabled', false).removeClass('is-busy');
+    }
+  }, 3000);
+
 }); // end DOM ready
 
 // ================================================================
