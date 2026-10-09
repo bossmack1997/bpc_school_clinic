@@ -2809,6 +2809,35 @@
 .adm-card__sub { margin-top: 3px; font-size: var(--fs-micro); color: var(--text-muted); }
 .adm-feed__time { font-size: var(--fs-micro); color: var(--text-muted); white-space: nowrap; }
 
+/* Compact live-queue summary rendered inside the
+   clinic-activity panel. Three short figures in a
+   row; each value is tagged [data-metric] so the
+   dashboard auto-refresh updates it in place. */
+.adm-queue-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border-subtle);
+}
+.adm-qs { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.adm-qs__value {
+  font-size: var(--fs-stat);
+  font-weight: var(--fw-semibold);
+  line-height: 1.1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.adm-qs__value--warn { color: var(--warning-text); }
+.adm-qs__value--info { color: var(--info-text); }
+.adm-qs__value--ok   { color: var(--success-text); }
+.adm-qs__label { font-size: var(--fs-micro); color: var(--text-muted); }
+
+/* Single-column alert stack for the narrower
+   "Needs Attention" side panel. */
+.adm-alerts--stack { grid-template-columns: minmax(0, 1fr); gap: 0; }
+
 /* ---------- ADVISER SECTION LIST ---------- */
 .advisory-collapse + .advisory-collapse { margin-top: var(--sp-3); }
 .advisory-section-item {

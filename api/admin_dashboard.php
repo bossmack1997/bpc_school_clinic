@@ -43,6 +43,19 @@ $queueWaiting = (int)$db->query(
     "SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'"
 )->fetchColumn();
 
+$queueServing = (int)$db->query(
+    "SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status IN ('called','serving')"
+)->fetchColumn();
+
+$queueCompleted = (int)$db->query(
+    "SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'completed'"
+)->fetchColumn();
+
+// Combined inventory attention signal: low stock + out of stock + expired.
+// The dashboard shows this as a single headline card; the per-category
+// breakdown remains on the dedicated inventory management page.
+$inventoryAttention = $lowStockCount + $outOfStockCount + $expiredCount;
+
 $activeEmergencies = (int)$db->query(
     "SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('new','active','acknowledged','responding') AND resolved_at IS NULL"
 )->fetchColumn();
@@ -88,7 +101,10 @@ json_response(true, [
         'out_of_stock'       => $outOfStockCount,
         'expired'            => $expiredCount,
         'expiring_soon'      => $expiringSoon,
+        'inventory_attention' => $inventoryAttention,
         'queue_waiting'      => $queueWaiting,
+        'queue_serving'      => $queueServing,
+        'queue_completed'    => $queueCompleted,
         'active_emergencies' => $activeEmergencies,
     ],
     'attention_total' => $attentionTotal,

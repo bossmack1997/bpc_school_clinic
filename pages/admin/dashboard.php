@@ -2,11 +2,32 @@
 /**
  * pages/admin/dashboard.php
  * =====================================================================
- * Admin Dashboard - clinic oversight with a calm, scannable hierarchy.
+ * Admin Dashboard — operational control center.
  *
- * Answers, in order: what is happening today, what needs attention,
- * how the clinic is trending, and what happened most recently.
- * All figures come from the existing database schema and helpers.
+ * Restructured around operational priority with a strict
+ * redundancy-removal policy. The previous layout repeated the
+ * same signals in up to three places (stat card + Needs
+ * Attention alert + a dedicated panel). This version shows
+ * each signal exactly once:
+ *
+ *   1. Compact header
+ *   2. Four essential, non-duplicated overview cards
+ *   3. Operational overview: clinic activity (chart + queue)
+ *      beside the single source of truth for actionable alerts
+ *   4. One compact recent-activity feed
+ *
+ * Removed as verified duplication:
+ *   - "Emergency Monitor" card  (SOS is already a critical
+ *     alert inside Needs Attention, same data, same link)
+ *   - "Inventory Health" panel  (repeated the low-stock stat
+ *     card and the inventory alerts in Needs Attention)
+ *   - "Quick Actions" card      (its links duplicate the stat
+ *     cards, panel footers, and the sidebar navigation)
+ *   - Patient-visits mini-metrics ("Today" repeated stat card
+ *     #1; "Queue tickets" repeated the queue summary)
+ *
+ * All figures come from the existing database schema and
+ * helpers. Nothing is hardcoded.
  * =====================================================================
  */
 require_once __DIR__ . '/../../config/config.php';
@@ -52,11 +73,20 @@ $expiredCount      = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_ar
 $expiringSoonCount = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity > 0 AND expiration_date >= CURDATE() AND expiration_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchColumn();
 $stockAlerts       = $lowStockCount + $outOfStockCount + $expiredCount;
 
-$queueToday   = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE()")->fetchColumn();
-$queueWaiting = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
+// Single combined inventory-attention headline. The per-category
+// breakdown stays on the dedicated inventory management page.
+$inventoryAttention = $lowStockCount + $outOfStockCount + $expiredCount;
 
 // ---------------------------------------------------------------------
-// 3. Patient visits - three ready ranges for the chart toggle
+// 3. Queue summary (live operational load)
+// ---------------------------------------------------------------------
+$queueToday    = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE()")->fetchColumn();
+$queueWaiting  = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
+$queueServing  = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status IN ('called','serving')")->fetchColumn();
+$queueCompleted = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'completed'")->fetchColumn();
+
+// ---------------------------------------------------------------------
+// 4. Patient visits - three ready ranges for the chart toggle
 // ---------------------------------------------------------------------
 $hoursStmt = $db->query("
     SELECT FLOOR(HOUR(consultation_date) / 2) AS bucket, COUNT(*) AS total
@@ -101,7 +131,7 @@ $monthStmt = $db->query("
     SELECT DATE(consultation_date) AS d, COUNT(*) AS total
     FROM consultations
     WHERE consultation_date >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
-      AND consultation_date <  CURDATE() + INTERVAL 1 DAY
+      AND consultation_date < CURDATE() + INTERVAL 1 DAY
     GROUP BY DATE(consultation_date)
 ");
 $monthMap = [];
@@ -117,34 +147,19 @@ for ($i = 29; $i >= 0; $i--) {
 }
 
 // ---------------------------------------------------------------------
-// 4. Active emergencies and recent administrative activity
+// 5. Recent administrative activity (compact feed)
 // ---------------------------------------------------------------------
-$emergencyList = [];
-if ($activeEmergencies > 0) {
-    $emergencyList = $db->query("
-        SELECT e.id, e.emergency_type, e.status, e.priority, e.created_at,
-               CONCAT(us.first_name, ' ', us.last_name) AS student_name,
-               s.student_number
-        FROM sos_emergencies e
-        LEFT JOIN students s ON s.id = e.student_id
-        LEFT JOIN users us ON us.id = s.user_id
-        WHERE e.status IN ('new','active','acknowledged','responding') AND e.resolved_at IS NULL
-        ORDER BY FIELD(e.priority,'emergency','urgent','normal'), e.created_at DESC
-        LIMIT 5
-    ")->fetchAll(PDO::FETCH_ASSOC);
-}
-
-$recentActivity = $db->query("
-    SELECT al.id, al.action, al.module, al.details, al.created_at,
-           u.first_name, u.last_name, u.role
-    FROM activity_logs al
-    LEFT JOIN users u ON u.id = al.user_id
-    ORDER BY al.created_at DESC
-    LIMIT 8
-")->fetchAll(PDO::FETCH_ASSOC);
+$recentActivity = $db->query(
+    "SELECT al.id, al.action, al.module, al.details, al.created_at,
+            u.first_name, u.last_name, u.role
+     FROM activity_logs al
+     LEFT JOIN users u ON u.id = al.user_id
+     ORDER BY al.created_at DESC
+     LIMIT 6"
+)->fetchAll(PDO::FETCH_ASSOC);
 
 // ---------------------------------------------------------------------
-// 5. Priority feed and overall status
+// 6. Priority feed and overall status
 // ---------------------------------------------------------------------
 $attention = get_admin_needs_attention_alerts($db);
 
@@ -193,7 +208,7 @@ $pageDescription = 'Clinic overview and system activity';
     <main class="content-area adm-page adm-page-enter">
 
       <!-- ============================================================
-           SECTION 1 - Welcome / context
+           1. COMPACT PAGE HEADER
            ============================================================ -->
       <section class="adm-greet" aria-labelledby="admGreeting">
         <div class="adm-greet__text">
@@ -229,13 +244,13 @@ $pageDescription = 'Clinic overview and system activity';
       </section>
 
       <!-- ============================================================
-           SECTION 2 - Key statistics (four cards, no more)
+           2. ESSENTIAL OVERVIEW — four non-duplicated metrics
            ============================================================ -->
       <section class="adm-grid adm-grid--4 adm-stagger" aria-label="Key clinic statistics">
 
         <a class="adm-stat adm-stat--link" href="<?= APP_URL ?>/pages/admin/reports.php">
           <div class="adm-stat__top">
-            <p class="adm-stat__label">Today's visits</p>
+            <p class="adm-stat__label">Patient visits today</p>
             <span class="adm-stat__ico"><?= bpc_icon('stethoscope') ?></span>
           </div>
           <div class="adm-stat__value counter-animate" data-count="<?= $todaysVisits ?>" data-metric="visits_today"><?= number_format($todaysVisits) ?></div>
@@ -255,14 +270,14 @@ $pageDescription = 'Clinic overview and system activity';
 
         <a class="adm-stat adm-stat--link" href="<?= APP_URL ?>/pages/admin/users.php?role=student">
           <div class="adm-stat__top">
-            <p class="adm-stat__label">Students</p>
+            <p class="adm-stat__label">Registered students</p>
             <span class="adm-stat__ico adm-stat__ico--info"><?= bpc_icon('graduation') ?></span>
           </div>
           <div class="adm-stat__value counter-animate" data-count="<?= $activeStudents ?>" data-metric="active_students"><?= number_format($activeStudents) ?></div>
           <div class="adm-stat__note">
-            <?= number_format($studentCount) ?> registered
+            <?= number_format($activeStudents) ?> active
             <span aria-hidden="true">&middot;</span>
-            <span><?= number_format($activeUsers) ?> active accounts system-wide</span>
+            <span><?= number_format($studentCount) ?> registered</span>
           </div>
         </a>
 
@@ -281,27 +296,82 @@ $pageDescription = 'Clinic overview and system activity';
           </div>
         </a>
 
-        <a class="adm-stat adm-stat--link" href="<?= APP_URL ?>/pages/admin/inventory.php?status=low_stock">
+        <a class="adm-stat adm-stat--link" href="<?= APP_URL ?>/pages/admin/inventory.php">
           <div class="adm-stat__top">
-            <p class="adm-stat__label">Low stock medicines</p>
-            <span class="adm-stat__ico adm-stat__ico--<?= $outOfStockCount > 0 ? 'danger' : ($lowStockCount > 0 ? 'warning' : 'success') ?>">
+            <p class="adm-stat__label">Inventory attention</p>
+            <span class="adm-stat__ico adm-stat__ico--<?= $inventoryAttention > 0 ? ($outOfStockCount > 0 || $expiredCount > 0 ? 'danger' : 'warning') : 'success' ?>">
               <?= bpc_icon('pill') ?>
             </span>
           </div>
-          <div class="adm-stat__value counter-animate" data-count="<?= $lowStockCount ?>" data-metric="low_stock"><?= number_format($lowStockCount) ?></div>
+          <div class="adm-stat__value counter-animate" data-count="<?= $inventoryAttention ?>" data-metric="inventory_attention"><?= number_format($inventoryAttention) ?></div>
           <div class="adm-stat__note">
-            <?= $lowStockCount > 0 ? 'At or below reorder level' : 'Stock levels are healthy' ?>
+            <?= $inventoryAttention > 0 ? 'Need action' : 'Stock healthy' ?>
             <span aria-hidden="true">&middot;</span>
-            <span><?= $outOfStockCount ?> out of stock</span>
+            <span><?= $lowStockCount ?> low &middot; <?= $outOfStockCount ?> out &middot; <?= $expiredCount ?> expired</span>
           </div>
         </a>
       </section>
 
       <!-- ============================================================
-           SECTION 3 - Priority items + emergency monitor
+           3. OPERATIONAL OVERVIEW
+           Clinic activity (chart + live queue) beside the single
+           source of truth for actionable alerts.
            ============================================================ -->
-      <section class="adm-split" aria-label="Priority items and emergencies">
+      <section class="adm-split" aria-label="Clinic activity and priority alerts">
 
+        <!-- Clinic activity -->
+        <div class="adm-card">
+          <div class="adm-card__head">
+            <div>
+              <h3 class="adm-card__title"><?= bpc_icon('chart') ?> Clinic Activity</h3>
+              <p class="adm-card__sub">Consultation volume and live queue</p>
+            </div>
+            <div class="adm-btn-row" role="group" aria-label="Select chart range">
+              <button type="button" class="adm-btn adm-btn--sm adm-btn--primary" data-range="week" aria-pressed="true">This Week</button>
+              <button type="button" class="adm-btn adm-btn--sm adm-btn--secondary" data-range="today" aria-pressed="false">Today</button>
+              <button type="button" class="adm-btn adm-btn--sm adm-btn--secondary" data-range="month" aria-pressed="false">This Month</button>
+            </div>
+          </div>
+
+          <div class="adm-card__body">
+            <div class="adm-chart-block">
+              <div class="adm-chart" id="visitsChartWrap">
+                <canvas id="admVisitsChart" role="img"
+                        aria-label="Patient visits chart. Switch range using the buttons above."></canvas>
+              </div>
+              <div class="adm-empty" id="visitsChartEmpty" hidden>
+                <span class="adm-empty__ico"><?= bpc_icon('chart') ?></span>
+                <span class="adm-empty__title">No visits recorded</span>
+                <span class="adm-empty__desc">
+                  Consultation activity will appear here once patients are seen in this period.
+                </span>
+              </div>
+            </div>
+
+            <!-- Live queue summary (each figure updates via the
+                 dashboard auto-refresh; no separate card needed) -->
+            <div class="adm-queue-summary" aria-label="Current queue status">
+              <div class="adm-qs">
+                <span class="adm-qs__value adm-qs__value--warn" data-metric="queue_waiting"><?= $queueWaiting ?></span>
+                <span class="adm-qs__label">Waiting</span>
+              </div>
+              <div class="adm-qs">
+                <span class="adm-qs__value adm-qs__value--info" data-metric="queue_serving"><?= $queueServing ?></span>
+                <span class="adm-qs__label">Serving</span>
+              </div>
+              <div class="adm-qs">
+                <span class="adm-qs__value adm-qs__value--ok" data-metric="queue_completed"><?= $queueCompleted ?></span>
+                <span class="adm-qs__label">Completed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Needs attention — the single source of truth for
+             actionable alerts (SOS, registrations, inventory,
+             security). The former separate "Emergency Monitor"
+             and "Inventory Health" panels are removed: that
+             information is already surfaced here as alerts. -->
         <div class="adm-card">
           <div class="adm-card__head">
             <div>
@@ -316,239 +386,61 @@ $pageDescription = 'Clinic overview and system activity';
           </div>
 
           <?php $shownAlerts = 0; ?>
-          <div class="adm-alerts">
-            <?php foreach ([['critical', 'danger'], ['warning', 'warning'], ['info', 'info']] as [$tier, $tone]):
-                foreach ($attention[$tier] as $alert):
-                  $shownAlerts++;
-                  $href = str_starts_with((string)$alert['link'], 'http')
-                      ? (string)$alert['link']
-                      : APP_URL . '/pages/admin/' . ltrim((string)$alert['link'], '/');
-            ?>
-              <a class="adm-alert" href="<?= e($href) ?>">
-                <span class="adm-alert__ico adm-alert__ico--<?= e($tone) ?>">
-                  <?= bpc_icon($attentionIconMap[$alert['id']] ?? 'info') ?>
-                </span>
-                <span class="adm-alert__body">
-                  <span class="adm-alert__title">
-                    <?= e($alert['title']) ?>
-                    <span class="adm-badge adm-badge--<?= e($tone) ?>"><?= e(strtoupper($tone)) ?></span>
-                  </span>
-                  <span class="adm-alert__desc"><?= e($alert['desc']) ?></span>
-                </span>
-                <span class="adm-alert__count"><?= (int)$alert['count'] ?></span>
-                <span class="adm-alert__go"><?= bpc_icon('chevron-right') ?></span>
-              </a>
-            <?php endforeach; endforeach; ?>
-          </div>
-
-          <?php if ($shownAlerts === 0): ?>
-            <div class="adm-empty">
-              <span class="adm-empty__ico"><?= bpc_icon('check-circle') ?></span>
-              <span class="adm-empty__title">No pending approvals</span>
-              <span class="adm-empty__desc">
-                There are currently no registration requests, emergency alerts,
-                or inventory issues requiring review.
-              </span>
-            </div>
-          <?php endif; ?>
-        </div>
-
-        <div class="adm-card">
-          <div class="adm-card__head">
-            <div>
-              <h3 class="adm-card__title"><?= bpc_icon('shield-alert') ?> Emergency Monitor</h3>
-              <p class="adm-card__sub">Active SOS reports across the campus</p>
-            </div>
-          </div>
-
-          <div class="adm-monitor<?= $activeEmergencies > 0 ? ' adm-monitor--danger' : '' ?>">
-            <span class="adm-monitor__ico">
-              <?= bpc_icon($activeEmergencies > 0 ? 'alert-triangle' : 'shield-check') ?>
-            </span>
-            <span class="adm-monitor__text">
-              <span class="adm-monitor__title">
-                <?= $activeEmergencies > 0 ? 'Response required' : 'No active emergencies' ?>
-              </span>
-              <span class="adm-monitor__sub">
-                <?= $activeEmergencies > 0
-                      ? $activeEmergencies . ' unresolved ' . ($activeEmergencies === 1 ? 'report' : 'reports')
-                      : 'All SOS reports are resolved' ?>
-              </span>
-            </span>
-            <span class="adm-monitor__count"><?= $activeEmergencies ?></span>
-          </div>
-
-          <?php if (!empty($emergencyList)): ?>
-            <ul class="adm-links">
-              <?php foreach ($emergencyList as $emg): ?>
-                <li>
-                  <a class="adm-link" href="<?= APP_URL ?>/pages/admin/emergencies.php">
-                    <span class="adm-link__ico adm-link__ico--danger">
-                      <?= bpc_icon('alert-triangle') ?>
-                    </span>
-                    <span class="adm-link__body">
-                      <span class="adm-link__title">
-                        <?= e($emg['emergency_type'] ?: 'Emergency') ?>
-                        <?php if ($emg['priority'] === 'emergency'): ?>
-                          <span class="adm-badge adm-badge--danger">Critical</span>
-                        <?php endif; ?>
-                      </span>
-                      <span class="adm-link__desc">
-                        <?= e($emg['student_name'] ?: 'Unknown student') ?>
-                        <span aria-hidden="true">&middot;</span>
-                        <?= e(ucfirst((string)$emg['status'])) ?>
-                        <span aria-hidden="true">&middot;</span>
-                        <?= e(format_datetime($emg['created_at'])) ?>
-                      </span>
-                    </span>
-                    <span class="adm-link__go"><?= bpc_icon('chevron-right') ?></span>
-                  </a>
-                </li>
-              <?php endforeach; ?>
-            </ul>
-          <?php else: ?>
-            <div class="adm-empty">
-              <span class="adm-empty__ico"><?= bpc_icon('shield-check') ?></span>
-              <span class="adm-empty__title">Clinic is calm</span>
-              <span class="adm-empty__desc">
-                No student or staff emergency has been reported in the current cycle.
-              </span>
-            </div>
-          <?php endif; ?>
-
-          <div class="adm-card__foot">
-            <a class="adm-link-inline" href="<?= APP_URL ?>/pages/admin/emergencies.php">
-              Emergency history <?= bpc_icon('arrow-right') ?>
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================================================
-           SECTION 4 - Patient visits trend + inventory health
-           ============================================================ -->
-      <section class="adm-split adm-split--wide" aria-label="Patient visits and inventory">
-
-        <div class="adm-card">
-          <div class="adm-card__head">
-            <div>
-              <h3 class="adm-card__title"><?= bpc_icon('chart') ?> Patient Visits</h3>
-              <p class="adm-card__sub">Consultation volume recorded by the clinic</p>
-            </div>
-            <div class="adm-btn-row" role="group" aria-label="Select chart range">
-              <button type="button" class="adm-btn adm-btn--sm adm-btn--primary" data-range="week" aria-pressed="true">This Week</button>
-              <button type="button" class="adm-btn adm-btn--sm adm-btn--secondary" data-range="today" aria-pressed="false">Today</button>
-              <button type="button" class="adm-btn adm-btn--sm adm-btn--secondary" data-range="month" aria-pressed="false">This Month</button>
-            </div>
-          </div>
-
-          <div class="adm-metrics" aria-hidden="true">
-            <div class="adm-metric">
-              <div class="adm-metric__value"><?= number_format($todaysVisits) ?></div>
-              <div class="adm-metric__label">Today</div>
-            </div>
-            <div class="adm-metric">
-              <div class="adm-metric__value"><?= number_format($weekVisits) ?></div>
-              <div class="adm-metric__label">This week</div>
-            </div>
-            <div class="adm-metric">
-              <div class="adm-metric__value"><?= number_format($monthVisits) ?></div>
-              <div class="adm-metric__label">This month</div>
-            </div>
-            <div class="adm-metric">
-              <div class="adm-metric__value"><?= number_format($queueToday) ?></div>
-              <div class="adm-metric__label">Queue tickets today</div>
-            </div>
-          </div>
-
-          <div class="adm-chart-block">
-            <div class="adm-chart" id="visitsChartWrap">
-              <canvas id="admVisitsChart" role="img"
-                      aria-label="Patient visits chart. Switch range using the buttons above."></canvas>
-            </div>
-            <div class="adm-empty" id="visitsChartEmpty" hidden>
-              <span class="adm-empty__ico"><?= bpc_icon('chart') ?></span>
-              <span class="adm-empty__title">No visits recorded</span>
-              <span class="adm-empty__desc">
-                Consultation activity will appear here once patients are seen in this period.
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div class="adm-card">
-          <div class="adm-card__head">
-            <div>
-              <h3 class="adm-card__title"><?= bpc_icon('pill') ?> Inventory Health</h3>
-              <p class="adm-card__sub"><?= number_format($totalMedicines) ?> active medicine items</p>
-            </div>
-          </div>
-
-          <div class="adm-meter">
-            <div class="adm-meter__top">
-              <span class="adm-meter__name">Stock availability</span>
-              <span class="adm-meter__value"><?= $stockHealth ?>%</span>
-            </div>
-            <div class="adm-meter__track">
-              <span class="adm-meter__fill<?= $stockHealth < 60 ? ' adm-meter__fill--danger' : ($stockHealth < 90 ? ' adm-meter__fill--warn' : '') ?>"
-                    style="width:<?= (int)$stockHealth ?>%"></span>
-            </div>
-          </div>
-
-          <div class="adm-meters">
-            <?php
-            $stockRows = [
-                ['label' => 'Low stock', 'count' => $lowStockCount, 'tone' => $lowStockCount > 0 ? 'warning' : 'success', 'icon' => 'trending-down', 'link' => 'inventory.php?status=low_stock'],
-                ['label' => 'Out of stock', 'count' => $outOfStockCount, 'tone' => $outOfStockCount > 0 ? 'danger' : 'success', 'icon' => 'x-circle', 'link' => 'inventory.php?status=out_of_stock'],
-                ['label' => 'Expired', 'count' => $expiredCount, 'tone' => $expiredCount > 0 ? 'danger' : 'success', 'icon' => 'calendar-x', 'link' => 'inventory.php?status=expired'],
-                ['label' => 'Expiring in 30 days', 'count' => $expiringSoonCount, 'tone' => $expiringSoonCount > 0 ? 'warning' : 'success', 'icon' => 'calendar', 'link' => 'inventory.php?status=near_expiration'],
-            ];
-            ?>
-            <div class="adm-alerts">
-              <?php foreach ($stockRows as $row): ?>
-                <a class="adm-alert" href="<?= APP_URL ?>/pages/admin/<?= e(ltrim((string)$row['link'], '/')) ?>">
-                  <span class="adm-alert__ico adm-alert__ico--<?= $row['tone'] === 'success' ? 'success' : e($row['tone']) ?>">
-                    <?= bpc_icon($row['icon']) ?>
+          <div class="adm-card__body">
+            <div class="adm-alerts adm-alerts--stack">
+              <?php foreach ([['critical', 'danger'], ['warning', 'warning'], ['info', 'info']] as [$tier, $tone]):
+                  foreach ($attention[$tier] as $alert):
+                    $shownAlerts++;
+                    $href = str_starts_with((string)$alert['link'], 'http')
+                        ? (string)$alert['link']
+                        : APP_URL . '/pages/admin/' . ltrim((string)$alert['link'], '/');
+              ?>
+                <a class="adm-alert" href="<?= e($href) ?>">
+                  <span class="adm-alert__ico adm-alert__ico--<?= e($tone) ?>">
+                    <?= bpc_icon($attentionIconMap[$alert['id']] ?? 'info') ?>
                   </span>
                   <span class="adm-alert__body">
                     <span class="adm-alert__title">
-                      <?= e($row['label']) ?>
-                      <?php if ($row['count'] === 0): ?>
-                        <span class="adm-badge adm-badge--success">Clear</span>
-                      <?php endif; ?>
+                      <?= e($alert['title']) ?>
+                      <span class="adm-badge adm-badge--<?= e($tone) ?>"><?= e(strtoupper($tone)) ?></span>
                     </span>
+                    <span class="adm-alert__desc"><?= e($alert['desc']) ?></span>
                   </span>
-                  <span class="adm-alert__count"><?= (int)$row['count'] ?></span>
+                  <span class="adm-alert__count"><?= (int)$alert['count'] ?></span>
                   <span class="adm-alert__go"><?= bpc_icon('chevron-right') ?></span>
                 </a>
-              <?php endforeach; ?>
+              <?php endforeach; endforeach; ?>
             </div>
-          </div>
 
-          <div class="adm-card__foot">
-            <a class="adm-link-inline" href="<?= APP_URL ?>/pages/admin/inventory.php">
-              Manage inventory <?= bpc_icon('arrow-right') ?>
-            </a>
+            <?php if ($shownAlerts === 0): ?>
+              <div class="adm-empty">
+                <span class="adm-empty__ico"><?= bpc_icon('check-circle') ?></span>
+                <span class="adm-empty__title">No pending approvals</span>
+                <span class="adm-empty__desc">
+                  There are currently no registration requests, emergency alerts,
+                  or inventory issues requiring review.
+                </span>
+              </div>
+            <?php endif; ?>
           </div>
         </div>
       </section>
 
       <!-- ============================================================
-           SECTION 5 - Recent activity + quick actions
+           4. RECENT ACTIVITY — one compact feed
            ============================================================ -->
-      <section class="adm-split" aria-label="Recent activity and quick actions">
-
-        <div class="adm-card">
-          <div class="adm-card__head">
-            <div>
-              <h3 class="adm-card__title"><?= bpc_icon('history') ?> Recent Activity</h3>
-              <p class="adm-card__sub">Latest actions recorded in the audit trail</p>
-            </div>
-            <a class="adm-link-inline" href="<?= APP_URL ?>/pages/admin/activity_logs.php">
-              Full log <?= bpc_icon('arrow-right') ?>
-            </a>
+      <section class="adm-card" aria-label="Recent activity">
+        <div class="adm-card__head">
+          <div>
+            <h3 class="adm-card__title"><?= bpc_icon('history') ?> Recent Activity</h3>
+            <p class="adm-card__sub">Latest actions recorded in the audit trail</p>
           </div>
+          <a class="adm-link-inline" href="<?= APP_URL ?>/pages/admin/activity_logs.php">
+            Full log <?= bpc_icon('arrow-right') ?>
+          </a>
+        </div>
 
+        <div class="adm-card__body">
           <?php if (empty($recentActivity)): ?>
             <div class="adm-empty">
               <span class="adm-empty__ico"><?= bpc_icon('history') ?></span>
@@ -603,52 +495,6 @@ $pageDescription = 'Clinic overview and system activity';
               <?php endforeach; ?>
             </div>
           <?php endif; ?>
-        </div>
-
-        <div class="adm-card">
-          <div class="adm-card__head">
-            <div>
-              <h3 class="adm-card__title"><?= bpc_icon('sliders') ?> Quick Actions</h3>
-              <p class="adm-card__sub">Common administrative tasks</p>
-            </div>
-          </div>
-
-          <?php
-          $quickActions = [
-              ['user-check',  'Review approvals',  $pendingTotal > 0 ? $pendingTotal . ' waiting for review' : 'No pending requests',  'users.php?tab=pending',      $pendingTotal > 0],
-              ['pill',       'Manage inventory',  $stockAlerts > 0 ? $stockAlerts . ' ' . ($stockAlerts === 1 ? 'item' : 'items') . ' flagged' : 'Stock levels healthy',       'inventory.php',               $stockAlerts > 0],
-              ['shield-alert', 'Emergency centre', $activeEmergencies > 0 ? $activeEmergencies . ' active now' : 'No active reports',          'emergencies.php',            $activeEmergencies > 0],
-              ['chart',      'View reports',      'Analytics and data exports',                                   'reports.php',                 false],
-              ['history',    'Activity logs',     number_format($totalUsers) . ' accounts tracked',                'activity_logs.php',          false],
-              ['shield-lock', 'Admin accounts',   $adminCount . ' active ' . ($adminCount === 1 ? 'administrator' : 'administrators'), 'admin_accounts.php',         false],
-          ];
-          ?>
-          <div class="adm-links">
-            <?php foreach ($quickActions as $act): ?>
-              <a class="adm-link" href="<?= APP_URL ?>/pages/admin/<?= e(ltrim((string)$act[3], '/')) ?>">
-                <span class="adm-link__ico"><?= bpc_icon($act[0]) ?></span>
-                <span class="adm-link__body">
-                  <span class="adm-link__title"><?= e($act[1]) ?></span>
-                  <span class="adm-link__desc"><?= e($act[2]) ?></span>
-                </span>
-                <?php if ($act[4]): ?>
-                  <span class="adm-badge adm-badge--warning">Action</span>
-                <?php endif; ?>
-                <span class="adm-link__go"><?= bpc_icon('chevron-right') ?></span>
-              </a>
-            <?php endforeach; ?>
-          </div>
-
-          <div class="adm-card__foot">
-            <span class="text-muted" style="font-size:.76rem;">
-              <?= e($adminFullName !== '' ? $adminFullName : $adminFirstName) ?>
-              <span aria-hidden="true">&middot;</span>
-              <?= $nurseCount ?> <?= $nurseCount === 1 ? 'nurse' : 'nurses' ?> on duty
-              <span aria-hidden="true">&middot;</span>
-              <?= $queueWaiting ?> waiting
-            </span>
-            <a class="adm-link-inline" href="<?= APP_URL ?>/pages/admin/profile.php">My profile</a>
-          </div>
         </div>
       </section>
 
@@ -779,11 +625,11 @@ $pageDescription = 'Clinic overview and system activity';
 /* ==================================================================
    Controlled dashboard auto-refresh
    ------------------------------------------------------------------
-   Keeps the overview cards and the attention badge current without a
-   full page reload. Requests never overlap, run only while the tab
-   is visible, and fail silently so a transient network blip never
-   nags the administrator. The server remains the single source of
-   truth — every figure is recomputed from the database.
+   Keeps the overview cards, the live queue summary and the
+   attention badge current without a full page reload. The
+   applyMetrics() helper is generic: it updates every element
+   carrying a [data-metric] attribute whose key is present in
+   the API response, so adding a metric requires no JS change.
    ================================================================== */
 (function () {
   'use strict';
