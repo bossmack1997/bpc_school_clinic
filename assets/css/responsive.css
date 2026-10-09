@@ -113,8 +113,12 @@
 
   .content-area { padding: var(--sp-5) var(--sp-4) 92px; }
 
+  /* Both split variants collapse to a single column so the
+     secondary panel (e.g. Inventory Health beside the visits
+     chart) is never crushed to a third of a narrow viewport. */
   .app-split,
-  .adm-split { grid-template-columns: minmax(0, 1fr); }
+  .adm-split,
+  .adm-split--wide { grid-template-columns: minmax(0, 1fr); }
 
   .app-stats--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .app-grid--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -150,6 +154,10 @@
   .app-chart,
   .dbg-chart-box,
   .adm-chart { height: 230px; }
+
+  /* The four overview cards drop to two columns on
+     tablets — four across is too cramped below 992px. */
+  .adm-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   /* Sticky action bars stop crowding narrow viewports */
   .modal-footer {
@@ -289,6 +297,7 @@
   .adm-metrics,
   .adm-meters,
   .adm-alerts,
+  .adm-grid--4,
   .app-meters,
   .dbg-meters { grid-template-columns: minmax(0, 1fr); }
 

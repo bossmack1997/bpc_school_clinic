@@ -128,6 +128,13 @@
 .app-split--even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .app-split--reverse { grid-template-columns: minmax(0, 1fr) minmax(0, 1.85fr); }
 
+/* Dashboard vertical rhythm. `.adm-grid` and `.adm-split` are
+   used only by the admin dashboard, so this margin never leaks
+   onto other pages. It gives every major section a consistent
+   24px gap instead of stacking with zero space between them. */
+.adm-grid,
+.adm-split { margin-bottom: var(--sp-6); }
+
 /* ==================================================================
    CARD
    ================================================================== */
@@ -2428,7 +2435,11 @@
   white-space: nowrap;
 }
 .adm-stat__delta--flat { background: var(--neutral-bg); color: var(--neutral-text); }
-.adm-stat__note { margin-top: 6px; font-size: var(--fs-micro); color: var(--text-muted); }
+/* Stick the supporting note to the card's bottom edge so the
+   big values line up across the row and every card's note
+   shares the same baseline, even when a note wraps to two
+   lines. The flex `gap` keeps a minimum 10px above it. */
+.adm-stat__note { margin-top: auto; padding-top: 6px; font-size: var(--fs-micro); color: var(--text-muted); }
 .adm-stat--link { transition: transform var(--transition-fast) var(--ease), box-shadow var(--transition-fast) var(--ease); }
 .adm-stat--link:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
 .adm-metric__value { font-size: var(--fs-stat); font-weight: var(--fw-bold); color: var(--text-primary); line-height: 1.1; }
