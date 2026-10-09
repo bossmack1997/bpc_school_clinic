@@ -150,7 +150,8 @@ $('#printHistoryBtn').on('click', function () {
   const w = window.open('', '_blank');
   w.document.write(`
     <html><head><title>Dispensing History</title>
-    <style>body{font-family:Arial,sans-serif;padding:30px}table{width:100%;border-collapse:collapse;font-size:13px}
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>body{font-family:'Inter',Arial,sans-serif;padding:30px}table{width:100%;border-collapse:collapse;font-size:13px}
     th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f0f0f0}
     h2{color:#0B6B3A;margin:0 0 4px}.muted{color:#777;font-size:12px;margin-bottom:18px}</style>
     </head><body>

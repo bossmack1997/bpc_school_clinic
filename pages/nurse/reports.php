@@ -123,7 +123,7 @@ $.get(APP_URL + '/api/reports.php', { action: 'history' }, function (res) {
 function printReport() {
   const html = document.getElementById('reportResult').innerHTML;
   const w = window.open('', '', 'width=800,height=600');
-  w.document.write('<html><head><title>Report</title><link rel="stylesheet" href="' + APP_URL + '/assets/css/bootstrap.min.css"></head><body><div class="p-4">' + html + '</div></body></html>');
+  w.document.write('<html><head><title>Report</title><link rel="stylesheet" href="' + APP_URL + '/assets/css/bootstrap.min.css"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter,Arial,sans-serif}</style></head><body><div class="p-4">' + html + '</div></body></html>');
   w.document.close();
   w.print();
 }

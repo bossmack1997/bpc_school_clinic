@@ -1210,7 +1210,7 @@
   background: var(--neutral-bg);
   color: var(--neutral-text);
   font-size: 0.64rem;
-  font-weight: 650;
+  font-weight: var(--fw-medium);
   letter-spacing: 0.05em;
   line-height: 1.4;
   white-space: nowrap;

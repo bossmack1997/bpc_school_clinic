@@ -67,7 +67,7 @@
   /* Typography
      Unified on Inter. Poppins and DM Sans were retired; the whole
      application now renders through a single type family. */
-  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font: 'Inter', 'Segoe UI', Roboto, Arial, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 
   /* Transitions */
   --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);

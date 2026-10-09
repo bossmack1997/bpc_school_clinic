@@ -95,7 +95,7 @@ $(function () {
   $('#printQrBtn').on('click', function () {
     const img = getQrDataUrl(); if (!img) return;
     const w = window.open('', '_blank');
-    w.document.write('<html><head><title>Teacher QR</title></head><body style="text-align:center;font-family:Arial;padding:30px"><img src="'+img+'"><div style="margin-top:10px">BPC School Clinic — Teacher/Staff QR</div></body></html>');
+    w.document.write('<html><head><title>Teacher QR</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></head><body style="text-align:center;font-family:Inter,Arial,sans-serif;padding:30px"><img src="'+img+'"><div style="margin-top:10px">BPC School Clinic — Teacher/Staff QR</div></body></html>');
     w.document.close(); w.focus(); setTimeout(function(){ w.print(); }, 300);
   });
 });

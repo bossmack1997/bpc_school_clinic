@@ -379,7 +379,8 @@ function statusBadge(status) {
     const w = window.open('', '_blank');
     w.document.write(`
       <html><head><title>BPC Student QR</title>
-      <style>body{font-family:Arial,sans-serif;text-align:center;padding:30px}
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>body{font-family:'Inter',Arial,sans-serif;text-align:center;padding:30px}
       img{max-width:300px}.muted{color:#777;font-size:12px;margin-top:8px}.brand{font-weight:bold;font-size:16px;margin-bottom:4px}</style>
       </head><body>
       <div class="brand">BPC School Clinic</div>

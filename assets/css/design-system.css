@@ -627,7 +627,7 @@ textarea:focus-visible,
 .topbar .page-title {
   margin: 0;
   font-size: 1.15rem;
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
   letter-spacing: -0.02em;
   line-height: 1.25;
   color: var(--text-primary);
@@ -1115,7 +1115,7 @@ textarea.form-control {
 .form-label {
   margin-bottom: 6px;
   font-size: var(--fs-meta);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-medium);
   color: var(--text-primary);
   line-height: 1.35;
 }
@@ -1316,7 +1316,7 @@ textarea.form-control {
   padding: 3px 8px;
   border-radius: 6px;
   font-size: 0.64rem;
-  font-weight: 650;
+  font-weight: var(--fw-medium);
   letter-spacing: 0.05em;
   line-height: 1.4;
   white-space: nowrap;
