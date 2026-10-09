@@ -6,7 +6,17 @@ $u = current_user();
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head><?php include __DIR__ . '/../../includes/head.php'; ?></head>
+<head><?php include __DIR__ . '/../../includes/head.php'; ?>
+<style>
+#queueContainer .queue-item {
+  transition: background-color var(--motion-fast) var(--ease);
+  cursor: pointer;
+}
+#queueContainer .queue-item:hover { background: var(--primary-lighter); }
+.priority-badge { font-size:0.65rem; padding:2px 8px; }
+.estimated-wait { font-size:0.75rem; color:var(--text-muted); }
+</style>
+</head>
 <body>
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
@@ -15,22 +25,26 @@ $u = current_user();
     <div class="content-area page-enter">
 
       <!-- Quick Stats -->
-      <div class="row g-3 mb-4" id="statsRow">
-        <div class="col-6 col-md-3">
-          <div class="stat-card"><div class="stat-icon"><i class="bi bi-people"></i></div>
-            <div><div class="stat-value counter-animate" data-count="0" id="statToday">0</div><div class="stat-label">Today's Walk-ins</div></div></div>
+      <div class="app-stats app-stats--4 mb-4" id="statsRow">
+        <div class="dbg-stat dbg-stat--green">
+          <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-people"></i></div></div>
+          <div class="dbg-stat__value counter-animate" data-count="0" id="statToday">0</div>
+          <div class="dbg-stat__label">Today's Walk-ins</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="stat-card warning"><div class="stat-icon"><i class="bi bi-clock-history"></i></div>
-            <div><div class="stat-value counter-animate" data-count="0" id="statWaiting">0</div><div class="stat-label">Waiting</div></div></div>
+        <div class="dbg-stat dbg-stat--orange">
+          <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-clock-history"></i></div></div>
+          <div class="dbg-stat__value counter-animate" data-count="0" id="statWaiting">0</div>
+          <div class="dbg-stat__label">Waiting</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="stat-card info"><div class="stat-icon"><i class="bi bi-person-check"></i></div>
-            <div><div class="stat-value counter-animate" data-count="0" id="statServing">0</div><div class="stat-label">Serving</div></div></div>
+        <div class="dbg-stat dbg-stat--blue">
+          <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-person-check"></i></div></div>
+          <div class="dbg-stat__value counter-animate" data-count="0" id="statServing">0</div>
+          <div class="dbg-stat__label">Serving</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="stat-card success"><div class="stat-icon"><i class="bi bi-check-circle"></i></div>
-            <div><div class="stat-value counter-animate" data-count="0" id="statCompleted">0</div><div class="stat-label">Completed</div></div></div>
+        <div class="dbg-stat dbg-stat--teal">
+          <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-check-circle"></i></div></div>
+          <div class="dbg-stat__value counter-animate" data-count="0" id="statCompleted">0</div>
+          <div class="dbg-stat__label">Completed</div>
         </div>
       </div>
 
@@ -97,11 +111,11 @@ $u = current_user();
 <!-- ============================================================ -->
 <!-- NEW WALK-IN MODAL -->
 <!-- ============================================================ -->
-<div class="modal fade" id="walkinModal" tabindex="-1" data-bs-backdrop="static">
+<div class="modal fade" id="walkinModal" tabindex="-1" data-bs-backdrop="static" aria-labelledby="walkinModalTitle">
 <div class="modal-dialog modal-lg modal-dialog-scrollable">
 <div class="modal-content border-0 rounded-4">
 <div class="modal-header border-0" style="background:var(--primary);color:#fff;border-radius:12px 12px 0 0;">
-  <h5 class="modal-title"><i class="bi bi-person-plus-fill me-2"></i>New Walk-in Patient</h5>
+  <h5 id="walkinModalTitle" class="modal-title"><i class="bi bi-person-plus-fill me-2"></i>New Walk-in Patient</h5>
   <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
 </div>
 <div class="modal-body">
@@ -122,7 +136,7 @@ $u = current_user();
   <div id="studentInfoCard" class="card bg-light mb-3 d-none">
     <div class="card-body py-3">
       <div class="d-flex align-items-center gap-3">
-        <img id="selStudentPic" src="https://via.placeholder.com/60" class="rounded-circle" width="60" height="60" style="object-fit:cover;">
+        <img id="selStudentPic" src="<?= asset_url('images/default-avatar.svg') ?>" class="rounded-circle" width="60" height="60" style="object-fit:cover;">
         <div>
           <h6 class="mb-1 fw-semibold" id="selStudentName">—</h6>
           <small class="text-muted" id="selStudentDetails">—</small>
@@ -212,11 +226,11 @@ $u = current_user();
 <!-- ============================================================ -->
 <!-- CONSULTATION MODAL (Edit/Complete) -->
 <!-- ============================================================ -->
-<div class="modal fade" id="consultModal" tabindex="-1" data-bs-backdrop="static">
+<div class="modal fade" id="consultModal" tabindex="-1" data-bs-backdrop="static" aria-labelledby="consultModalTitle">
 <div class="modal-dialog modal-lg modal-dialog-scrollable">
 <div class="modal-content border-0 rounded-4">
 <div class="modal-header border-0" style="background:var(--info);color:#fff;border-radius:12px 12px 0 0;">
-  <h5 class="modal-title"><i class="bi bi-heart-pulse me-2"></i>Consultation</h5>
+  <h5 id="consultModalTitle" class="modal-title"><i class="bi bi-heart-pulse me-2"></i>Consultation</h5>
   <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
 </div>
 <div class="modal-body">
@@ -282,14 +296,19 @@ $u = current_user();
   <div id="aiSummaryLoading" class="d-none text-center py-2"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Generating summary...</div>
 </form>
 </div>
-<div class="modal-footer border-0 justify-content-between">
-  <div>
-    <button class="btn btn-outline-danger btn-sm" id="cancelVisitBtn"><i class="bi bi-x-circle me-1"></i> Cancel Visit</button>
-  </div>
+<div class="modal-footer justify-content-between">
+  <button type="button" class="btn btn-outline-danger btn-sm" id="cancelVisitBtn">
+    <?= bpc_icon('x-circle') ?> Cancel Visit
+  </button>
   <div class="d-flex gap-2">
-    <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-    <button class="btn btn-primary" id="saveConsultBtn"><i class="bi bi-save me-1"></i> Save Consultation</button>
-    <button class="btn btn-success" id="completeVisitBtn"><i class="bi bi-check-circle me-1"></i> Complete Visit</button>
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+    <button type="button" class="btn btn-outline-primary" id="saveConsultBtn">
+      <?= bpc_icon('save') ?> Save Draft
+    </button>
+    <!-- Single clear primary action: finishing the visit is the goal. -->
+    <button type="button" class="btn btn-primary" id="completeVisitBtn">
+      <?= bpc_icon('check-circle') ?> Complete Visit
+    </button>
   </div>
 </div>
 </div></div></div>
@@ -297,13 +316,13 @@ $u = current_user();
 <!-- ============================================================ -->
 <!-- DISPENSE MEDICINE MODAL -->
 <!-- ============================================================ -->
-<div class="modal fade" id="dispenseModal" tabindex="-1">
+<div class="modal fade" id="dispenseModal" tabindex="-1" aria-labelledby="dispenseModalTitle">
 <div class="modal-dialog">
 <div class="modal-content border-0 rounded-4">
-<div class="modal-header border-0" style="background:var(--success);color:#fff;">
-  <h6 class="modal-title"><i class="bi bi-capsule me-2"></i>Dispense Medicine</h6>
-  <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-</div>
+<div class="modal-header">
+    <h6 class="modal-title" id="dispenseModalTitle"><?= bpc_icon('pill') ?> Dispense Medicine</h6>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+  </div>
 <div class="modal-body">
 <form id="dispenseForm">
   <input type="hidden" name="walk_in_id" id="dispenseWalkinId">
@@ -332,16 +351,6 @@ $u = current_user();
 
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 
-<style>
-#queueContainer .queue-item {
-  transition: all 0.2s ease;
-  cursor: pointer;
-}
-#queueContainer .queue-item:hover { background: var(--primary-50); }
-.priority-badge { font-size:0.65rem; padding:2px 8px; }
-.estimated-wait { font-size:0.75rem; color:var(--text-muted); }
-</style>
-
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
 let currentVisitId = null;
@@ -368,31 +377,41 @@ $(function () {
 });
 
 // ================================================================
-// LOAD STATS
+// LOAD STATS - Uses unified queue system
 // ================================================================
 function loadStats() {
+  $.get(APP_URL + '/api/queue.php', { action: 'get_status' }, function (res) {
+    if (!res.success) { BPCState.error('#statsRow', 'Unable to load today\'s queue summary.', loadStats); return; }
+    $('#statToday').text(res.total_waiting + res.total_completed).data('count', res.total_waiting + res.total_completed);
+    $('#statWaiting').text(res.total_waiting).data('count', res.total_waiting);
+    $('#statServing').text(0).data('count', 0); // Will be from walkin stats
+    $('#statCompleted').text(res.total_completed).data('count', res.total_completed);
+  }, 'json');
+  
+  // Also get walk-in specific stats
   $.get(APP_URL + '/api/walkin.php', { action: 'dashboard_stats' }, function (res) {
-    if (!res.success) return;
-    $('#statToday').text(res.today_walkins).data('count', res.today_walkins);
-    $('#statWaiting').text(res.waiting).data('count', res.waiting);
+    if (!res.success) { console.warn('[Walk-in] stats unavailable:', res.message); return; }
     $('#statServing').text(res.serving).data('count', res.serving);
-    $('#statCompleted').text(res.completed).data('count', res.completed);
   }, 'json');
 }
 
 // ================================================================
-// LOAD QUEUE
+// LOAD QUEUE - Uses unified queue system
 // ================================================================
 function loadQueue() {
-  $.get(APP_URL + '/api/walkin.php', { action: 'queue_list' }, function (res) {
-    if (!res.success) return;
+  $.get(APP_URL + '/api/queue.php', { action: 'queue_list' }, function (res) {
     const $c = $('#queueContainer');
-    if (res.data.length === 0) {
-      $c.html('<div class="text-center text-muted py-4"><i class="bi bi-inbox" style="font-size:2rem;"></i><p class="mt-2 mb-0">No patients in queue today</p></div>');
+    if (!res.success) { BPCState.fail('#queueContainer', res, loadQueue, 'Unable to load the patient queue.'); return; }
+    if (!res.data.items || res.data.items.length === 0) {
+      BPCState.empty('#queueContainer', {
+        icon: 'inbox',
+        title: 'No patients in queue today',
+        desc: 'Checked-in patients will appear here automatically.'
+      });
       return;
     }
     let html = '';
-    res.data.forEach(function (q) {
+    res.data.items.forEach(function (q) {
       const priorityColor = q.priority === 'emergency' ? 'danger' : q.priority === 'urgent' ? 'warning' : 'success';
       const statusIcon = q.status === 'waiting' ? 'clock' : q.status === 'serving' ? 'person-check' : 'check-circle';
       html += `
@@ -400,14 +419,14 @@ function loadQueue() {
           <div class="d-flex align-items-center gap-2">
             <span class="badge bg-${priorityColor} priority-badge">${q.priority.toUpperCase()}</span>
             <div>
-              <div class="fw-semibold small">${escapeHtml(q.display_name || 'Unknown')}</div>
+              <div class="fw-semibold small">${escapeHtml(q.patient_name || 'Unknown')}</div>
               <small class="estimated-wait">${q.student_number || ''} ${q.course || ''}</small>
             </div>
           </div>
           <div class="text-end">
             <div class="fw-bold" style="font-size:0.85rem;color:var(--primary);">${q.queue_number}</div>
             <small class="text-muted"><i class="bi bi-${statusIcon} me-1"></i>${q.status}</small>
-            ${q.estimated_wait_minutes ? `<br><small class="text-muted">~${q.estimated_wait_minutes} min</small>` : ''}
+            ${q.wait_minutes ? `<br><small class="text-muted">~${q.wait_minutes} min</small>` : ''}
           </div>
         </div>
       `;
@@ -423,11 +442,11 @@ function loadVisits() {
   const status = $('#filterStatus').val();
   const search = $('#searchVisit').val();
   
-  $.get(APP_URL + '/api/walkin.php', { action: 'list_walkins', status, search, limit: 20 }, function (res) {
-    if (!res.success) return;
+$.get(APP_URL + '/api/walkin.php', { action: 'list_walkins', status, search, limit: 20 }, function (res) {
+      if (!res.success) { BPCState.fail('#walkinList', res, loadVisits, 'Unable to load the visit list.'); return; }
     const $b = $('#visitsBody');
     if (res.data.length === 0) {
-      $b.html('<tr><td colspan="6" class="text-center text-muted py-4">No visits today</td></tr>');
+      $b.html('<tr><td colspan="6" class="text-center text-muted py-5"><i class="bi bi-calendar-check fs-3 d-block mb-2"></i><div class="fw-semibold text-dark mb-1">No Visits Today</div><div class="small">No student walk-ins recorded for today.</div></td></tr>');
       $('#visitCount').text('0 visits today');
       return;
     }
@@ -457,7 +476,7 @@ function loadVisits() {
 }
 
 // ================================================================
-// STUDENT SEARCH
+// STUDENT SEARCH - Uses patients API for unified search
 // ================================================================
 let searchTimeout = null;
 $('#studentSearch').on('keyup', function () {
@@ -466,16 +485,16 @@ $('#studentSearch').on('keyup', function () {
   if (q.length < 1) { $('#searchResults').empty().addClass('d-none'); return; }
   
   searchTimeout = setTimeout(function () {
-    $.get(APP_URL + '/api/walkin.php', { action: 'search_students', q }, function (res) {
+    $.get(APP_URL + '/api/patients.php', { action: 'search_students', q }, function (res) {
       const $r = $('#searchResults').empty().removeClass('d-none');
-      if (res.data.length === 0) {
+      if (!res.success || (res.data && res.data.length === 0)) {
         $r.append('<button type="button" class="list-group-item list-group-item-action text-muted small temp-register">Not found — Register as visitor</button>');
         return;
       }
-      res.data.forEach(function (s) {
+      (res.data || []).forEach(function (s) {
         $r.append(`<button type="button" class="list-group-item list-group-item-action" data-id="${s.id}" data-name="${s.first_name} ${s.last_name}" data-number="${s.student_number}" data-course="${s.course||''}" data-year="${s.year_level||''}" data-section="${s.section||''}" data-phone="${s.phone||''}" data-pic="${s.profile_picture||''}">
           <div class="d-flex align-items-center gap-2">
-            <img src="${APP_URL + '/' + (s.profile_picture || 'assets/images/default-avatar.png')}" onerror="this.src='https://via.placeholder.com/32'" width="32" height="32" class="rounded-circle" style="object-fit:cover;">
+            <img src="${APP_URL + '/' + (s.profile_picture || 'assets/images/default-avatar.png')}" onerror="this.src='<?= asset_url('images/default-avatar.png') ?>'" width="32" height="32" class="rounded-circle" style="object-fit:cover;">
             <div>
               <div class="fw-semibold small">${s.first_name} ${s.last_name}</div>
               <small class="text-muted">${s.student_number} — ${s.course||''} ${s.year_level||''}</small>
@@ -518,15 +537,20 @@ $(document).on('click', '#clearStudentBtn', function () {
 });
 
 // ================================================================
-// BMI AUTO-CALCULATE
+// BMI AUTO-CALCULATE (Local calculation)
 // ================================================================
 $('#heightCm, #weightKg').on('input', function () {
   const h = parseFloat($('#heightCm').val());
   const w = parseFloat($('#weightKg').val());
   if (h > 0 && w > 0) {
-    $.post(APP_URL + '/api/walkin.php', { action: 'calculate_bmi', height_cm: h, weight_kg: w, csrf_token: csrfToken }, function (res) {
-      if (res.success) $('#bmiDisplay').html(`<span class="fw-bold">${res.bmi}</span> <span class="badge bg-info">${res.status}</span>`);
-    }, 'json');
+    const hM = h / 100;
+    const bmi = (w / (hM * hM)).toFixed(2);
+    let status = 'Normal';
+    if (bmi < 18.5) status = 'Underweight';
+    else if (bmi < 25) status = 'Normal';
+    else if (bmi < 30) status = 'Overweight';
+    else status = 'Obese';
+    $('#bmiDisplay').html(`<span class="fw-bold">${bmi}</span> <span class="badge bg-info">${status}</span>`);
   } else {
     $('#bmiDisplay').html('<span class="text-muted">Auto-calculate</span>');
   }

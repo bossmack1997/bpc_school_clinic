@@ -60,12 +60,15 @@ const rows = res.data.map(l => [
       l.ip_address || '—',
       l.created_at
     ]);
-    // Populate table manually (server-side pagination by the API)
     const tbody = $('#logsTable tbody');
     tbody.empty();
-    rows.forEach(function(r) {
-      tbody.append('<tr>' + r.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>');
-    });
+    if (!rows || rows.length === 0) {
+      tbody.append('<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-clock-history fs-3 d-block mb-1"></i>No audit activity yet.</td></tr>');
+    } else {
+      rows.forEach(function(r) {
+        tbody.append('<tr>' + r.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>');
+      });
+    }
   }, 'json');
 }
 loadLogs(1);

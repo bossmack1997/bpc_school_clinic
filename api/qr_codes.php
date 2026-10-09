@@ -217,7 +217,7 @@ if ($action === 'regenerate') {
         json_response(true, ['qr_data' => $built['payload']], 'QR code regenerated. Old QR codes will no longer be valid.');
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to regenerate QR: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Failed to regenerate the QR code. Please try again.', 'qr/regenerate'));
     }
 }
 
@@ -336,7 +336,7 @@ if ($action === 'save_settings') {
         update_qr_settings($db, $settings, $user['id']);
         json_response(true, [], 'QR settings saved successfully.');
     } catch (Exception $e) {
-        json_response(false, [], 'Failed to save settings: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Failed to save the QR settings. Please try again.', 'qr/save_settings'));
     }
 }
 
@@ -483,7 +483,7 @@ if ($action === 'check_in') {
             ], 'Staff check-in successful. Queue number issued: ' . $queueNumber);
         } catch (Exception $e) {
             $db->rollBack();
-            json_response(false, [], 'Check-in failed: ' . $e->getMessage());
+            json_response(false, [], safe_api_error($e, 'Check-in failed. Please try again.', 'qr/checkin'));
         }
     }
 
@@ -557,7 +557,7 @@ if ($action === 'check_in') {
         ], 'Check-in successful. Queue number issued: ' . $queueNumber);
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Check-in failed: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Check-in failed. Please try again.', 'qr/checkin'));
     }
 }
 
@@ -1012,7 +1012,7 @@ $limit = min((int)($_GET['limit'] ?? 20), 100);
             'title'     => 'QR Scanned',
             'detail'    => ucfirst($row['purpose']) . ' • ' . ucfirst($row['scan_location'] ?? ''),
             'status'    => $row['status'],
-            'icon'      => '📱',
+            'icon'      => '',
         ];
     }
 
@@ -1031,7 +1031,7 @@ $limit = min((int)($_GET['limit'] ?? 20), 100);
             'title'     => 'Queue Assigned',
             'detail'    => $row['queue_number'] . ' (' . ucfirst($row['visit_type']) . ')',
             'status'    => $row['status'],
-            'icon'      => '🔢',
+            'icon'      => '',
         ];
         if (!empty($row['called_at'])) {
             $events[] = [
@@ -1040,7 +1040,7 @@ $limit = min((int)($_GET['limit'] ?? 20), 100);
                 'title'     => 'Consultation Started',
                 'detail'    => 'Queue ' . $row['queue_number'],
                 'status'    => 'serving',
-                'icon'      => '🩺',
+                'icon'      => '',
             ];
         }
         if (!empty($row['completed_at'])) {
@@ -1050,7 +1050,7 @@ $limit = min((int)($_GET['limit'] ?? 20), 100);
                 'title'     => 'Visit Completed',
                 'detail'    => 'Queue ' . $row['queue_number'],
                 'status'    => 'completed',
-                'icon'      => '✅',
+                'icon'      => '',
             ];
         }
     }
@@ -1068,9 +1068,9 @@ $limit = min((int)($_GET['limit'] ?? 20), 100);
             'timestamp' => $row['consultation_date'],
             'type'      => 'consultation',
             'title'     => 'Consultation',
-            'detail'    => $row['chief_complaint'] . ($row['diagnosis'] ? ' → ' . $row['diagnosis'] : ''),
+            'detail'    => $row['chief_complaint'] . ($row['diagnosis'] ? ' — ' . $row['diagnosis'] : ''),
             'status'    => 'completed',
-            'icon'      => '📋',
+            'icon'      => '',
         ];
     }
 
@@ -1093,7 +1093,7 @@ $limit = min((int)($_GET['limit'] ?? 20), 100);
             'title'   => 'Medicine Dispensed',
             'detail'  => $row['medicine_name'] . ' (' . $row['quantity'] . ')',
             'status'  => 'completed',
-            'icon'    => '💊',
+            'icon'    => '',
         ];
     }
 
@@ -1112,7 +1112,7 @@ $limit = min((int)($_GET['limit'] ?? 20), 100);
             'title'     => 'Medical Certificate Issued',
             'detail'    => $row['certificate_type'] . ($row['purpose'] ? ' — ' . $row['purpose'] : ''),
             'status'    => 'completed',
-            'icon'      => '📄',
+            'icon'      => '',
         ];
     }
 
@@ -1303,7 +1303,7 @@ if ($action === 'smart_scan') {
             json_response(true, ['queue_number' => $queueNumber, 'student' => ['name' => $studentPayload['name'], 'student_number' => $studentPayload['student_number']]]);
         } catch (Exception $e) {
             $db->rollBack();
-            json_response(false, [], 'Smart check-in failed: ' . $e->getMessage());
+            json_response(false, [], safe_api_error($e, 'Smart check-in failed. Please try again.', 'qr/smart_checkin'));
         }
     }
 
@@ -1398,7 +1398,7 @@ if ($action === 'smart_scan') {
         $db->commit();
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Smart check-in failed: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Smart check-in failed. Please try again.', 'qr/smart_checkin'));
     }
 
     // 5e. Notify the student

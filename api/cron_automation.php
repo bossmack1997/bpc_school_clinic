@@ -42,8 +42,7 @@ if ($isCli) {
     echo "Low Stock Items Scanned: {$results['low_stock']['count']} (Reorders Created: {$results['low_stock']['reorders_created']})\n";
     echo "Expiring Medicines Scanned: {$results['expiring_medicines']['total']} (Expired: {$results['expiring_medicines']['expired']}, <=7d: {$results['expiring_medicines']['within_7d']}, <=30d: {$results['expiring_medicines']['within_30d']})\n";
     echo "Graduating Students Checked: {$results['graduating_students']['count']}\n";
-    echo "Appointment Reminders Sent: {$results['appointment_reminders']['reminders_sent']}\n";
-    echo "Pending Requests: Users ({$results['pending_requests']['pending_users']}), Appointments ({$results['pending_requests']['pending_appointments']})\n";
+    echo "Pending Requests: Users ({$results['pending_requests']['pending_users']})\n";
     echo "Inventory Anomalies Detected: {$results['inventory_anomalies']['count']}\n";
     echo "Automation run completed successfully.\n";
 } else {

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
-require_role('adviser');
+require_role('teacher');
 $u = current_user();
 $pageTitle = 'My Clinic QR';
 ?>

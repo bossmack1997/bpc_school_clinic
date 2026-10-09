@@ -1,186 +1,395 @@
 <?php
+/**
+ * pages/student/dashboard.php
+ * =====================================================================
+ * STUDENT Dashboard — My Health Portal
+ * Friendly, privacy-first: summaries only, no sensitive clinical detail.
+ * =====================================================================
+ */
 require_once __DIR__ . '/../../config/config.php';
 require_role('student');
+
 $db = getDB();
-$u = current_user();
+$u  = current_user();
 
-$stmt = $db->prepare("SELECT * FROM students WHERE user_id = ?");
+$studentFirstName = !empty($u['first_name']) ? e($u['first_name']) : 'Student';
+$fullName = trim(($u['first_name'] ?? '') . ' ' . ($u['middle_name'] ?? '') . ' ' . ($u['last_name'] ?? ''));
+$initial  = strtoupper(substr((string)($u['first_name'] ?? 'S'), 0, 1) . substr((string)($u['last_name'] ?? ''), 0, 1));
+
+// -------------------------------------------------------------------------
+// 1. Student profile record
+// -------------------------------------------------------------------------
+$stmt = $db->prepare("SELECT * FROM students WHERE user_id = ? LIMIT 1");
 $stmt->execute([$u['id']]);
-$student = $stmt->fetch();
+$student = $stmt->fetch(PDO::FETCH_ASSOC);
+$studentId = $student ? (int)$student['id'] : 0;
 
-$upcomingAppt = $db->prepare("SELECT * FROM appointments WHERE student_id=? AND appointment_date >= CURDATE() AND status IN ('pending','approved') ORDER BY appointment_date LIMIT 1");
-$upcomingAppt->execute([$student['id']]);
-$upcomingAppt = $upcomingAppt->fetch();
+$studentNumber = $student['student_number'] ?? '—';
+$courseLabel   = trim(($student['course'] ?? '') . ' ' . ($student['year_level'] ?? ''));
+$sectionLabel  = $student['section'] ?? '—';
 
-$latestHealth = $db->prepare("SELECT * FROM health_monitoring WHERE student_id=? ORDER BY recorded_at DESC LIMIT 1");
-$latestHealth->execute([$student['id']]);
-$latestHealth = $latestHealth->fetch();
+// -------------------------------------------------------------------------
+// 2. Clinic status (derived from real queue state)
+// -------------------------------------------------------------------------
+$queueOpenToday = (int)$db->query("
+    SELECT COUNT(*) FROM queue_numbers
+    WHERE created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
+")->fetchColumn();
 
-$totalVisits = $db->prepare("SELECT COUNT(*) FROM consultations WHERE student_id=?");
-$totalVisits->execute([$student['id']]);
-$totalVisits = $totalVisits->fetchColumn();
+$waitingCount = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
+$clinicOpen   = $queueOpenToday > 0;
 
-$announcements = $db->query("SELECT * FROM announcements WHERE audience IN ('all','students') ORDER BY is_pinned DESC, created_at DESC LIMIT 4")->fetchAll();
+// -------------------------------------------------------------------------
+// 3. My queue ticket (real data via existing helper)
+// -------------------------------------------------------------------------
+$activeQueue = $studentId > 0 ? get_active_patient_queue_ticket($db, $studentId, 'student') : null;
 
-$bmiHistory = $db->prepare("SELECT recorded_at, bmi FROM health_monitoring WHERE student_id=? AND bmi IS NOT NULL ORDER BY recorded_at ASC LIMIT 12");
-$bmiHistory->execute([$student['id']]);
-$bmiHistory = $bmiHistory->fetchAll();
+$nowServing = $db->query("
+    SELECT q.queue_number, q.status, q.called_at,
+           COALESCE(CONCAT(us.first_name, ' ', SUBSTRING(us.last_name, 1, 1), '.'), q.full_name, 'Patient') AS serving_name
+    FROM queue_numbers q
+    LEFT JOIN students s ON s.id = q.student_id
+    LEFT JOIN users us ON us.id = s.user_id
+    WHERE DATE(q.created_at) = CURDATE() AND q.status IN ('serving','called')
+    ORDER BY FIELD(q.status,'serving','called'), q.id DESC
+    LIMIT 1
+")->fetch(PDO::FETCH_ASSOC);
+
+$patientsAhead = null;
+$estWait = null;
+if ($activeQueue) {
+    $aheadStmt = $db->prepare("
+        SELECT COUNT(*) FROM queue_numbers
+        WHERE created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
+          AND status = 'waiting'
+          AND (
+            FIELD(priority, 'emergency', 'urgent', 'normal') < FIELD(?, 'emergency', 'urgent', 'normal')
+            OR (priority = ? AND created_at < ?)
+          )
+    ");
+    $aheadStmt->execute([$activeQueue['priority'], $activeQueue['priority'], $activeQueue['created_at']]);
+    $patientsAhead = (int)$aheadStmt->fetchColumn();
+    $estWait = calculate_queue_wait_time($db, $patientsAhead);
+}
+
+// -------------------------------------------------------------------------
+// 4. Health summary (non-sensitive aggregates only)
+// -------------------------------------------------------------------------
+$totalVisits = 0;
+$lastVisit = null;
+$latestVitals = null;
+if ($studentId > 0) {
+    $vs = $db->prepare("SELECT COUNT(*) FROM consultations WHERE student_id = ?");
+    $vs->execute([$studentId]);
+    $totalVisits = (int)$vs->fetchColumn();
+
+    $ls = $db->prepare("SELECT consultation_date, chief_complaint FROM consultations WHERE student_id = ? ORDER BY consultation_date DESC LIMIT 1");
+    $ls->execute([$studentId]);
+    $lastVisit = $ls->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    // Only the two most recent readings are summarised — no clinical history here.
+    $hs = $db->prepare("SELECT bmi, bmi_status, blood_pressure, heart_rate, pulse_rate, recorded_at FROM health_monitoring WHERE student_id = ? ORDER BY recorded_at DESC LIMIT 1");
+    $hs->execute([$studentId]);
+    $latestVitals = $hs->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+// -------------------------------------------------------------------------
+// 5. Announcements + certificates
+// -------------------------------------------------------------------------
+$announcements = $db->query("SELECT id, title, content, is_pinned, created_at FROM announcements WHERE audience IN ('all','students') ORDER BY is_pinned DESC, created_at DESC LIMIT 3")->fetchAll(PDO::FETCH_ASSOC);
+
+$certCount = 0;
+if ($studentId > 0) {
+    $cs = $db->prepare("SELECT COUNT(*) FROM certificates WHERE student_id = ?");
+    $cs->execute([$studentId]);
+    $certCount = (int)$cs->fetchColumn();
+}
 
 $pageTitle = 'My Dashboard';
+$pageDescription = 'Your clinic information, services, and queue';
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head><?php include __DIR__ . '/../../includes/head.php'; ?></head>
+<head>
+<?php include __DIR__ . '/../../includes/head.php'; ?>
+</head>
 <body>
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area page-enter">
+    <div class="content-area dbg-canvas page-enter">
 
-<!-- Welcome Card — Student Health Portal -->
-      <div class="welcome-card" data-aos="fade-down" data-aos-duration="600">
-        <div class="welcome-content">
-          <div class="clinic-status open"><span class="status-dot"></span> Clinic Open Today</div>
-          <h1>Welcome, <?= e($u['first_name']) ?>! 👋</h1>
-          <div class="welcome-sub">BPC Student Health Portal</div>
-          <div class="welcome-desc">Student No. <?= e($student['student_number']) ?> · <?= e($student['course'] ?: '—') ?> <?= e($student['year_level'] ?: '') ?></div>
-          <div class="welcome-actions">
-            <a href="my_qr.php" class="btn btn-white"><i class="bi bi-qr-code-scan me-1"></i> Visit Clinic / Check-in</a>
-            <a href="appointments.php" class="btn btn-outline-white"><i class="bi bi-calendar-check me-1"></i> Book Appointment</a>
-            <a href="medical_record.php" class="btn btn-outline-white"><i class="bi bi-file-earmark-medical me-1"></i> Medical Records</a>
-            <a href="#" class="btn btn-outline-white" onclick="if(typeof MICA!=='undefined'&&MICA.open)MICA.open();return false;"><i class="bi bi-robot me-1"></i> Ask MICA</a>
-            <button type="button" class="btn btn-danger shadow-sm" data-bs-toggle="modal" data-bs-target="#sosModal"><i class="bi bi-shield-fill-exclamation me-1"></i> 🚨 SOS Emergency</button>
-          </div>
-          <div class="welcome-note mt-2 small"><i class="bi bi-info-circle me-1"></i> No appointment is required for a normal clinic visit — just walk in or scan your QR at the clinic.</div>
-        </div>
-        <div class="welcome-visual">
-          <div class="welcome-icon"><i class="bi bi-person-circle"></i></div>
-        </div>
-        <!-- Subtle ECG line -->
-        <div class="ecg-line" style="position:absolute;bottom:0;left:0;right:0;opacity:0.06;">
-          <svg viewBox="0 0 400 40" preserveAspectRatio="none">
-            <path class="ecg-path" d="M0,20 L50,20 L60,8 L70,32 L80,20 L130,20 L140,10 L145,20 L150,20 L200,20 L210,12 L220,28 L230,20 L280,20 L290,15 L295,20 L300,20 L350,20 L360,18 L370,22 L380,20 L400,20" stroke="white" stroke-width="2" fill="none"/>
-          </svg>
-        </div>
-      </div>
+      <!-- ============================================================
+           STUDENT HERO
+           ============================================================ -->
+      <?php
+      dbg_hero([
+          'role'  => 'Student Portal',
+          'title' => dbg_greeting() . ', ' . $studentFirstName . ' ',
+          'desc'  => 'Your BPC School Clinic is here to support your health.',
+          'chips' => [
+              ['label' => 'Clinic status', 'value' => $clinicOpen ? 'Open' : 'Closed', 'dot' => $clinicOpen ? '' : 'warn'],
+              ['label' => 'In queue', 'value' => $activeQueue ? ('#L' . $activeQueue['queue_number']) : 'No'],
+              ['label' => 'Waiting now', 'value' => (string) $waitingCount],
+          ],
+          'badge_icon' => 'hospital',
+          'badge_label'=> $clinicOpen ? 'Open Now' : 'Closed',
+      ]);
+      ?>
 
-      <!-- Medical Stat Cards -->
-      <div class="row g-3 mb-4" data-aos="fade-up" data-aos-delay="100">
-        <div class="col-md-4">
-          <div class="medical-stat-card gradient-green">
-            <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-calendar-check-fill"></i></div>
-              <div class="msc-value" style="font-size:1.1rem"><?= $upcomingAppt ? format_date($upcomingAppt['appointment_date']) : 'None' ?></div>
-            </div>
-            <div>
-              <div class="msc-label">Upcoming Appointment</div>
-              <div class="msc-trend up"><i class="bi bi-calendar-event"></i> <?= $upcomingAppt ? date('g:i A', strtotime($upcomingAppt['appointment_time'])) : 'No upcoming' ?></div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <div class="medical-stat-card gradient-blue">
-            <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-activity"></i></div>
-              <div class="msc-value"><?= $latestHealth['bmi'] ?? '—' ?></div>
-            </div>
-            <div>
-              <div class="msc-label">Latest BMI</div>
-              <div class="msc-trend up"><i class="bi bi-activity"></i> <?= e($latestHealth['bmi_status'] ?? 'No record') ?></div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <div class="medical-stat-card gradient-teal">
-            <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-file-earmark-medical-fill"></i></div>
-              <div class="msc-value"><span class="counter-animate" data-count="<?= (int)$totalVisits ?>">0</span></div>
-            </div>
-            <div>
-              <div class="msc-label">Total Clinic Visits</div>
-              <div class="msc-trend up"><i class="bi bi-arrow-up-short"></i> All time</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Actions — Large Interactive Cards -->
-      <h6 class="section-title mb-3" data-aos="fade-up"><i class="bi bi-lightning-fill"></i> Quick Actions</h6>
-      <div class="quick-actions-grid" data-aos="fade-up" data-aos-delay="50">
-        <a href="my_qr.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-qr-code-scan"></i></div>
-          <div class="qa-title-lg">Visit Clinic / Check-in</div>
-          <div class="qa-sub-lg">Walk in or scan your QR</div>
-        </a>
-        <a href="health_monitoring.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-heart-pulse-fill"></i></div>
-          <div class="qa-title-lg">Health Monitoring</div>
-          <div class="qa-sub-lg">Check vitals &amp; BMI</div>
-        </a>
-        <a href="medical_record.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-file-earmark-medical-fill"></i></div>
-          <div class="qa-title-lg">Medical Records</div>
-          <div class="qa-sub-lg">View your health files</div>
-        </a>
-        <a href="appointments.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-calendar-check-fill"></i></div>
-          <div class="qa-title-lg">Scheduled Services</div>
-          <div class="qa-sub-lg">Optional follow-ups, etc.</div>
-        </a>
-        <a href="certificates.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-file-medical-fill"></i></div>
-          <div class="qa-title-lg">Clinic Services</div>
-          <div class="qa-sub-lg">Download forms & certs</div>
-        </a>
-        <a href="#" class="quick-action-card-lg text-decoration-none" onclick="if(typeof MICA!=='undefined'&&MICA.open)MICA.open();return false;">
-          <div class="qa-icon-lg"><i class="bi bi-robot"></i></div>
-          <div class="qa-title-lg">Ask MICA</div>
-          <div class="qa-sub-lg">Get wellness guidance</div>
-        </a>
-      </div>
-
-      <div class="alert alert-light border d-flex align-items-center gap-2 mb-4" role="alert">
-        <i class="bi bi-info-circle-fill text-primary"></i>
-        <div class="small"><strong>No appointment is required for normal clinic visits.</strong> You can go directly to the school clinic whenever you need care. Scheduled Services are optional and intended for follow-ups, vaccinations, screenings, and other non-urgent services.</div>
-      </div>
-
-      <!-- BMI & Announcements Row -->
-      <div class="row g-3" data-aos="fade-up" data-aos-delay="150">
-        <div class="col-xl-7">
-          <div class="card h-100">
-            <div class="card-header d-flex align-items-center gap-2">
-              <i class="bi bi-graph-up text-primary"></i>
-              <span>BMI History</span>
-            </div>
-            <div class="card-body">
-              <canvas id="bmiChart" height="160"></canvas>
-            </div>
-          </div>
-        </div>
+      <!-- ============================================================
+           MY CLINIC PROFILE  +  MY CLINIC QR
+           ============================================================ -->
+      <div class="row g-3 g-xl-4 mb-3 mb-xl-4" data-aos="fade-up" data-aos-delay="50">
+        <!-- Profile card -->
         <div class="col-xl-5">
-          <div class="card h-100">
-            <div class="card-header d-flex align-items-center gap-2">
-              <i class="bi bi-megaphone-fill text-primary"></i>
-              <span>Clinic Announcements</span>
+          <div class="dbg-profile" style="height:100%;display:flex;flex-direction:column;">
+            <div class="dbg-profile__top">
+              <span class="dbg-profile__avatar">
+                <?php $pic = trim((string)($u['profile_picture'] ?? '')); ?>
+                <?php if ($pic !== ''): ?>
+                  <img src="<?= e(app_url($pic)) ?>" alt="<?= e($fullName) ?>" onerror="this.remove()">
+                <?php else: ?>
+                  <?= e($initial ?: 'S') ?>
+                <?php endif; ?>
+              </span>
+              <span style="min-width:0;">
+                <h3 class="dbg-profile__name"><?= e($fullName !== '' ? $fullName : $studentFirstName) ?></h3>
+                <span class="dbg-profile__sub"><?= e($courseLabel !== '' ? $courseLabel : 'BPC Student') ?></span>
+              </span>
             </div>
-            <div class="card-body">
-              <?php foreach ($announcements as $an): ?>
-                <div class="border-bottom py-2">
-                  <div class="fw-semibold small"><?= e($an['title']) ?> <?= $an['is_pinned'] ? '<span class="badge bg-warning text-dark" style="font-size:.65rem;">Pinned</span>' : '' ?></div>
-                  <div class="text-muted" style="font-size:.8rem"><?= e(mb_substr($an['content'],0,90)) ?><?= mb_strlen($an['content'])>90?'…':'' ?></div>
-                  <div class="text-muted" style="font-size:.7rem"><?= format_date($an['created_at']) ?></div>
-                </div>
-              <?php endforeach; ?>
-              <?php if (!$announcements): ?>
-                <div class="text-center text-muted py-3">
-                  <i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;"></i>
-                  <p class="mb-0 small">No announcements yet.</p>
-                </div>
-              <?php endif; ?>
-              <a href="announcements.php" class="btn btn-sm btn-outline-primary w-100 mt-2">View All Announcements</a>
+
+            <div class="dbg-profile__facts">
+              <div class="dbg-profile__fact">
+                <span>Student ID</span>
+                <b class="dbg-mono"><?= e($studentNumber) ?></b>
+              </div>
+              <div class="dbg-profile__fact">
+                <span>Section</span>
+                <b><?= e($sectionLabel) ?></b>
+              </div>
+              <div class="dbg-profile__fact">
+                <span>Clinic visits</span>
+                <b><?= $totalVisits ?> recorded</b>
+              </div>
+              <div class="dbg-profile__fact">
+                <span>Certificates</span>
+                <b><?= $certCount ?> on file</b>
+              </div>
+            </div>
+
+            <div class="dbg-btn-row" style="margin-top:18px;position:relative;z-index:1;">
+              <a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="<?= APP_URL ?>/pages/student/medical_record.php">
+                <i class="bi bi-file-earmark-medical"></i> View Health Record
+              </a>
+              <a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="<?= APP_URL ?>/pages/student/health_monitoring.php">
+                <i class="bi bi-activity"></i> My Vitals
+              </a>
             </div>
           </div>
+        </div>
+
+        <!-- QR showcase -->
+        <div class="col-xl-4">
+          <div class="dbg-qr">
+            <span class="dbg-qr__label">My Clinic QR</span>
+            <div class="dbg-qr__frame" id="dashboardQrFrame">
+              <div class="dbg-skel dbg-skel--block" style="width:100%;height:100%;border-radius:8px;"></div>
+            </div>
+            <div class="dbg-qr__name"><?= e($fullName !== '' ? $fullName : $studentFirstName) ?></div>
+            <div class="dbg-qr__meta"><?= e($courseLabel !== '' ? $courseLabel . ' · ' . $sectionLabel : $sectionLabel) ?></div>
+            <div class="dbg-qr__hint">
+              <i class="bi bi-info-circle me-1"></i>Show this QR code to clinic staff during your visit.
+            </div>
+            <div class="dbg-btn-row" style="margin-top:14px;width:100%;">
+              <a class="dbg-btn dbg-btn--primary dbg-btn--sm" href="<?= APP_URL ?>/pages/student/my_qr.php">
+                <i class="bi bi-qr-code"></i> View QR
+              </a>
+              <a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="<?= APP_URL ?>/pages/student/queue.php">
+                <i class="bi bi-ticket-perforated"></i> <?= $activeQueue ? 'My Queue' : 'Join Queue' ?>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- My clinic queue -->
+        <div class="col-xl-3">
+          <div class="dbg-queue" style="height:100%;display:flex;flex-direction:column;">
+            <div class="dbg-queue__head">
+              <span class="dbg-pulse"></span> My Clinic Queue
+            </div>
+            <?php if ($activeQueue): ?>
+              <div style="padding:16px;">
+                <div class="dbg-queue__caption">Your queue number</div>
+                <div class="dbg-queue__ticket">#L<?= e($activeQueue['queue_number']) ?></div>
+                <div style="margin-top:10px;">
+                  <span class="dbg-badge <?= $activeQueue['status'] === 'serving' ? '' : ($activeQueue['status'] === 'called' ? 'dbg-badge--orange' : 'dbg-badge--muted') ?>">
+                    <?= e(ucfirst((string)$activeQueue['status'])) ?>
+                  </span>
+                </div>
+
+                <hr class="dbg-divider" style="margin:14px 0;">
+
+                <div class="dbg-queue__caption">Currently serving</div>
+                <div style="font-size:1.4rem;font-weight:700;color:var(--bpc-green);line-height:1.1;">
+                  <?= $nowServing ? '#L' . e($nowServing['queue_number']) : '—' ?>
+                </div>
+
+                <div class="d-flex align-items-center gap-2" style="margin-top:12px;">
+                  <span class="dbg-count-pill"><i class="bi bi-people"></i> <?= (int)$patientsAhead ?> ahead</span>
+                  <?php if ($estWait !== null && $estWait > 0): ?>
+                    <span class="dbg-count-pill dbg-count-pill--muted"><i class="bi bi-hourglass"></i> ~<?= (int)$estWait ?> min</span>
+                  <?php endif; ?>
+                </div>
+              </div>
+            <?php else: ?>
+              <div style="padding:16px;">
+                <div class="dbg-queue__caption">Currently serving</div>
+                <div style="font-size:1.4rem;font-weight:700;color:var(--bpc-green);line-height:1.1;">
+                  <?= $nowServing ? '#L' . e($nowServing['queue_number']) : '—' ?>
+                </div>
+                <p class="dbg-muted" style="font-size:0.78rem;margin-top:6px;">
+                  You're not currently in the clinic queue.
+                </p>
+                <?php if ($waitingCount > 0): ?>
+                  <div class="dbg-count-pill" style="margin-top:8px;"><i class="bi bi-hourglass"></i> <?= $waitingCount ?> waiting</div>
+                <?php endif; ?>
+              </div>
+            <?php endif; ?>
+
+            <div class="dbg-queue__foot" style="margin-top:auto;">
+              <a class="dbg-btn dbg-btn--primary dbg-btn--sm dbg-btn--block" href="<?= APP_URL ?>/pages/student/queue.php">
+                <i class="bi bi-broadcast"></i>
+                <?= $activeQueue ? 'View Live Queue' : 'Join Clinic Queue' ?>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           HEALTH SUMMARY  +  MESSAGE THE CLINIC
+           ============================================================ -->
+      <div class="row g-3 g-xl-4 mb-3 mb-xl-4" data-aos="fade-up" data-aos-delay="100">
+        <!-- Health summary (summaries only) -->
+        <div class="col-xl-7">
+          <?php dbg_panel_open([
+              'icon'     => 'heart-pulse-fill',
+              'title'    => 'My Health Summary',
+              'subtitle' => 'Summaries only — full details live in your health record',
+              'action'   => '<a class="dbg-btn dbg-btn--soft dbg-btn--sm" href="' . APP_URL . '/pages/student/medical_record.php">Health record</a>',
+          ]); ?>
+            <?php if ($totalVisits === 0 && empty($latestVitals)): ?>
+              <?php dbg_empty([
+                  'icon'  => 'clipboard2-pulse',
+                  'title' => 'No health records yet',
+                  'desc'  => 'Once the clinic records your first visit, your summary will appear here.',
+                  'action'=> '<a class="dbg-btn dbg-btn--primary dbg-btn--sm" href="' . APP_URL . '/pages/student/queue.php"><i class="bi bi-ticket-perforated"></i> Book a clinic visit</a>',
+              ]); ?>
+            <?php else: ?>
+              <div class="dbg-stats dbg-stats--3 dbg-stats--tight">
+                <?php
+                dbg_stat(['tone' => 'green', 'icon' => 'clipboard-data', 'value' => $totalVisits, 'count' => true, 'label' => 'Total Visits']);
+                dbg_stat(['tone' => 'teal',  'icon' => 'speedometer2',  'value' => $latestVitals && $latestVitals['bmi'] !== null ? e(number_format((float)$latestVitals['bmi'], 1)) : '—', 'label' => 'Latest BMI']);
+                dbg_stat(['tone' => 'blue',  'icon' => 'calendar-check', 'value' => $lastVisit ? e(format_date($lastVisit['consultation_date'])) : '—', 'label' => 'Last Visit']);
+                ?>
+              </div>
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="dbg-avatar"><i class="bi bi-heart-pulse"></i></span>
+                  <span>
+                    <span class="d-block" style="font-weight:600;font-size:0.88rem;">
+                      <?= $latestVitals && !empty($latestVitals['blood_pressure']) ? 'Last recorded: ' . e($latestVitals['blood_pressure']) : 'No recent vitals recorded' ?>
+                      <?php if ($latestVitals && !empty($latestVitals['heart_rate'])): ?>
+                        <span class="dbg-muted" style="font-weight:400;">&middot; <?= (int)$latestVitals['heart_rate'] ?> bpm</span>
+                      <?php endif; ?>
+                    </span>
+                    <span class="dbg-muted" style="font-size:0.75rem;">
+                      <?= !empty($latestVitals['recorded_at']) ? format_datetime($latestVitals['recorded_at']) : 'Visit the clinic to update' ?>
+                    </span>
+                  </span>
+                </div>
+                <a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="<?= APP_URL ?>/pages/student/health_monitoring.php">
+                  <i class="bi bi-activity"></i> Check my vitals
+                </a>
+              </div>
+            <?php endif; ?>
+          <?php dbg_panel_close(); ?>
+        </div>
+
+        <!-- Message the clinic -->
+        <div class="col-xl-5">
+          <?php dbg_panel_open([
+              'icon'     => 'chat-heart-fill',
+              'title'    => 'Message the Clinic',
+              'subtitle' => 'Nurses currently on duty',
+              'action'   => '<a class="dbg-btn dbg-btn--soft dbg-btn--sm" href="' . APP_URL . '/pages/student/messages.php">Open inbox</a>',
+          ]); ?>
+            <div id="studentStaffHost">
+              <?php dbg_skeleton_rows(3); ?>
+            </div>
+          <?php dbg_panel_close(); ?>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           CLINIC SERVICES + ANNOUNCEMENTS
+           ============================================================ -->
+      <div class="row g-3 g-xl-4" data-aos="fade-up" data-aos-delay="150">
+        <div class="col-xl-7">
+          <?php dbg_panel_open([
+              'icon'  => 'grid-1x2-fill',
+              'title' => 'Clinic Services',
+          ]); ?>
+            <div class="dbg-actions dbg-actions--auto">
+              <?php
+              dbg_action_tile(['tone' => 'green',  'icon' => 'ticket-perforated-fill', 'title' => 'Clinic Visit',    'desc' => 'Join the queue or book',       'href' => APP_URL . '/pages/student/queue.php']);
+              dbg_action_tile(['tone' => 'blue',   'icon' => 'file-earmark-medical-fill', 'title' => 'Medical Records', 'desc' => 'View your history',           'href' => APP_URL . '/pages/student/medical_record.php']);
+              dbg_action_tile(['tone' => 'orange', 'icon' => 'file-medical-fill',       'title' => 'Certificates',    'desc' => $certCount . ' on file',      'href' => APP_URL . '/pages/student/certificates.php']);
+              dbg_action_tile(['tone' => 'teal',   'icon' => 'chat-dots-fill',          'title' => 'Messages',        'desc' => 'Talk to a nurse',             'href' => APP_URL . '/pages/student/messages.php']);
+              ?>
+            </div>
+          <?php dbg_panel_close('<div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <span class="dbg-muted" style="font-size:0.78rem;">
+              <i class="bi bi-shield-fill-check me-1"></i>Your medical details stay private and are only visible to clinic staff.
+            </span>
+            <a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="<?= APP_URL ?>/pages/student/vaccination.php">
+              <i class="bi bi-syringe"></i> Vaccination
+            </a>
+          </div>'); ?>
+        </div>
+
+        <div class="col-xl-5">
+          <?php dbg_panel_open([
+              'icon'     => 'megaphone-fill',
+              'title'    => 'Clinic Announcements',
+              'action'   => '<a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="' . APP_URL . '/pages/student/announcements.php">View all <i class="bi bi-arrow-right"></i></a>',
+          ]); ?>
+            <?php if (empty($announcements)): ?>
+              <?php dbg_empty([
+                  'icon'  => 'inbox',
+                  'title' => 'No announcements yet',
+                  'desc'  => 'Clinic announcements and health reminders will appear here.',
+              ]); ?>
+            <?php else: ?>
+              <div class="dbg-list">
+                <?php foreach ($announcements as $an): ?>
+                  <div class="dbg-news">
+                    <span class="dbg-news__icon"><i class="bi bi-megaphone-fill"></i></span>
+                    <div style="min-width:0;">
+                      <div class="dbg-news__title">
+                        <span><?= e($an['title']) ?></span>
+                        <?php if (!empty($an['is_pinned'])): ?><span class="dbg-tag">Pinned</span><?php endif; ?>
+                      </div>
+                      <div class="dbg-news__desc"><?= e((string)$an['content']) ?></div>
+                      <div class="dbg-news__time"><?= format_datetime($an['created_at']) ?></div>
+                    </div>
+                  </div>
+                <?php endforeach; ?>
+              </div>
+            <?php endif; ?>
+          <?php dbg_panel_close(); ?>
         </div>
       </div>
 
@@ -188,13 +397,107 @@ $pageTitle = 'My Dashboard';
   </div>
 </div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+
 <script>
-const bmiHist = <?= json_encode($bmiHistory) ?>;
-new Chart(document.getElementById('bmiChart'), {
-  type:'line',
-  data:{ labels: bmiHist.map(h=>h.recorded_at.split(' ')[0]), datasets:[{ label:'BMI', data:bmiHist.map(h=>h.bmi), borderColor:'#0B6B3A', backgroundColor:'rgba(11,107,58,0.12)', fill:true, tension:.35 }]},
-  options:{ plugins:{legend:{display:false}}, scales:{y:{grid:{color:'rgba(0,0,0,0.04)'}}}, responsive:true }
-});
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------------
+  // 1. Health Pass QR — reuses the existing endpoint
+  // ------------------------------------------------------------------
+  var QR_ERROR_HTML = <?= json_encode(dbg_error_state('Unable to load your clinic QR.')) ?>;
+
+  function loadQrCode() {
+    var frame = document.getElementById('dashboardQrFrame');
+    if (!frame) return;
+
+    function showError() {
+      frame.innerHTML = '<div style="text-align:center;color:var(--bpc-ink-2);font-size:0.78rem;">'
+        + '<i class="bi bi-qr-code d-block" style="font-size:1.6rem;opacity:0.5;"></i>'
+        + 'QR unavailable</div>';
+    }
+
+    if (!window.QRCode) return showError();
+
+    $.ajax({
+      url: APP_URL + '/api/qr_codes.php',
+      method: 'GET',
+      dataType: 'json',
+      data: { action: 'student_health_pass' },
+      success: function (res) {
+        if (res && res.success && res.qr && res.qr.qr_data && window.QRCode) {
+          frame.innerHTML = '';
+          new QRCode(frame, {
+            text: res.qr.qr_data,
+            width: 154,
+            height: 154,
+            correctLevel: QRCode.CorrectLevel.M
+          });
+        } else {
+          showError();
+        }
+      },
+      error: function () { showError(); }
+    });
+  }
+  loadQrCode();
+
+  // ------------------------------------------------------------------
+  // 2. Available clinic staff — reuses the existing messages endpoint
+  // ------------------------------------------------------------------
+  var STAFF_ERROR_HTML = <?= json_encode(dbg_error_state('Unable to load clinic staff availability.')) ?>;
+
+  function staffRow(n) {
+    var dot = n.presence_status === 'online' ? '' : (n.presence_status === 'away' ? ' dbg-live-dot--away' : ' dbg-live-dot--offline');
+    return '<div class="dbg-staff__row">'
+      + '<span class="dbg-avatar"><img src="' + (n.avatar || '') + '" alt="" onerror="this.style.display=\'none\'"></span>'
+      + '<span class="dbg-staff__meta">'
+      + '<span class="dbg-staff__name">' + (n.name || 'Clinic Nurse') + '</span>'
+      + '<span class="dbg-staff__status"><span class="dbg-live-dot' + dot + '"></span>' + (n.availability_label || 'Offline') + '</span>'
+      + '</span>'
+      + '<span class="dbg-badge dbg-badge--muted">Nurse</span>'
+      + '</div>';
+  }
+
+  function loadStaff() {
+    var host = document.getElementById('studentStaffHost');
+    if (!host) return;
+
+    $.ajax({
+      url: APP_URL + '/api/messages.php',
+      method: 'GET',
+      dataType: 'json',
+      data: { action: 'available_staff' },
+      success: function (res) {
+        var staff = (res && res.success && res.data && res.data.staff) ? res.data.staff : [];
+        if (!staff.length) {
+          host.innerHTML = '<div class="dbg-empty"><div class="dbg-empty__icon"><i class="bi bi-person-x"></i></div>'
+            + '<h6>No nurses available right now</h6>'
+            + '<p>You can still send a message — the clinic will reply as soon as a nurse is free.</p></div>';
+          return;
+        }
+        var online = staff.filter(function (n) { return n.is_online; });
+        host.innerHTML =
+          '<div class="d-flex align-items-center gap-2 mb-2">'
+          + '<span class="dbg-badge' + (online.length ? '' : ' dbg-badge--muted') + '">Available now: ' + online.length + '</span>'
+          + '</div>'
+          + '<div class="dbg-staff">' + staff.slice(0, 4).map(staffRow).join('') + '</div>'
+          + '<div class="dbg-btn-row" style="margin-top:14px;">'
+          + '<a class="dbg-btn dbg-btn--primary dbg-btn--sm" href="' + APP_URL + '/pages/student/messages.php">'
+          + '<i class="bi bi-chat-dots"></i> Message Clinic</a></div>';
+      },
+      error: function () {
+        host.innerHTML = STAFF_ERROR_HTML;
+      }
+    });
+  }
+
+  function whenReady(fn) {
+    if (typeof $ !== 'undefined') return fn();
+    document.addEventListener('DOMContentLoaded', fn);
+  }
+  whenReady(loadStaff);
+})();
 </script>
 </body>
 </html>

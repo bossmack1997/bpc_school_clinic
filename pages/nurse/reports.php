@@ -19,16 +19,15 @@ $pageTitle = 'Reports';
             <form id="reportForm">
               <div class="mb-3">
                 <label class="form-label small fw-semibold">Report Type</label>
-<select class="form-select" name="type" required>
-                  <option value="appointments">Appointments Report</option>
-                  <option value="consultations">Consultations Report</option>
-                  <option value="inventory">Inventory Report</option>
-                  <option value="health">Health Monitoring Report</option>
-                  <option value="qr_scan_logs">QR Scan Logs Report</option>
-                  <option value="daily_checkins">Daily Check-ins Report</option>
-                  <option value="walkin_stats">Walk-in Statistics Report</option>
-                  <option value="queue_reports">Queue Report</option>
-                  <option value="appointment_attendance">Appointment Attendance Report</option>
+                <select class="form-select" name="type" required>
+                  <option value="consultations" selected>Clinic Consultations Report</option>
+                  <option value="walkin_stats">Walk-in Visits &amp; Triage Report</option>
+                  <option value="inventory">Medicine Inventory &amp; Usage Report</option>
+                  <option value="health">Health &amp; Vital Signs Monitoring Report</option>
+                  <option value="certificates">Medical Certificates Issued Report</option>
+                  <option value="emergencies">Emergency &amp; SOS Incidents Report</option>
+                  <option value="qr_scan_logs">QR Health Pass Scan Logs Report</option>
+                  <option value="daily_checkins">Daily Check-ins Summary Report</option>
                 </select>
               </div>
               <div class="row g-2 mb-3">
@@ -37,10 +36,7 @@ $pageTitle = 'Reports';
               </div>
               <div class="d-grid gap-2">
                 <button class="btn btn-primary w-100" type="submit"><i class="bi bi-download me-1"></i> Generate</button>
-                <div class="btn-group w-100" role="group">
-                  <button class="btn btn-outline-success btn-sm" type="button" id="exportCsvBtn"><i class="bi bi-filetype-csv me-1"></i> Export CSV</button>
-                  <button class="btn btn-outline-success btn-sm" type="button" id="exportExcelBtn"><i class="bi bi-file-earmark-excel me-1"></i> Export Excel</button>
-                </div>
+                <button class="btn btn-outline-success w-100 btn-sm" type="button" id="exportCsvBtn"><i class="bi bi-filetype-csv me-1"></i> Export CSV</button>
               </div>
             </form>
           </div>
@@ -117,17 +113,6 @@ $('#exportCsvBtn').on('click', function () {
   URL.revokeObjectURL(a.href);
 });
 
-// ============================================================
-// Export current report as Excel (client-side SheetJS)
-// ============================================================
-$('#exportExcelBtn').on('click', function () {
-  if (!currentReportData.length) { toastError('Generate a report first.'); return; }
-  if (!window.XLSX) { toastError('Excel library not loaded.'); return; }
-  const ws = XLSX.utils.json_to_sheet(currentReportData);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Report');
-  XLSX.writeFile(wb, currentReportTitle.replace(/[^a-z0-9]+/gi, '_').toLowerCase() + '.xlsx');
-});
 
 $.get(APP_URL + '/api/reports.php', { action: 'history' }, function (res) {
   if (!res.success) return;

@@ -363,17 +363,17 @@ class NearbyHospitalService
             // Case 2: Non-hospital search (e.g. gas stations, pharmacy, stores)
             if (preg_match('/\b(gas station|gasolinahan|petrol|gas)\b/i', $lowerMsg)) {
                 $mapsSearchUrl = "https://www.google.com/maps/search/gas+station/@{$lat},{$lng},15z";
-                return "I have your location coordinates, {$userName}. While my system database specifically focuses on emergency medical centers and the BPC School Clinic, you can find nearby gas stations on Google Maps here:\n\n⛽ [Search Nearby Gas Stations on Google Maps]({$mapsSearchUrl})\n\nIf you ever need medical assistance or first aid, I can also direct you to the nearest hospital.";
+                return "I have your location coordinates, {$userName}. While my system database specifically focuses on emergency medical centers and the BPC School Clinic, you can find nearby gas stations on Google Maps here:\n\n[Search Nearby Gas Stations on Google Maps]({$mapsSearchUrl})\n\nIf you ever need medical assistance or first aid, I can also direct you to the nearest hospital.";
             }
 
             if (preg_match('/\b(pharmacy|drugstore|botika|mercury drug)\b/i', $lowerMsg)) {
                 $mapsSearchUrl = "https://www.google.com/maps/search/pharmacy/@{$lat},{$lng},15z";
-                return "I have your location coordinates, {$userName}. You can find nearby pharmacies and drugstores on Google Maps here:\n\n💊 [Search Nearby Pharmacies on Google Maps]({$mapsSearchUrl})\n\nNote: For basic over-the-counter medicine on campus, you can also check our BPC School Clinic inventory.";
+                return "I have your location coordinates, {$userName}. You can find nearby pharmacies and drugstores on Google Maps here:\n\n[Search Nearby Pharmacies on Google Maps]({$mapsSearchUrl})\n\nNote: For basic over-the-counter medicine on campus, you can also check our BPC School Clinic inventory.";
             }
 
             if (preg_match('/\b(convenience store|store|grocery|7-eleven|seven eleven|supermarket)\b/i', $lowerMsg)) {
                 $mapsSearchUrl = "https://www.google.com/maps/search/stores/@{$lat},{$lng},15z";
-                return "I have your location coordinates, {$userName}. You can search for nearby stores on Google Maps here:\n\n🏪 [Search Nearby Stores on Google Maps]({$mapsSearchUrl})";
+                return "I have your location coordinates, {$userName}. You can search for nearby stores on Google Maps here:\n\n[Search Nearby Stores on Google Maps]({$mapsSearchUrl})";
             }
 
             // Low accuracy check (> 1000m) for medical facilities
@@ -389,12 +389,12 @@ class NearbyHospitalService
             foreach ($nearest as $idx => $fac) {
                 $num = $idx + 1;
                 $reply .= "{$num}. **{$fac['name']}** — *{$fac['distance_formatted']}*\n";
-                $reply .= "   📍 {$fac['address']}\n";
-                $reply .= "   📞 Emergency: **{$fac['emergency_phone']}**\n";
-                $reply .= "   🏥 {$fac['services']}\n";
-                $reply .= "   🧭 [Navigate via Google Maps]({$fac['maps_url']})\n\n";
+                $reply .= "   **Address:** {$fac['address']}\n";
+                $reply .= "   **Emergency:** **{$fac['emergency_phone']}**\n";
+                $reply .= "   **Services:** {$fac['services']}\n";
+                $reply .= "   [Navigate via Google Maps]({$fac['maps_url']})\n\n";
             }
-            $reply .= "⚠️ **For life-threatening emergencies**, call **911** or **Bulacan Rescue (044) 791-0566** immediately, or tap the **SOS button** in the clinic system to alert our nurses.";
+            $reply .= "**For life-threatening emergencies**, call **911** or **Bulacan Rescue (044) 791-0566** immediately, or tap the **SOS button** in the clinic system to alert our nurses.";
             return $reply;
         }
 

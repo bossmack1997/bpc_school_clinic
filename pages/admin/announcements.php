@@ -44,7 +44,7 @@ function loadAnnouncements() {
             <div>
               <strong>${$('<div>').text(a.title).html()}</strong> ${pinned} ${audience}
               <div class="text-muted small mt-1">${$('<div>').text(a.content).html()}</div>
-              <div class="text-muted" style="font-size:.75rem">Posted by ${a.first_name || 'System'} ${a.last_name || ''} · ${a.created_at}</div>
+              <div class="text-muted" style="font-size:.75rem">Posted by ${a.first_name || 'System'} ${a.last_name || ''} &middot; ${a.created_at}</div>
             </div>
           </div>
         </div>`

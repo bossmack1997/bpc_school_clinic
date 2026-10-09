@@ -142,7 +142,7 @@ if ($action === 'update_action_status') {
 // ACTION: reorder_list
 // ================================================================
 if ($action === 'reorder_list') {
-    if (!in_array($user['role'], ['admin', 'nurse', 'doctor'], true)) {
+    if (!in_array(canonical_role($user['role']), ['admin', 'nurse'], true)) {
         json_response(false, [], 'Access denied.');
     }
 
@@ -174,7 +174,7 @@ if ($action === 'reorder_list') {
 // ================================================================
 if ($action === 'create_reorder') {
     require_csrf_check();
-    if (!in_array($user['role'], ['admin', 'nurse', 'doctor'], true)) {
+    if (!in_array(canonical_role($user['role']), ['admin', 'nurse'], true)) {
         json_response(false, [], 'Access denied.');
     }
 
@@ -195,7 +195,7 @@ if ($action === 'create_reorder') {
 // ================================================================
 if ($action === 'approve_reorder') {
     require_csrf_check();
-    if (!in_array($user['role'], ['admin', 'nurse', 'doctor'], true)) {
+    if (!in_array(canonical_role($user['role']), ['admin', 'nurse'], true)) {
         json_response(false, [], 'Access denied.');
     }
 
@@ -216,7 +216,7 @@ if ($action === 'approve_reorder') {
 // ================================================================
 if ($action === 'reject_reorder') {
     require_csrf_check();
-    if (!in_array($user['role'], ['admin', 'nurse', 'doctor'], true)) {
+    if (!in_array(canonical_role($user['role']), ['admin', 'nurse'], true)) {
         json_response(false, [], 'Access denied.');
     }
 
@@ -255,7 +255,7 @@ if ($action === 'deactivate_graduated') {
 // ACTION: run_automation
 // ================================================================
 if ($action === 'run_automation') {
-    if (!in_array($user['role'], ['admin', 'nurse', 'doctor'], true)) {
+    if (!in_array(canonical_role($user['role']), ['admin', 'nurse'], true)) {
         json_response(false, [], 'Access denied.');
     }
 
@@ -305,7 +305,7 @@ if ($action === 'sos_emergency') {
     $emergencyId = (int)$db->lastInsertId();
 
     // Alert all nurses and admins
-    $staffStmt = $db->query("SELECT id FROM users WHERE role IN ('nurse','admin','doctor')");
+    $staffStmt = $db->query("SELECT id FROM users WHERE role IN ('nurse','admin')");
     $staff = $staffStmt->fetchAll(PDO::FETCH_COLUMN);
     $reporterName = trim($user['first_name'] . ' ' . $user['last_name']);
 
@@ -313,7 +313,7 @@ if ($action === 'sos_emergency') {
         push_notification(
             (int)$staffId,
             'sos_emergency',
-            "🚨 CRITICAL SOS: {$emergencyType}",
+            'CRITICAL SOS: ' . $emergencyType,
             "Emergency reported by {$reporterName} at {$manualLoc}. Immediate clinic triage required.",
             APP_URL . '/pages/nurse/patients_today.php',
             $emergencyId,

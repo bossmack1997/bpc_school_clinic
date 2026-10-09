@@ -137,7 +137,7 @@ class DatabaseContext
     // ================================================================
 
     /**
-     * Get appointments.
+     * Get queue tickets & clinic visit status (formerly appointments).
      * 
      * @return array
      */
@@ -150,12 +150,13 @@ class DatabaseContext
             if (!$studentId) return [];
 
             $stmt = $this->db->prepare("
-                SELECT a.*, u.first_name AS nurse_first, u.last_name AS nurse_last
-                FROM appointments a
-                LEFT JOIN nurses n ON n.id = a.nurse_id
-                LEFT JOIN users u ON u.id = n.user_id
-                WHERE a.student_id = ?
-                ORDER BY a.appointment_date DESC, a.appointment_time DESC
+                SELECT q.*, u.first_name AS patient_first, u.last_name AS patient_last
+                FROM queue_numbers q
+                LEFT JOIN students s ON s.id = q.student_id
+                LEFT JOIN users u ON u.id = s.user_id
+                WHERE q.student_id = ?
+                ORDER BY q.created_at DESC
+                LIMIT 5
             ");
             $stmt->execute([$studentId]);
             return $stmt->fetchAll();
@@ -163,26 +164,28 @@ class DatabaseContext
 
         if ($role === 'nurse') {
             $stmt = $this->db->query("
-                SELECT a.*, s.student_number, u.first_name, u.last_name
-                FROM appointments a
-                JOIN students s ON s.id = a.student_id
-                JOIN users u ON u.id = s.user_id
-                ORDER BY a.appointment_date DESC, a.appointment_time DESC
+                SELECT q.*, s.student_number, u.first_name, u.last_name
+                FROM queue_numbers q
+                LEFT JOIN students s ON s.id = q.student_id
+                LEFT JOIN users u ON u.id = s.user_id
+                WHERE DATE(q.created_at) = CURDATE()
+                ORDER BY FIELD(q.status, 'called', 'serving', 'waiting', 'completed', 'skipped'), q.created_at ASC
             ");
             return $stmt->fetchAll();
         }
 
-        // Admin — analytics only
+        // Admin — summary metrics
         $stmt = $this->db->query("
             SELECT 
-                COUNT(*) AS total_appointments,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
-                SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                COUNT(*) AS total_queue_tickets,
+                SUM(CASE WHEN status = 'waiting' THEN 1 ELSE 0 END) AS waiting,
+                SUM(CASE WHEN status = 'called' THEN 1 ELSE 0 END) AS called,
+                SUM(CASE WHEN status = 'serving' THEN 1 ELSE 0 END) AS serving,
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
-                SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
-                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
-                COUNT(DISTINCT student_id) AS total_students
-            FROM appointments
+                SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped,
+                COUNT(DISTINCT student_id) AS total_patients
+            FROM queue_numbers
+            WHERE DATE(created_at) = CURDATE()
         ");
         return $stmt->fetchAll();
     }
@@ -486,7 +489,7 @@ class DatabaseContext
             FROM queue_numbers qn
             LEFT JOIN students s ON s.id = qn.student_id
             LEFT JOIN users u ON u.id = s.user_id
-            WHERE qn.status IN ('waiting', 'serving')
+            WHERE qn.status IN ('waiting', 'called', 'serving')
             ORDER BY qn.created_at ASC
         ");
         return $stmt->fetchAll();
@@ -513,7 +516,7 @@ class DatabaseContext
         $stmt = $this->db->prepare("
             SELECT queue_number, visit_type, status, created_at, estimated_wait_minutes
             FROM queue_numbers
-            WHERE student_id = ? AND status IN ('waiting','serving')
+            WHERE student_id = ? AND status IN ('waiting', 'called', 'serving')
             ORDER BY created_at DESC LIMIT 1
         ");
         $stmt->execute([$studentId]);
@@ -524,16 +527,17 @@ class DatabaseContext
 
         // Today's appointment
         $today = date('Y-m-d');
+        // Recent consultation / visit
         $stmt = $this->db->prepare("
-            SELECT appointment_time, reason, status
-            FROM appointments
-            WHERE student_id = ? AND appointment_date = ?
-            ORDER BY appointment_time ASC LIMIT 1
+            SELECT consultation_date, chief_complaint, diagnosis, treatment
+            FROM consultations
+            WHERE student_id = ?
+            ORDER BY consultation_date DESC LIMIT 1
         ");
-        $stmt->execute([$studentId, $today]);
-        $appt = $stmt->fetch();
-        if ($appt) {
-            $summary['today_appointment'] = $appt;
+        $stmt->execute([$studentId]);
+        $consult = $stmt->fetch();
+        if ($consult) {
+            $summary['recent_consultation'] = $consult;
         }
 
         // Last QR scan
@@ -807,14 +811,22 @@ class DatabaseContext
                 $tApptStmt->execute([$today]);
                 $todayAppts = (int)$tApptStmt->fetchColumn();
                 $parts[] = "- Today's Active Appointments: {$todayAppts}";
+                $waitingQueue = (int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
+                $servingQueue = (int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'serving'")->fetchColumn();
+                $todayVisits  = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = CURDATE()")->fetchColumn();
+                $parts[] = "- Live Queue: {$waitingQueue} waiting, {$servingQueue} in consultation";
+                $parts[] = "- Today's Completed Consultations: {$todayVisits}";
 
                 $sosStmt = $this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status = 'active'");
+                $sosStmt = $this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')");
                 $activeSos = (int)$sosStmt->fetchColumn();
                 $parts[] = "- Active SOS Alerts: {$activeSos}";
 
                 $lowMedStmt = $this->db->query("SELECT COUNT(*) FROM medicine_inventory WHERE quantity <= min_quantity OR is_available = 0");
+                $lowMedStmt = $this->db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= reorder_level");
                 $lowMeds = (int)$lowMedStmt->fetchColumn();
                 $parts[] = "- Low Stock / Unavailable Medicines: {$lowMeds}";
+                $parts[] = "- Low Stock / Alert Medicines: {$lowMeds}";
             } catch (PDOException $e) { /* fallback */ }
         }
 
@@ -825,27 +837,17 @@ class DatabaseContext
                 $aStmt = $this->db->prepare("SELECT id FROM teachers_advisers WHERE user_id = ? LIMIT 1");
                 $aStmt->execute([$this->getUserId()]);
                 $advId = $aStmt->fetchColumn();
-                if ($advId) {
-                    $cStmt = $this->db->prepare("
-                        SELECT c.code AS course_code, s.name AS section_name, COUNT(st.id) AS student_count
-                        FROM advisory_assignments aa
-                        JOIN courses c ON c.id = aa.course_id
-                        JOIN sections s ON s.id = aa.section_id
-                        LEFT JOIN students st ON st.course = c.code AND st.section = s.name
-                        WHERE aa.adviser_id = ?
-                        GROUP BY aa.id
-                    ");
-                    $cStmt->execute([$advId]);
-                    $advClasses = $cStmt->fetchAll();
-                    if (!empty($advClasses)) {
-                        foreach ($advClasses as $ac) {
-                            $parts[] = "- Section {$ac['course_code']} {$ac['section_name']}: {$ac['student_count']} students enrolled";
-                        }
-                    } else {
-                        $parts[] = "- No advisory sections assigned currently.";
+                $advClasses = function_exists('get_adviser_active_assignment') 
+                    ? get_adviser_active_assignment($this->db, $this->getUserId()) 
+                    : [];
+                if (!empty($advClasses)) {
+                    foreach ($advClasses as $ac) {
+                        $parts[] = "- Section " . ($ac['course'] ?? $ac['course_code'] ?? '') . " " . ($ac['section_name'] ?? '') . ": Assigned Class";
                     }
+                } else {
+                    $parts[] = "- No active advisory section currently assigned.";
                 }
-            } catch (PDOException $e) { /* fallback */ }
+            } catch (Exception $e) { /* fallback */ }
         }
 
         // Admin Specific Summary

@@ -76,7 +76,7 @@ if ($action === 'report') {
     $stu = $stuStmt->fetch();
     $stuName = $stu ? ($stu['first_name'] . ' ' . $stu['last_name']) : 'Student';
 
-    $title = '🚨 Emergency Reported by Adviser';
+    $title = 'Emergency Reported by Adviser';
     $msg = "{$u['first_name']} {$u['last_name']} reported an emergency for {$stuName} at {$location}. Type: {$type}";
 
     // Notify nurses
@@ -91,7 +91,7 @@ if ($action === 'report') {
     }
     // FCM push
     try {
-        send_emergency_fcm($db, '🚨 ADVISER EMERGENCY', $msg, [
+        send_emergency_fcm($db, 'ADVISER EMERGENCY', $msg, [
             'emergency_id' => (string)$emergencyId,
             'type' => 'emergency',
             'location' => $location,
@@ -163,7 +163,7 @@ if ($action === 'sos') {
 
     $senderName = trim((string)($u['first_name'] . ' ' . $u['last_name']));
     $locMsg = ($validLat !== null && $validLng !== null) ? " (GPS: $validLat, $validLng)" : " (GPS unavailable)";
-    $title = '🚨 STUDENT SOS EMERGENCY';
+    $title = 'STUDENT SOS EMERGENCY';
     $msg = "{$senderName} triggered an emergency SOS: {$emergencyType}{$locMsg}.";
 
     // Notify clinic staff
@@ -176,7 +176,7 @@ if ($action === 'sos') {
         push_notification((int)$a['id'], 'emergency', $title, $msg, APP_URL . '/pages/admin/dashboard.php', $emergencyId, 'emergency');
     }
     try {
-        send_emergency_fcm($db, '🚨 STUDENT SOS', $msg, [
+        send_emergency_fcm($db, 'STUDENT SOS', $msg, [
             'emergency_id' => (string)$emergencyId,
             'type' => 'emergency',
             'latitude' => (string)$validLat,
@@ -452,16 +452,16 @@ if ($action === 'update_status') {
     // Notify the reporter if applicable
     if ($em['source'] === 'adviser' && $em['user_id']) {
         $labels = [
-            'acknowledge' => ['✅ Emergency Acknowledged', 'The clinic has acknowledged the emergency you reported.'],
-            'respond'     => ['🚑 Clinic Responding', 'A clinic staff member is now responding to the emergency you reported.'],
-            'resolve'     => ['✅ Emergency Resolved', 'The emergency you reported has been resolved by the clinic.'],
+            'acknowledge' => ['Emergency Acknowledged', 'The clinic has acknowledged the emergency you reported.'],
+            'respond'     => ['Clinic Responding', 'A clinic staff member is now responding to the emergency you reported.'],
+            'resolve'     => ['Emergency Resolved', 'The emergency you reported has been resolved by the clinic.'],
             'cancel'      => ['Emergency Update', 'The emergency you reported has been updated by the clinic.'],
         ];
         $l = $labels[$op] ?? ['Emergency Update', 'Your reported emergency has been updated.'];
         push_notification((int)$em['user_id'], 'emergency', $l[0], $l[1], APP_URL . '/pages/adviser/emergencies.php', (int)$id);
     } elseif ($em['source'] === 'sos' && $em['user_id']) {
         if ($op === 'resolve') {
-            push_notification((int)$em['user_id'], 'emergency', '✅ Emergency Resolved', 'Clinic staff has marked your emergency as resolved. Location sharing has ended.', APP_URL . '/pages/student/dashboard.php', (int)$id);
+            push_notification((int)$em['user_id'], 'emergency', 'Emergency Resolved', 'Clinic staff has marked your emergency as resolved. Location sharing has ended.', APP_URL . '/pages/student/dashboard.php', (int)$id);
         }
     }
 

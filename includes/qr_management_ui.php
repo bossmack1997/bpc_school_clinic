@@ -153,11 +153,11 @@ $isAdmin = (current_user()['role'] ?? '') === 'admin';
 <!-- ============================================================ -->
 <!-- QR Preview / Print Modal                                     -->
 <!-- ============================================================ -->
-<div class="modal fade" id="qrPreviewModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="qrPreviewModal" tabindex="-1" aria-hidden="true" aria-labelledby="qrPreviewModalTitle">
   <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-success text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-qr-code me-2"></i> Student QR Code</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--success">
+      <h5 class="modal-title" id="qrPreviewModalTitle"><?= bpc_icon('qr') ?> Student QR Code</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body text-center" id="qrPreviewBody">

@@ -402,5 +402,20 @@ function validate_session(): bool {
     }
 
     $_SESSION['last_activity'] = time();
+
+    // Throttled database activity timestamp update (at most once every 30 seconds per session)
+    if (!isset($_SESSION['last_db_activity_update']) || (time() - (int)$_SESSION['last_db_activity_update']) > 30) {
+        $_SESSION['last_db_activity_update'] = time();
+        $uId = (int)($_SESSION['user']['id'] ?? 0);
+        if ($uId > 0) {
+            try {
+                $db = getDB();
+                $db->prepare("UPDATE users SET last_activity = NOW() WHERE id = ?")->execute([$uId]);
+            } catch (Throwable $e) {
+                // Best-effort, ignore
+            }
+        }
+    }
+
     return true;
 }

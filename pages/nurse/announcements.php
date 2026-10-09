@@ -26,7 +26,7 @@ $pageTitle = 'Clinic Announcements';
 </div>
 
 <!-- Announcement Modal -->
-<div class="modal fade" id="announcementModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="announcementModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" aria-labelledby="announcementModalTitle">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">

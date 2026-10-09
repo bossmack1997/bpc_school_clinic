@@ -15,51 +15,54 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
-require_role(['admin', 'nurse', 'doctor', 'student', 'adviser']);
+require_role(['admin', 'nurse', 'student', 'teacher']);
 $db   = getDB();
 $user = current_user();
 $role = $user['role'] ?? 'student';
 
 $pageTitle = 'MICA - Clinic Intelligence & Automation Center';
 
-// Per-role quick actions
+// Per-role quick actions.
+// Each entry is [icon name, label, prompt|action, tone]. Icons resolve
+// through bpc_icon() so the page uses the same professional SVG set as
+// the rest of the application rather than emoji glyphs.
 $quickActions = match ($role) {
     'nurse', 'doctor' => [
-        ['📦', 'Check Low Stock', 'Which medicines are low in stock?', 'text-danger'],
-        ['🕒', 'Expiring Medicines', 'Which medicines expire this month?', 'text-warning'],
-        ['📅', 'Tomorrow\'s Appointments', 'Show students with appointments tomorrow', 'text-primary'],
-        ['📈', 'Clinic Visit Trends', 'How many clinic visits happened this week?', 'text-info'],
-        ['🚨', 'Active Emergencies', 'Show active SOS emergencies', 'text-danger'],
-        ['💊', 'Inventory Intelligence', 'Medicine inventory status', 'text-success'],
-        ['🤖', 'Run Intelligence Scan', '__scan__', 'text-primary'],
-        ['🎤', 'Voice Assistant', '__open__', 'text-primary'],
+        ['package', 'Check Low Stock', 'Which medicines are low in stock?', 'text-danger'],
+        ['clock', 'Expiring Medicines', 'Which medicines expire this month?', 'text-warning'],
+        ['calendar', 'Tomorrow\'s Appointments', 'Show students with appointments tomorrow', 'text-primary'],
+        ['trending-up', 'Clinic Visit Trends', 'How many clinic visits happened this week?', 'text-info'],
+        ['shield-alert', 'Active Emergencies', 'Show active SOS emergencies', 'text-danger'],
+        ['pill', 'Inventory Intelligence', 'Medicine inventory status', 'text-success'],
+        ['activity', 'Run Intelligence Scan', '__scan__', 'text-primary'],
+        ['chat', 'Voice Assistant', '__open__', 'text-primary'],
     ],
     'admin' => [
-        ['👥', 'Pending Registrations', 'Which accounts are pending approval?', 'text-warning'],
-        ['📊', 'Account Statistics', 'How many active users do we have?', 'text-primary'],
-        ['📦', 'Reorder Requests', 'Which medicines need reordering?', 'text-danger'],
-        ['📈', 'Clinic Demand Trends', 'How many clinic visits happened this week?', 'text-info'],
-        ['🎓', 'Graduation Review', 'Show graduating students for review', 'text-info'],
-        ['🚨', 'Security & Anomalies', 'Show active security and inventory anomalies', 'text-danger'],
-        ['🤖', 'Run Intelligence Scan', '__scan__', 'text-primary'],
-        ['🎤', 'Voice Assistant', '__open__', 'text-primary'],
+        ['users', 'Pending Registrations', 'Which accounts are pending approval?', 'text-warning'],
+        ['bar-chart', 'Account Statistics', 'How many active users do we have?', 'text-primary'],
+        ['package', 'Reorder Requests', 'Which medicines need reordering?', 'text-danger'],
+        ['trending-up', 'Clinic Demand Trends', 'How many clinic visits happened this week?', 'text-info'],
+        ['graduation', 'Graduation Review', 'Show graduating students for review', 'text-info'],
+        ['shield-alert', 'Security & Anomalies', 'Show active security and inventory anomalies', 'text-danger'],
+        ['activity', 'Run Intelligence Scan', '__scan__', 'text-primary'],
+        ['chat', 'Voice Assistant', '__open__', 'text-primary'],
     ],
     'adviser' => [
-        ['👥', 'My Advisory Class', 'Show my advisory class', 'text-primary'],
-        ['📢', 'Clinic Announcements', 'Latest clinic announcements', 'text-warning'],
-        ['🏥', 'Clinic Hours & Info', 'What are the clinic operating hours?', 'text-info'],
-        ['🚨', 'Emergency SOS', 'How does the clinic emergency SOS work?', 'text-danger'],
-        ['🎤', 'Voice Assistant', '__open__', 'text-primary'],
+        ['users', 'My Advisory Class', 'Show my advisory class', 'text-primary'],
+        ['megaphone', 'Clinic Announcements', 'Latest clinic announcements', 'text-warning'],
+        ['hospital', 'Clinic Hours & Info', 'What are the clinic operating hours?', 'text-info'],
+        ['shield-alert', 'Emergency SOS', 'How does the clinic emergency SOS work?', 'text-danger'],
+        ['chat', 'Voice Assistant', '__open__', 'text-primary'],
     ],
     default => [
-        ['📅', 'My Appointments', 'When is my next appointment?', 'text-primary'],
-        ['❤️', 'Health Records', 'Show my clinic health records', 'text-danger'],
-        ['💊', 'Medicine Availability', 'May available ba na paracetamol?', 'text-success'],
-        ['📢', 'Announcements', 'Latest clinic announcements', 'text-warning'],
-        ['🕒', 'Clinic Schedule', 'What are the clinic operating hours?', 'text-info'],
-        ['💉', 'Vaccination Info', 'What vaccines are recorded for me?', 'text-purple'],
-        ['🚨', 'SOS Emergency Guide', 'How to use the SOS emergency button?', 'text-danger'],
-        ['🎤', 'Voice Assistant', '__open__', 'text-primary'],
+        ['calendar', 'My Appointments', 'When is my next appointment?', 'text-primary'],
+        ['heart-pulse', 'Health Records', 'Show my clinic health records', 'text-danger'],
+        ['pill', 'Medicine Availability', 'May available ba na paracetamol?', 'text-success'],
+        ['megaphone', 'Announcements', 'Latest clinic announcements', 'text-warning'],
+        ['clock', 'Clinic Schedule', 'What are the clinic operating hours?', 'text-info'],
+        ['shield-check', 'Vaccination Info', 'What vaccines are recorded for me?', 'text-primary'],
+        ['shield-alert', 'SOS Emergency Guide', 'How to use the SOS emergency button?', 'text-danger'],
+        ['chat', 'Voice Assistant', '__open__', 'text-primary'],
     ],
 };
 ?>
@@ -67,15 +70,6 @@ $quickActions = match ($role) {
 <html lang="en">
 <head>
   <?php include __DIR__ . '/../includes/head.php'; ?>
-  <style>
-    .quick-action-card { cursor: pointer; transition: all 0.25s ease; border-radius: 14px !important; }
-    .quick-action-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.08) !important; border-color: var(--primary) !important; }
-    .quick-action-card .qa-icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(11,107,58,0.08); display: flex; align-items: center; justify-content: center; }
-    .action-priority-badge { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
-    .nav-pills .nav-link { border-radius: 10px; font-weight: 600; color: #4b5563; padding: 10px 18px; }
-    .nav-pills .nav-link.active { background-color: var(--primary, #0B6B3A); color: #fff; }
-    .print-slip-box { border: 2px dashed #cbd5e1; padding: 24px; border-radius: 12px; background: #fafafa; }
-  </style>
 </head>
 <body>
 <div class="app-wrapper">
@@ -88,8 +82,9 @@ $quickActions = match ($role) {
       <div class="card border-0 shadow-sm rounded-4 mb-4 bg-white overflow-hidden" data-aos="fade-down">
         <div class="card-body p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
           <div class="d-flex align-items-center gap-3">
-            <div class="rounded-circle d-flex align-items-center justify-content-center text-white" style="width: 58px; height: 58px; background: linear-gradient(135deg, #0B6B3A 0%, #22C55E 100%); font-size: 26px;">
-              🤖
+            <div class="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0"
+                 style="width: 58px; height: 58px; background: linear-gradient(135deg, #0A4D28 0%, #22C55E 100%);">
+              <?= bpc_icon('activity', '', ['size' => 26, 'label' => 'MICA']) ?>
             </div>
             <div>
               <h5 class="fw-bold mb-1">MICA Clinic Intelligence & Automation Hub</h5>
@@ -99,7 +94,7 @@ $quickActions = match ($role) {
             </div>
           </div>
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            <?php if (in_array($role, ['admin', 'nurse', 'doctor'], true)): ?>
+            <?php if (in_array($role, ['admin', 'nurse'], true)): ?>
               <button class="btn btn-outline-primary btn-sm" id="btnRunScan" onclick="triggerAutomationScan()">
                 <i class="bi bi-cpu-fill me-1"></i> Run Intelligence Scan
               </button>
@@ -112,13 +107,13 @@ $quickActions = match ($role) {
       </div>
 
       <!-- Navigation Tabs -->
-      <ul class="nav nav-pills mb-4 bg-white p-2 rounded-4 shadow-sm border d-flex gap-2 flex-wrap" id="micaTabs" role="tablist">
+      <ul class="nav app-pills mb-4" id="micaTabs" role="tablist">
         <li class="nav-item" role="presentation">
           <button class="nav-link active" id="tab-actions-btn" data-bs-toggle="pill" data-bs-target="#tab-actions" type="button" role="tab">
             <i class="bi bi-lightning-charge-fill me-1 text-warning"></i> AI Action Center
           </button>
         </li>
-        <?php if (in_array($role, ['admin', 'nurse', 'doctor'], true)): ?>
+        <?php if (in_array($role, ['admin', 'nurse'], true)): ?>
         <li class="nav-item" role="presentation">
           <button class="nav-link" id="tab-reorders-btn" data-bs-toggle="pill" data-bs-target="#tab-reorders" type="button" role="tab">
             <i class="bi bi-box-seam-fill me-1 text-info"></i> Smart Reorder Center
@@ -145,7 +140,7 @@ $quickActions = match ($role) {
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <div>
               <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-shield-check text-success me-1"></i> Recommended Actions & Alerts</h6>
-              <small class="text-muted">Proactive intelligence items requiring review or confirmation (Suggest → Confirm → Execute → Log).</small>
+              <small class="text-muted">Proactive intelligence items requiring review or confirmation (Suggest, Confirm, Execute, Log).</small>
             </div>
             <button class="btn btn-sm btn-outline-secondary" onclick="loadRecommendedActions()">
               <i class="bi bi-arrow-clockwise me-1"></i> Refresh
@@ -161,7 +156,7 @@ $quickActions = match ($role) {
         </div>
 
         <!-- TAB 2: SMART REORDER CENTER -->
-        <?php if (in_array($role, ['admin', 'nurse', 'doctor'], true)): ?>
+        <?php if (in_array($role, ['admin', 'nurse'], true)): ?>
         <div class="tab-pane fade" id="tab-reorders" role="tabpanel">
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <div>
@@ -222,11 +217,11 @@ $quickActions = match ($role) {
             <div class="row g-3">
               <?php foreach ($quickActions as $qa): ?>
               <div class="col-6 col-md-4 col-lg-3">
-                <div class="card border-0 shadow-sm h-100 text-center p-3 quick-action-card"
+                <button type="button" class="app-action app-action--tile w-100 h-100"
                      onclick="<?= $qa[2] === '__open__' ? 'MICA.open()' : ($qa[2] === '__scan__' ? 'triggerAutomationScan()' : "askMicaDirect('" . addslashes($qa[2]) . "')") ?>">
-                  <div class="qa-icon mx-auto mb-2"><span class="fs-4 <?= $qa[3] ?>"><?= $qa[0] ?></span></div>
-                  <h6 class="mb-1 small fw-semibold"><?= e($qa[1]) ?></h6>
-                </div>
+                  <span class="app-action__icon"><?= bpc_icon($qa[0], '', ['size' => 20, 'label' => '']) ?></span>
+                  <span><?= e($qa[1]) ?></span>
+                </button>
               </div>
               <?php endforeach; ?>
             </div>
@@ -250,11 +245,11 @@ $quickActions = match ($role) {
 </div>
 
 <!-- Modal: Approve Reorder -->
-<div class="modal fade" id="approveReorderModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="approveReorderModal" tabindex="-1" aria-hidden="true" aria-labelledby="approveReorderModalTitle">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 shadow">
       <div class="modal-header bg-success text-white">
-        <h5 class="modal-title"><i class="bi bi-check-circle-fill me-2"></i>Approve Reorder Requisition</h5>
+        <h5 id="approveReorderModalTitle" class="modal-title"><i class="bi bi-check-circle-fill me-2"></i>Approve Reorder Requisition</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body p-4">
@@ -284,11 +279,11 @@ $quickActions = match ($role) {
 </div>
 
 <!-- Modal: Print Reorder Slip -->
-<div class="modal fade" id="printSlipModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="printSlipModal" tabindex="-1" aria-hidden="true" aria-labelledby="printSlipModalTitle">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content border-0 shadow">
       <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title"><i class="bi bi-printer-fill me-2"></i>Medicine Purchase Requisition Slip</h5>
+        <h5 id="printSlipModalTitle" class="modal-title"><i class="bi bi-printer-fill me-2"></i>Medicine Purchase Requisition Slip</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body p-4" id="printableSlipArea">
@@ -336,28 +331,31 @@ function loadRecommendedActions() {
     if (res.success && res.data && res.data.length > 0) {
       let html = '';
       res.data.forEach(a => {
-        let badgeClass = 'bg-info text-dark';
-        if (a.priority === 'critical') badgeClass = 'bg-danger';
-        else if (a.priority === 'high') badgeClass = 'bg-warning text-dark';
-        else if (a.priority === 'medium') badgeClass = 'bg-primary';
+        let badgeClass = 'app-badge--info';
+        if (a.priority === 'critical') badgeClass = 'app-badge--danger';
+        else if (a.priority === 'high') badgeClass = 'app-badge--warning';
+        else if (a.priority === 'medium') badgeClass = 'app-badge--primary';
 
         html += `
-          <div class="col-md-6 col-lg-4" id="action-card-${a.id}">
-            <div class="card border-0 shadow-sm rounded-4 h-100 p-3">
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="badge ${badgeClass} action-priority-badge">${escapeHtml(a.priority)}</span>
-                <span class="small text-muted">${timeAgo(a.created_at)}</span>
+          <div class="col-md-6 col-lg-4" id="app-action-${a.id}">
+            <div class="app-card h-100">
+              <div class="app-card__body">
+                <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                  <span class="app-badge ${badgeClass}">${escapeHtml(a.priority)}</span>
+                  <span class="app-card__meta">${timeAgo(a.created_at)}</span>
+                </div>
+                <h6 class="app-card__title">${escapeHtml(a.title)}</h6>
+                <p class="text-secondary small mb-2">${escapeHtml(a.description)}</p>
+                <div class="app-info-strip mb-3">
+                  <i class="bi bi-info-circle" aria-hidden="true"></i>
+                  <span><strong>Reason:</strong> ${escapeHtml(a.reason)}</span>
+                </div>
               </div>
-              <h6 class="fw-bold mb-1">${escapeHtml(a.title)}</h6>
-              <p class="text-muted small mb-2">${escapeHtml(a.description)}</p>
-              <div class="p-2 bg-light rounded-3 small mb-3">
-                <strong>Reason:</strong> ${escapeHtml(a.reason)}
-              </div>
-              <div class="mt-auto d-flex gap-2">
+              <div class="app-card__foot">
                 <button class="btn btn-sm btn-outline-success flex-fill" onclick="resolveAction(${a.id}, 'approved')">
                   <i class="bi bi-check-lg me-1"></i> Acknowledge / Done
                 </button>
-                <button class="btn btn-sm btn-outline-secondary" onclick="resolveAction(${a.id}, 'rejected')" title="Dismiss">
+                <button class="btn btn-sm btn-outline-secondary" onclick="resolveAction(${a.id}, 'rejected')" aria-label="Dismiss" title="Dismiss">
                   <i class="bi bi-x-lg"></i>
                 </button>
               </div>
@@ -368,10 +366,12 @@ function loadRecommendedActions() {
       container.html(html);
     } else {
       container.html(`
-        <div class="col-12 text-center py-5">
-          <div class="fs-1 text-success mb-2"><i class="bi bi-check2-circle"></i></div>
-          <h6 class="fw-bold text-dark mb-1">No Pending Action Items</h6>
-          <p class="text-muted small mb-0">Clinic inventory, appointments, and emergency queues are currently optimal.</p>
+        <div class="col-12 py-5">
+          <div class="empty-state">
+            <div class="empty-state__icon">${icon('check2-circle')}</div>
+            <h6 class="empty-state__title">No pending action items</h6>
+            <p class="empty-state__text">Clinic inventory, appointments, and emergency queues are currently optimal.</p>
+          </div>
         </div>
       `);
     }
@@ -387,7 +387,7 @@ function resolveAction(actionId, status) {
   }, function(res) {
     if (res.success) {
       toastSuccess(res.message);
-      $('#action-card-' + actionId).fadeOut(300, function() { $(this).remove(); });
+      $('#app-action-' + actionId).fadeOut(300, function() { $(this).remove(); });
     } else {
       toastError(res.message);
     }
@@ -608,7 +608,7 @@ function submitDirectQuery() {
   }, function(res) {
     if (res.success) {
       let formatted = marked.parse(res.reply || '');
-      respBox.html('<div class="d-flex align-items-center gap-2 mb-2"><span class="badge bg-primary">🤖 MICA Intelligence</span> <small class="text-muted">' + escapeHtml(res.source || 'grounded') + '</small></div>' + formatted);
+      respBox.html('<div class="d-flex align-items-center gap-2 mb-2"><span class="badge bg-primary">MICA Intelligence</span> <small class="text-muted">' + escapeHtml(res.source || 'grounded') + '</small></div>' + formatted);
     } else {
       respBox.html('<span class="text-danger">' + escapeHtml(res.message || 'Error executing query.') + '</span>');
     }

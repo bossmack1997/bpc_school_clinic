@@ -1,622 +1,573 @@
 <?php
+/**
+ * pages/nurse/dashboard.php
+ * =====================================================================
+ * NURSE Dashboard — Clinic Operations Console
+ * Focus: patient care, live queue, emergencies, medicine supply.
+ * Deliberately NOT a copy of the admin layout.
+ * =====================================================================
+ */
 require_once __DIR__ . '/../../config/config.php';
 require_role('nurse');
+
 $db = getDB();
-$u = current_user();
+$u  = current_user();
 
-$stmt = $db->prepare("SELECT id FROM nurses WHERE user_id = ?");
-$stmt->execute([$u['id']]);
-$nurseId = $stmt->fetchColumn();
+$nurseFirstName = !empty($u['first_name']) ? e($u['first_name']) : 'Nurse';
+$nurseFullName  = trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? ''));
+$nurseInitial   = strtoupper(substr((string)($u['first_name'] ?? 'N'), 0, 1) . substr((string)($u['last_name'] ?? ''), 0, 1));
 
-$todaysPatients = $db->prepare("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = CURDATE()");
-$todaysPatients->execute();
-$todaysPatients = $todaysPatients->fetchColumn();
+// -------------------------------------------------------------------------
+// 1. Today's clinic summary
+// -------------------------------------------------------------------------
+$todaysVisits     = (int)$db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = CURDATE()")->fetchColumn();
+$waitingCount     = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
+$servingCount     = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status IN ('called','serving')")->fetchColumn();
+$completedCount   = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'completed'")->fetchColumn();
+$cancelledCount   = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status IN ('cancelled','no_show')")->fetchColumn();
+$patientsToday    = (int)$db->query("SELECT COUNT(DISTINCT student_id) FROM consultations WHERE DATE(consultation_date) = CURDATE()")->fetchColumn();
 
-$todaysAppts = $db->prepare("SELECT COUNT(*) FROM appointments WHERE appointment_date = CURDATE() AND status IN ('approved','pending')");
-$todaysAppts->execute();
-$todaysAppts = $todaysAppts->fetchColumn();
+// -------------------------------------------------------------------------
+// 2. Live queue — now serving + next in line
+// -------------------------------------------------------------------------
+$nowServing = $db->query("
+    SELECT q.id, q.queue_number, q.status, q.priority, q.called_at, q.created_at,
+           s.student_number, s.course,
+           COALESCE(CONCAT(us.first_name, ' ', SUBSTRING(us.last_name, 1, 1), '.'),
+                    CONCAT(ut.first_name, ' ', SUBSTRING(ut.last_name, 1, 1), '.'),
+                    q.full_name, 'Patient') AS display_name,
+           COALESCE(w.chief_complaint, '') AS chief_complaint
+    FROM queue_numbers q
+    LEFT JOIN students s ON s.id = q.student_id
+    LEFT JOIN users us ON us.id = s.user_id
+    LEFT JOIN teachers t ON t.id = q.teacher_id
+    LEFT JOIN users ut ON ut.id = t.user_id
+    LEFT JOIN walk_in_visits w ON w.queue_id = q.id
+    WHERE DATE(q.created_at) = CURDATE() AND q.status IN ('serving','called')
+    ORDER BY FIELD(q.status,'serving','called'), q.id DESC
+    LIMIT 1
+")->fetch(PDO::FETCH_ASSOC);
 
-$pendingAppts = $db->query("SELECT COUNT(*) FROM appointments WHERE status='pending'")->fetchColumn();
-$lowStock = $db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= reorder_level")->fetchColumn();
-$expiredMeds = $db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND expiration_date IS NOT NULL AND expiration_date < CURDATE()")->fetchColumn();
+$nextInLine = $db->query("
+    SELECT q.id, q.queue_number, q.priority, q.created_at,
+           COALESCE(CONCAT(us.first_name, ' ', SUBSTRING(us.last_name, 1, 1), '.'),
+                    CONCAT(ut.first_name, ' ', SUBSTRING(ut.last_name, 1, 1), '.'),
+                    q.full_name, 'Patient') AS display_name,
+           COALESCE(w.chief_complaint, '') AS chief_complaint
+    FROM queue_numbers q
+    LEFT JOIN students s ON s.id = q.student_id
+    LEFT JOIN users us ON us.id = s.user_id
+    LEFT JOIN teachers t ON t.id = q.teacher_id
+    LEFT JOIN users ut ON ut.id = t.user_id
+    LEFT JOIN walk_in_visits w ON w.queue_id = q.id
+    WHERE DATE(q.created_at) = CURDATE() AND q.status = 'waiting'
+    ORDER BY FIELD(q.priority, 'emergency', 'urgent', 'normal'), q.created_at ASC
+    LIMIT 6
+")->fetchAll(PDO::FETCH_ASSOC);
 
-$upcoming = $db->query("
-  SELECT a.*, s.student_number, u.first_name, u.last_name
-  FROM appointments a
-  JOIN students s ON s.id = a.student_id
-  JOIN users u ON u.id = s.user_id
-  WHERE a.appointment_date >= CURDATE() AND a.status IN ('pending','approved')
-  ORDER BY a.appointment_date, a.appointment_time LIMIT 8
-")->fetchAll();
+// -------------------------------------------------------------------------
+// 3. Emergency alerts
+// -------------------------------------------------------------------------
+$activeEmergencies = $db->query("
+    SELECT e.id, e.emergency_type, e.status, e.priority, e.source, e.created_at, e.location,
+           CONCAT(us.first_name, ' ', us.last_name) AS student_name,
+           s.student_number
+    FROM sos_emergencies e
+    LEFT JOIN students s ON s.id = e.student_id
+    LEFT JOIN users us ON us.id = s.user_id
+    WHERE e.status IN ('new','active','acknowledged','responding') AND e.resolved_at IS NULL
+    ORDER BY FIELD(e.priority,'emergency','urgent','normal'), e.created_at DESC
+    LIMIT 5
+")->fetchAll(PDO::FETCH_ASSOC);
+$activeEmergencyCount = count($activeEmergencies);
+
+// -------------------------------------------------------------------------
+// 4. Medicine inventory health
+// -------------------------------------------------------------------------
+$lowStockCount = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= reorder_level AND reorder_level > 0 AND (expiration_date IS NULL OR expiration_date >= CURDATE())")->fetchColumn();
+$outOfStock    = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= 0")->fetchColumn();
+$expiringSoon  = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity > 0 AND expiration_date >= CURDATE() AND expiration_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchColumn();
+$expiredCount  = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity > 0 AND expiration_date IS NOT NULL AND expiration_date < CURDATE()")->fetchColumn();
+
+$attentionMeds = $db->query("
+    SELECT id, medicine_name AS name, quantity, reorder_level, unit, expiration_date
+    FROM medicines
+    WHERE is_archived = 0
+      AND (quantity <= reorder_level OR (expiration_date IS NOT NULL AND expiration_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)))
+    ORDER BY (quantity - reorder_level) ASC, expiration_date ASC
+    LIMIT 6
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// -------------------------------------------------------------------------
+// 5. Today's patient activity
+// -------------------------------------------------------------------------
+$recentConsultations = $db->query("
+    SELECT c.id, c.consultation_date, c.chief_complaint, c.diagnosis, c.visit_type,
+           s.student_number,
+           CONCAT(us.first_name, ' ', us.last_name) AS student_name
+    FROM consultations c
+    JOIN students s ON s.id = c.student_id
+    JOIN users us ON us.id = s.user_id
+    WHERE DATE(c.consultation_date) = CURDATE()
+    ORDER BY c.consultation_date DESC
+    LIMIT 6
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// -------------------------------------------------------------------------
+// 6. Hourly throughput for today's queue (real data)
+// -------------------------------------------------------------------------
+$hourly = array_fill(0, 12, 0);
+$hourRows = $db->query("
+    SELECT HOUR(created_at) AS hr, COUNT(*) AS total
+    FROM queue_numbers
+    WHERE DATE(created_at) = CURDATE()
+    GROUP BY HOUR(created_at)
+")->fetchAll(PDO::FETCH_ASSOC);
+foreach ($hourRows as $hr) {
+    $h = (int)$hr['hr'];
+    if ($h >= 7 && $h <= 18) $hourly[$h - 7] = (int)$hr['total'];
+}
+$hourLabels = [];
+for ($h = 7; $h <= 18; $h++) {
+    $hourLabels[] = date('g A', strtotime(sprintf('%02d:00', $h)));
+}
+
+$clinicOpen = $waitingCount > 0 || $servingCount > 0 || $todaysVisits > 0;
 
 $pageTitle = 'Nurse Dashboard';
+$pageDescription = 'Today’s clinic activity, queue, and patient care';
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head><?php include __DIR__ . '/../../includes/head.php'; ?></head>
+<head>
+<?php include __DIR__ . '/../../includes/head.php'; ?>
+</head>
 <body>
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area page-enter">
+    <div class="content-area dbg-canvas page-enter">
 
-      <!-- Welcome Card — Nurse Station -->
-      <div class="welcome-card" data-aos="fade-down" data-aos-duration="600">
-        <div class="welcome-content">
-          <div class="clinic-status open"><span class="status-dot"></span> Nurse Station — Open</div>
-          <h1>Nurse Station Dashboard</h1>
-          <div class="welcome-sub">Welcome, <?= e($u['first_name']) ?>! 👋</div>
-          <div class="welcome-desc">Manage patient consultations, appointments, and health monitoring for Bulacan Polytechnic College students.</div>
-          <div class="welcome-actions">
-            <a href="walkin.php" class="btn btn-white"><i class="bi bi-person-walking me-1"></i> Walk-in Patient</a>
-            <a href="appointments.php" class="btn btn-outline-white"><i class="bi bi-calendar-check me-1"></i> Appointments</a>
-            <a href="health_monitoring.php" class="btn btn-outline-white"><i class="bi bi-heart-pulse me-1"></i> Record Vitals</a>
-          </div>
-        </div>
-        <div class="welcome-visual">
-          <div class="welcome-icon"><i class="bi bi-hospital"></i></div>
-        </div>
-        <!-- Subtle ECG line -->
-        <div class="ecg-line" style="position:absolute;bottom:0;left:0;right:0;opacity:0.06;">
-          <svg viewBox="0 0 400 40" preserveAspectRatio="none">
-            <path class="ecg-path" d="M0,20 L50,20 L60,8 L70,32 L80,20 L130,20 L140,10 L145,20 L150,20 L200,20 L210,12 L220,28 L230,20 L280,20 L290,15 L295,20 L300,20 L350,20 L360,18 L370,22 L380,20 L400,20" stroke="white" stroke-width="2" fill="none"/>
-          </svg>
-        </div>
+      <!-- ============================================================
+           NURSE HERO
+           ============================================================ -->
+      <?php
+      dbg_hero([
+          'role'  => 'Clinic Nurse',
+          'title' => dbg_greeting() . ', Nurse ' . $nurseFirstName . ' ',
+          'desc'  => "Here's today's clinic activity.",
+          'tone'  => $activeEmergencyCount > 0 ? 'danger' : '',
+          'chips' => [
+              ['label' => 'Clinic', 'value' => $clinicOpen ? 'Open' : 'No activity yet', 'dot' => $clinicOpen ? '' : 'warn'],
+              ['label' => 'Queue', 'value' => $waitingCount > 0 ? 'Active' : 'Idle', 'dot' => $waitingCount > 0 ? '' : 'warn'],
+              ['label' => 'Patients today', 'value' => (string) $patientsToday],
+              ['label' => 'Emergencies', 'value' => (string) $activeEmergencyCount, 'dot' => $activeEmergencyCount > 0 ? 'danger' : ''],
+          ],
+          'badge_icon'  => 'heart-pulse-fill',
+          'badge_label' => 'On Duty',
+      ]);
+      ?>
+
+      <!-- ============================================================
+           TODAY'S CLINIC SUMMARY — snapshot cards
+           ============================================================ -->
+      <div class="dbg-stats dbg-stats--4" data-aos="fade-up">
+        <?php
+        dbg_stat([
+            'solid'  => true,
+            'tone'   => 'green',
+            'icon'   => 'person-check-fill',
+            'value'  => $todaysVisits,
+            'count'  => true,
+            'label'  => 'Patients Today',
+            'note'   => '<span><i class="bi bi-person"></i> ' . $patientsToday . ' unique student(s)</span>',
+        ]);
+        dbg_stat([
+            'tone'   => 'orange',
+            'icon'   => 'hourglass-split',
+            'value'  => $waitingCount,
+            'count'  => true,
+            'label'  => 'Waiting',
+            'note'   => '<span>' . ($waitingCount > 0 ? 'Line is building up' : 'No one in line') . '</span>',
+        ]);
+        dbg_stat([
+            'tone'   => 'blue',
+            'icon'   => 'stethoscope',
+            'value'  => $servingCount,
+            'count'  => true,
+            'label'  => 'In Consultation',
+            'note'   => '<span>' . ($servingCount > 0 ? 'Station(s) occupied' : 'Stations free') . '</span>',
+        ]);
+        dbg_stat([
+            'tone'   => 'teal',
+            'icon'   => 'check2-circle',
+            'value'  => $completedCount,
+            'count'  => true,
+            'label'  => 'Completed',
+            'note'   => '<span>' . $cancelledCount . ' cancelled / no-show</span>',
+        ]);
+        ?>
       </div>
 
-      <?php if (getenv('FIREBASE_PROJECT_ID')): ?>
-      <div class="alert alert-success d-flex align-items-center gap-3 fade-in" data-aos="fade-up" data-aos-delay="200">
-        <div class="fs-3"><i class="bi bi-bell"></i></div>
-        <div class="flex-grow-1">
-          <strong>Enable Push Notifications</strong>
-          <div class="small text-muted">Receive SOS alerts and clinic updates directly on your device.</div>
-        </div>
-        <button class="btn btn-success" id="enableFcmBtn">
-          <i class="bi bi-bell-fill me-1"></i> Enable Notifications
-        </button>
-      </div>
-      <?php endif; ?>
+      <!-- ============================================================
+           LIVE PATIENT QUEUE + EMERGENCY ALERTS
+           ============================================================ -->
+      <div class="row g-3 g-xl-4 mb-3 mb-xl-4" data-aos="fade-up" data-aos-delay="60">
+        <div class="col-xl-7">
+          <div class="dbg-queue">
+            <div class="dbg-queue__head">
+              <span class="dbg-pulse"></span>
+              Live Clinic Queue
+              <span class="dbg-badge" style="margin-left:auto;text-transform:none;letter-spacing:0;"><?= $completedCount ?> served today</span>
+            </div>
 
-      <!-- Medical Stat Cards -->
-      <div class="row g-3 mb-4" data-aos="fade-up" data-aos-delay="100">
-        <div class="col-md-6 col-xl-3">
-          <div class="medical-stat-card gradient-green">
-            <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-hospital-fill"></i></div>
-              <div class="msc-value"><span class="counter-animate" data-count="<?= (int)$todaysPatients ?>">0</span></div>
-            </div>
-            <div>
-              <div class="msc-label">Today's Patients</div>
-              <div class="msc-trend up"><i class="bi bi-arrow-up-short"></i> Active</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-6 col-xl-3">
-          <div class="medical-stat-card gradient-blue">
-            <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-calendar-check-fill"></i></div>
-              <div class="msc-value"><span class="counter-animate" data-count="<?= (int)$todaysAppts ?>">0</span></div>
-            </div>
-            <div>
-              <div class="msc-label">Today's Appointments</div>
-              <div class="msc-trend up"><i class="bi bi-arrow-up-short"></i> Scheduled</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-6 col-xl-3">
-          <div class="medical-stat-card gradient-orange">
-            <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-hourglass-split"></i></div>
-              <div class="msc-value"><span class="counter-animate" data-count="<?= (int)$pendingAppts ?>">0</span></div>
-            </div>
-            <div>
-              <div class="msc-label">Pending Requests</div>
-              <div class="msc-trend down"><i class="bi bi-arrow-down-short"></i> Awaiting</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-6 col-xl-3">
-          <div class="medical-stat-card gradient-red">
-            <div class="msc-top">
-              <div class="msc-icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
-              <div class="msc-value"><span class="counter-animate" data-count="<?= (int)$lowStock ?>">0</span></div>
-            </div>
-            <div>
-              <div class="msc-label">Low Stock Medicines</div>
-              <div class="msc-trend down"><i class="bi bi-arrow-down-short"></i> Needs restock</div>
-            </div>
-          </div>
-        </div>
-      </div>
+            <!-- Now serving -->
+            <?php if ($nowServing): ?>
+              <div class="dbg-queue__now">
+                <div>
+                  <div class="dbg-queue__ticket">#L<?= e($nowServing['queue_number']) ?></div>
+                  <div class="dbg-queue__caption">Now serving</div>
+                </div>
+                <div class="dbg-queue__who">
+                  <div class="dbg-queue__name"><?= e($nowServing['display_name']) ?></div>
+                  <div class="dbg-queue__meta">
+                    <?= e($nowServing['chief_complaint'] ?: 'General consultation') ?>
+                    &middot; <span class="dbg-badge <?= $nowServing['priority'] === 'emergency' ? 'dbg-badge--red' : ($nowServing['priority'] === 'urgent' ? 'dbg-badge--orange' : 'dbg-badge--muted') ?>"><?= e(ucfirst((string)$nowServing['priority'])) ?></span>
+                  </div>
+                </div>
+                <a class="dbg-btn dbg-btn--soft dbg-btn--sm" href="<?= APP_URL ?>/pages/nurse/queue.php">
+                  <i class="bi bi-box-arrow-up-right"></i> Open
+                </a>
+              </div>
+            <?php else: ?>
+              <div class="dbg-queue__now" style="border-style:solid;background:var(--dbg-surface-2);">
+                <div>
+                  <div class="dbg-queue__ticket dbg-muted">—</div>
+                  <div class="dbg-queue__caption">Now serving</div>
+                </div>
+                <div class="dbg-queue__who">
+                  <div class="dbg-queue__name">No patient in consultation</div>
+                  <div class="dbg-queue__meta">All stations are available right now.</div>
+                </div>
+              </div>
+            <?php endif; ?>
 
-      <?php if ($expiredMeds > 0): ?>
-        <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 rounded-3" data-aos="fade-up" role="alert">
-          <i class="bi bi-exclamation-octagon-fill"></i>
-          <span><?= (int)$expiredMeds ?> medicine(s) have expired. Please review <a href="inventory.php" class="alert-link">Inventory</a>.</span>
-        </div>
-      <?php endif; ?>
-
-      <!-- Quick Actions — Large Interactive Cards -->
-      <h6 class="section-title mb-3" data-aos="fade-up"><i class="bi bi-lightning-fill"></i> Quick Actions</h6>
-      <div class="quick-actions-grid" data-aos="fade-up" data-aos-delay="50">
-        <a href="walkin.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-person-walking"></i></div>
-          <div class="qa-title-lg">Walk-in Patient</div>
-          <div class="qa-sub-lg">Register a new visit</div>
-        </a>
-        <a href="appointments.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-calendar-check-fill"></i></div>
-          <div class="qa-title-lg">Appointments</div>
-          <div class="qa-sub-lg">Manage bookings</div>
-        </a>
-        <a href="health_monitoring.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-heart-pulse-fill"></i></div>
-          <div class="qa-title-lg">Record Vitals</div>
-          <div class="qa-sub-lg">Monitor student health</div>
-        </a>
-        <a href="dispensing.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-capsule"></i></div>
-          <div class="qa-title-lg">Dispense Medicine</div>
-          <div class="qa-sub-lg">Issue medications</div>
-        </a>
-        <a href="certificates.php" class="quick-action-card-lg text-decoration-none">
-          <div class="qa-icon-lg"><i class="bi bi-file-medical-fill"></i></div>
-          <div class="qa-title-lg">Medical Certificates</div>
-          <div class="qa-sub-lg">Issue medical certs</div>
-        </a>
-        <a href="#" class="quick-action-card-lg text-decoration-none" onclick="if(typeof MICA!=='undefined'&&MICA.open)MICA.open();return false;">
-          <div class="qa-icon-lg"><i class="bi bi-robot"></i></div>
-          <div class="qa-title-lg">Ask MICA</div>
-          <div class="qa-sub-lg">Clinical AI assistant</div>
-        </a>
-      </div>
-
-      <!-- Upcoming Appointments -->
-      <div class="card" data-aos="fade-up" data-aos-delay="150">
-        <div class="card-header d-flex align-items-center gap-2">
-          <i class="bi bi-calendar-week text-primary"></i>
-          <span>Upcoming Appointments</span>
-        </div>
-        <div class="card-body p-0">
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Student No.</th>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Reason</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <?php foreach ($upcoming as $a): ?>
-                <tr>
-                  <td class="fw-medium"><?= e($a['first_name'].' '.$a['last_name']) ?></td>
-                  <td><?= e($a['student_number']) ?></td>
-                  <td><?= format_date($a['appointment_date']) ?></td>
-                  <td><?= date('g:i A', strtotime($a['appointment_time'])) ?></td>
-                  <td><?= e($a['reason']) ?></td>
-                  <td><span class="badge status-<?= e($a['status']) ?>"><?= ucfirst($a['status']) ?></span></td>
-                </tr>
+            <!-- Waiting line -->
+            <?php if (!empty($nextInLine)): ?>
+              <ul class="dbg-queue__list" id="dashQueueLiveRegion">
+                <?php foreach ($nextInLine as $idx => $next): ?>
+                  <li class="dbg-queue__row<?= $idx === 0 ? ' dbg-queue__row--next' : '' ?>">
+                    <span class="dbg-queue__num">#L<?= e($next['queue_number']) ?></span>
+                    <span class="dbg-queue__text">
+                      <?= e($next['chief_complaint'] ?: 'Awaiting consultation') ?>
+                      <small><?= e($next['display_name']) ?> &middot; <?= e(ucfirst((string)$next['priority'])) ?> &middot; queued <?= format_datetime($next['created_at'], 'g:i A') ?></small>
+                    </span>
+                    <?php if ($idx === 0): ?><span class="dbg-badge dbg-badge--orange">Next</span><?php endif; ?>
+                  </li>
                 <?php endforeach; ?>
-                <?php if (!$upcoming): ?>
-                <tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-inbox me-1"></i> No upcoming appointments</td></tr>
-                <?php endif; ?>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+              </ul>
+            <?php else: ?>
+              <div style="padding:6px 18px 0;" id="dashQueueLiveRegion">
+                <?php dbg_empty([
+                    'icon'  => 'people',
+                    'title' => 'No patients waiting',
+                    'desc'  => 'The waiting line is clear. New arrivals will appear here automatically.',
+                ]); ?>
+              </div>
+            <?php endif; ?>
 
-      <!-- Emergency Requests -->
-      <div class="card mb-4 border-0 shadow-sm" data-aos="fade-up" data-aos-delay="200">
-        <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between flex-wrap gap-2 border-bottom">
-          <div class="d-flex align-items-center gap-2">
-            <span class="p-2 bg-danger-subtle text-danger rounded-3 d-inline-flex align-items-center justify-content-center">
-              <i class="bi bi-exclamation-triangle-fill fs-5"></i>
-            </span>
-            <div>
-              <h6 class="mb-0 fw-bold text-dark">Active Emergency Requests & Live SOS</h6>
-              <small class="text-muted">Real-time student GPS tracking and adviser emergency reports</small>
-            </div>
-          </div>
-          <span class="badge bg-danger fs-6 px-3 py-2" id="emgCountBadge" style="display:none">0 Active</span>
-        </div>
-        <div class="card-body p-0">
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0" id="emgTable" style="width:100%">
-              <thead class="table-light">
-                <tr>
-                  <th>Student</th>
-                  <th>Section</th>
-                  <th>Source</th>
-                  <th>Emergency Type</th>
-                  <th>Location / GPS Coordinates</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div id="emgEmpty" class="text-center text-muted py-5" style="display:none;">
-            <i class="bi bi-shield-check text-success fs-1 d-block mb-2"></i>
-            No active emergencies at this time.
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </div>
-</div>
-
-<!-- ================================================================ -->
-<!-- Nurse Live Emergency & Location Map Modal                        -->
-<!-- ================================================================ -->
-<div class="modal fade" id="nurseEmergencyModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-danger text-white rounded-top-4 py-3">
-        <h5 class="modal-title d-flex align-items-center gap-2">
-          <i class="bi bi-shield-exclamation"></i>
-          <span id="nemgModalTitle">Emergency Details & Location</span>
-        </h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body p-4">
-        <div class="row g-3 mb-3">
-          <div class="col-md-6">
-            <div class="p-3 bg-light rounded-3">
-              <div class="text-muted small">Student Name</div>
-              <div class="fw-bold fs-6" id="nemgStudentName">—</div>
-              <div class="text-muted small mt-1" id="nemgStudentMeta">—</div>
-            </div>
-          </div>
-          <div class="col-md-6">
-            <div class="p-3 bg-light rounded-3">
-              <div class="text-muted small">Emergency Type / Priority</div>
-              <div class="fw-bold fs-6 text-danger" id="nemgType">—</div>
-              <div class="text-muted small mt-1" id="nemgStatusBadge">—</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Location Box -->
-        <div class="card border-danger mb-3">
-          <div class="card-header bg-danger-subtle text-danger py-2 fw-semibold d-flex align-items-center justify-content-between">
-            <span><i class="bi bi-geo-alt-fill me-1"></i> Location Information</span>
-            <span id="nemgSourceBadge" class="badge bg-danger">GPS Live</span>
-          </div>
-          <div class="card-body">
-            <div id="nemgLocationText" class="fs-6 fw-bold mb-2">—</div>
-            <div id="nemgLocationSubtext" class="small text-muted mb-3">—</div>
-
-            <!-- Interactive Map Container for GPS SOS -->
-            <div id="nemgMapContainer" style="display:none;">
-              <div id="nurseTrackingMap" style="height: 320px; width: 100%; border-radius: 12px;" class="border shadow-sm mb-2"></div>
-              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <small class="text-muted"><i class="bi bi-broadcast text-danger me-1"></i> Map auto-updates in real time while tracking is active.</small>
-                <a id="nemgGoogleMapsLink" href="#" target="_blank" class="btn btn-sm btn-outline-danger">
-                  <i class="bi bi-box-arrow-up-right me-1"></i> Open in Google Maps
+            <div class="dbg-queue__foot">
+              <div class="dbg-queue__tally">
+                <div><b id="dashWaitingCount"><?= $waitingCount ?></b><span>Waiting</span></div>
+                <div><b id="dashServingCount"><?= $servingCount ?></b><span>In consultation</span></div>
+                <div><b id="dashCompletedCount"><?= $completedCount ?></b><span>Completed</span></div>
+              </div>
+              <div class="dbg-btn-row">
+                <a class="dbg-btn dbg-btn--primary dbg-btn--sm" href="<?= APP_URL ?>/pages/nurse/queue.php">
+                  <i class="bi bi-broadcast"></i> Open Queue
                 </a>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Description & Notes -->
-        <div class="p-3 bg-light rounded-3 mb-2">
-          <div class="text-muted small">Description / Notes</div>
-          <div id="nemgDescription" class="mt-1" style="white-space: pre-line;">—</div>
+        <!-- Emergency panel -->
+        <div class="col-xl-5">
+          <?php dbg_panel_open([
+              'icon'  => 'exclamation-triangle-fill',
+              'title' => 'Emergency Alerts',
+          ]); ?>
+            <?php
+            dbg_monitor_open([
+                'active' => $activeEmergencyCount > 0,
+                'count'  => $activeEmergencyCount,
+                'label'  => $activeEmergencyCount > 0
+                    ? 'Emergency response required'
+                    : 'No active emergencies. Everything is currently normal.',
+            ]);
+            ?>
+            <?php if ($activeEmergencyCount > 0): ?>
+              <ul class="dbg-monitor__list" style="margin-top:14px;">
+                <?php foreach ($activeEmergencies as $emg): ?>
+                  <li class="dbg-monitor__item">
+                    <span class="dbg-timeline__node dbg-timeline__node--red"><i class="bi bi-exclamation-octagon-fill"></i></span>
+                    <span class="dbg-staff__meta">
+                      <span class="mi-title"><?= e($emg['emergency_type'] ?: 'Emergency') ?></span>
+                      <span class="mi-sub"><?= e($emg['student_name'] ?: 'Unknown student') ?> &middot; <?= e($emg['student_number'] ?: '—') ?><?= !empty($emg['location']) ? ' &middot; ' . e($emg['location']) : '' ?> &middot; <?= format_datetime($emg['created_at'], 'g:i A') ?></span>
+                    </span>
+                  </li>
+                <?php endforeach; ?>
+              </ul>
+              <div class="dbg-btn-row" style="margin-top:14px;">
+                <a class="dbg-btn dbg-btn--danger dbg-btn--sm" href="<?= APP_URL ?>/pages/nurse/emergencies.php">
+                  <i class="bi bi-shield-fill-exclamation"></i> Respond
+                </a>
+              </div>
+            <?php else: ?>
+              <div class="dbg-btn-row" style="margin-top:16px;">
+                <a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="<?= APP_URL ?>/pages/nurse/emergencies.php">
+                  <i class="bi bi-journal-medical"></i> Emergency history
+                </a>
+              </div>
+            <?php endif; ?>
+          <?php dbg_panel_close(); ?>
         </div>
       </div>
-      <div class="modal-footer border-0 bg-light rounded-bottom-4 justify-content-between">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-        <div class="d-flex gap-2" id="nemgActionButtons"></div>
+
+      <!-- ============================================================
+           MEDICINE INVENTORY + TODAY'S VISITS
+           ============================================================ -->
+      <div class="row g-3 g-xl-4 mb-3 mb-xl-4" data-aos="fade-up" data-aos-delay="120">
+        <!-- Medicine inventory -->
+        <div class="col-xl-5">
+          <?php dbg_panel_open([
+              'icon'     => 'capsule-pill',
+              'title'    => 'Medicine Inventory',
+              'subtitle' => 'Items needing attention before the next rush',
+              'action'   => '<a class="dbg-btn dbg-btn--soft dbg-btn--sm" href="' . APP_URL . '/pages/nurse/inventory.php">Open inventory</a>',
+          ]); ?>
+            <div class="dbg-stats dbg-stats--3 dbg-stats--tight">
+              <?php
+              dbg_stat(['tone' => 'orange', 'icon' => 'arrow-down-circle', 'value' => $lowStockCount, 'count' => true, 'label' => 'Low Stock']);
+              dbg_stat(['tone' => 'red',    'icon' => 'x-octagon',       'value' => $outOfStock,    'count' => true, 'label' => 'Out of Stock']);
+              dbg_stat(['tone' => 'purple', 'icon' => 'calendar2-week',   'value' => $expiringSoon,  'count' => true, 'label' => 'Expiring Soon']);
+              ?>
+            </div>
+
+            <?php if (empty($attentionMeds)): ?>
+              <?php dbg_empty([
+                  'icon'  => 'check2-all',
+                  'title' => 'Stock levels are healthy',
+                  'desc'  => 'Every medicine is above its reorder level with no near-term expiry.',
+              ]); ?>
+            <?php else: ?>
+              <div class="dbg-meters">
+                <?php foreach ($attentionMeds as $med): ?>
+                  <?php
+                  $qty    = (int)$med['quantity'];
+                  $reordr = (int)$med['reorder_level'];
+                  $pct    = $reordr > 0 ? min(100, (int)round(($qty / max(1, $reordr * 2)) * 100)) : ($qty > 0 ? 100 : 0);
+                  $cls    = $qty <= 0 ? 'dbg-meter__fill--crit' : ($qty <= $reordr ? 'dbg-meter__fill--warn' : '');
+                  ?>
+                  <div>
+                    <div class="dbg-meter__top">
+                      <span class="dbg-meter__name dbg-clamp-1"><?= e($med['name']) ?></span>
+                      <span class="dbg-meter__value"><?= $qty ?> <?= e($med['unit'] ?: 'pcs') ?><?= $reordr > 0 ? ' / min ' . $reordr : '' ?></span>
+                    </div>
+                    <div class="dbg-meter__bar"><span class="dbg-meter__fill <?= $cls ?>" style="width:<?= max(3, $pct) ?>%"></span></div>
+                    <?php if (!empty($med['expiration_date'])): ?>
+                      <div class="dbg-muted" style="font-size:0.7rem;margin-top:4px;">Expires <?= format_date($med['expiration_date']) ?></div>
+                    <?php endif; ?>
+                  </div>
+                <?php endforeach; ?>
+              </div>
+            <?php endif; ?>
+          <?php dbg_panel_close(); ?>
+        </div>
+
+        <!-- Today's visits + throughput -->
+        <div class="col-xl-7">
+          <?php dbg_panel_open([
+              'icon'     => 'clipboard2-pulse',
+              'title'    => "Today's Visits",
+              'subtitle' => $recentConsultations ? 'Most recent consultations first' : 'Activity recorded today',
+              'action'   => '<a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="' . APP_URL . '/pages/nurse/medical_records.php">All records <i class="bi bi-arrow-right"></i></a>',
+          ]); ?>
+            <?php if (empty($recentConsultations)): ?>
+              <?php dbg_empty([
+                  'icon'  => 'calendar-x',
+                  'title' => 'No clinic visits today',
+                  'desc'  => 'Consultations recorded today will show up here in real time.',
+                  'action'=> '<a class="dbg-btn dbg-btn--primary dbg-btn--sm" href="' . APP_URL . '/pages/nurse/walkin.php"><i class="bi bi-person-plus"></i> Register walk-in</a>',
+              ]); ?>
+            <?php else: ?>
+              <div class="row g-3">
+                <div class="col-lg-7">
+                  <ul class="dbg-timeline">
+                    <?php foreach ($recentConsultations as $c): ?>
+                      <li class="dbg-timeline__item">
+                        <span class="dbg-timeline__node"><i class="bi bi-file-medical"></i></span>
+                        <span class="dbg-timeline__body">
+                          <span class="dbg-timeline__title"><?= e($c['student_name']) ?></span>
+                          <span class="dbg-timeline__desc"><?= e($c['chief_complaint'] ?: 'General check-up') ?><?= !empty($c['diagnosis']) ? ' &middot; ' . e($c['diagnosis']) : '' ?></span>
+                          <span class="dbg-timeline__desc dbg-muted">
+                            <span class="dbg-mono"><?= e($c['student_number'] ?: '—') ?></span>
+                            &middot; <?= $c['visit_type'] === 'appointment' ? 'Appointment' : 'Walk-in' ?>
+                          </span>
+                        </span>
+                        <span class="dbg-timeline__time"><?= format_datetime($c['consultation_date'], 'g:i A') ?></span>
+                      </li>
+                    <?php endforeach; ?>
+                  </ul>
+                </div>
+                <div class="col-lg-5">
+                  <div class="dbg-chart-box dbg-chart-box--sm">
+                    <canvas id="nurseThroughputChart" aria-label="Queue arrivals by hour today"></canvas>
+                  </div>
+                </div>
+              </div>
+            <?php endif; ?>
+          <?php dbg_panel_close(); ?>
+        </div>
       </div>
+
+      <!-- ============================================================
+           NURSE QUICK ACTIONS
+           ============================================================ -->
+      <?php dbg_panel_open([
+          'icon'  => 'lightning-charge-fill',
+          'title' => 'Quick Actions',
+          'flush' => true,
+      ]); ?>
+        <div style="padding:18px;">
+          <div class="dbg-actions dbg-actions--6">
+            <?php
+            dbg_action_tile(['tone' => 'green',  'icon' => 'qr-code-scan',      'title' => 'Scan Patient QR', 'desc' => 'Open the camera scanner',       'onclick' => 'if (typeof openQrScannerModal === "function") { openQrScannerModal(); } else { window.location.href = APP_URL + "/pages/nurse/queue.php"; }']);
+            dbg_action_tile(['tone' => 'blue',   'icon' => 'broadcast',          'title' => 'Open Queue',       'desc' => 'Call, serve, and complete tickets','href' => APP_URL . '/pages/nurse/queue.php']);
+            dbg_action_tile(['tone' => 'teal',   'icon' => 'search-heart-fill',  'title' => 'Medical Records',  'desc' => 'Search student history',        'href' => APP_URL . '/pages/nurse/medical_records.php']);
+            dbg_action_tile(['tone' => 'purple', 'icon' => 'capsule-pill',       'title' => 'Dispense Medicine','desc' => 'Issue and log medicines',       'href' => APP_URL . '/pages/nurse/dispensing.php']);
+            dbg_action_tile(['tone' => 'red',    'icon' => 'shield-fill-exclamation', 'title' => 'Emergency Center','desc' => 'Respond to active SOS alerts','href' => APP_URL . '/pages/nurse/emergencies.php']);
+            dbg_action_tile(['tone' => 'orange', 'icon' => 'file-medical-fill',  'title' => 'Certificates',     'desc' => 'Issue medical certificates',    'href' => APP_URL . '/pages/nurse/certificates.php']);
+            ?>
+          </div>
+        </div>
+        <?php
+        dbg_panel_close(
+            '<div class="d-flex align-items-center justify-content-between flex-wrap gap-2">'
+            . '<div class="d-flex align-items-center gap-2">'
+            . '<span class="dbg-avatar">' . e($nurseInitial ?: 'N') . '</span>'
+            . '<span><span class="d-block" style="font-weight:600;font-size:0.88rem;">' . e($nurseFullName !== '' ? $nurseFullName : $nurseFirstName) . '</span>'
+            . '<span class="dbg-muted" style="font-size:0.75rem;">' . $todaysVisits . ' consultation(s) handled today</span></span></div>'
+            . '<div class="dbg-btn-row">'
+            . '<a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="' . APP_URL . '/pages/nurse/walkin.php"><i class="bi bi-person-plus"></i> Walk-in</a>'
+            . '<a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="' . APP_URL . '/pages/nurse/messages.php"><i class="bi bi-chat-heart"></i> Messages</a>'
+            . '</div></div>'
+        );
+        ?>
+
     </div>
   </div>
 </div>
 
-<!-- Leaflet CSS & JS for OpenStreetMap (Local Vendor Assets) -->
-<link rel="stylesheet" href="<?= asset_url('vendor/leaflet/leaflet.css') ?>" />
-<script src="<?= asset_url('vendor/leaflet/leaflet.js') ?>"></script>
-
+<?php include __DIR__ . '/../../includes/patient_workspace_modal.php'; ?>
+<?php include __DIR__ . '/../../includes/qr_scanner_modal.php'; ?>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+
 <script>
-// -------- Emergency Requests (unified: SOS + Adviser) --------
 (function () {
   'use strict';
-  const emgStatusLabels = {
-    new: 'New', active: 'New', acknowledged: 'Acknowledged', responding: 'Responding',
-    responded: 'Responded', resolved: 'Resolved', cancelled: 'Cancelled', false_alarm: 'False Alarm'
-  };
-  const emgStatusColors = {
-    new: 'danger', active: 'danger', acknowledged: 'warning text-dark', responding: 'info',
-    responded: 'warning text-dark', resolved: 'success', cancelled: 'secondary', false_alarm: 'secondary'
-  };
-  let emgDt = null;
-  let activeModalEmgId = null;
-  let modalPollInterval = null;
-  let leafletMap = null;
-  let leafletMarker = null;
-  let leafletPolyline = null;
-  let leafletCircle = null;
 
-  function timeAgo(dateString) {
-    if (!dateString) return 'Just now';
-    const d = new Date(dateString.replace(/-/g, '/'));
-    const seconds = Math.floor((new Date() - d) / 1000);
-    if (isNaN(seconds) || seconds < 10) return 'Just now';
-    if (seconds < 60) return seconds + 's ago';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return minutes + 'm ago';
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return hours + 'h ago';
-    return dateString.split(' ')[0];
-  }
-
-  function escapeHtml(str) {
-    return $('<div>').text(str || '').html();
-  }
-
-  function renderLocationCell(e) {
-    if (e.source === 'adviser' || e.location_source === 'manual') {
-      return `<div>
-                <div class="fw-bold text-dark"><i class="bi bi-geo-alt-fill text-danger me-1"></i>${escapeHtml(e.location || 'Reported by Adviser')}</div>
-                <span class="badge bg-primary-subtle text-primary border border-primary-subtle mt-1"><i class="bi bi-person-workspace me-1"></i>Adviser Manual</span>
-              </div>`;
-    }
-
-    if (e.latitude && e.longitude) {
-      const lat = Number(e.latitude).toFixed(5);
-      const lng = Number(e.longitude).toFixed(5);
-      const acc = e.location_accuracy ? `<span class="badge bg-light text-secondary border ms-1">±${escapeHtml(e.location_accuracy)}</span>` : '';
-      const updated = timeAgo(e.location_updated_at || e.created_at);
-      return `<div>
-                <div class="fw-bold text-danger"><i class="bi bi-crosshair text-danger me-1"></i>${lat}, ${lng}${acc}</div>
-                <div class="small text-muted mt-1 d-flex align-items-center gap-1">
-                  <span class="spinner-grow spinner-grow-sm text-danger" style="width: 8px; height: 8px;"></span>
-                  <span>Live GPS · Updated ${updated}</span>
-                </div>
-              </div>`;
-    }
-
-    return `<span class="badge bg-warning-subtle text-dark border border-warning"><i class="bi bi-geo-alt me-1"></i>GPS Unavailable</span>`;
-  }
-
-  function loadEmergencies() {
-    $.get(APP_URL + '/api/emergencies.php', { action: 'list' }, function (res) {
-      if (!res.success) return;
-      const data = res.data || [];
-      const active = data.filter(e => !['resolved','cancelled','false_alarm'].includes(e.status));
-      $('#emgCountBadge').text(active.length + ' Active').toggle(active.length > 0);
-      $('#emgEmpty').toggle(data.length === 0);
-
-      const rows = data.map(function (e) {
-        const name = (e.first_name ? (e.first_name + ' ' + e.last_name) : 'Student #' + e.student_id);
-        const studentCol = `<div>
-                              <div class="fw-bold text-dark">${escapeHtml(name)}</div>
-                              <div class="small text-muted">${escapeHtml(e.student_number || 'No Student No.')}</div>
-                            </div>`;
-        const reporter = e.source === 'adviser'
-          ? `<span class="badge bg-info-subtle text-info-emphasis border"><i class="bi bi-person-fill me-1"></i>Adviser</span>`
-          : `<span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-broadcast me-1"></i>Student SOS</span>`;
-
-        const status = e.status;
-        const isOpen = !['resolved','cancelled','false_alarm'].includes(status);
-        const btns = `
-          <div class="d-flex gap-1 flex-wrap">
-            <button class="btn btn-sm btn-danger emg-view-loc" data-id="${e.id}" title="View Live Location & Details">
-              <i class="bi bi-geo-alt-fill me-1"></i>${e.source === 'sos' && e.latitude ? 'Live Map' : 'Details'}
-            </button>
-            ${isOpen ? `
-              <button class="btn btn-sm btn-outline-warning emg-act" data-id="${e.id}" data-op="acknowledge" title="Acknowledge">Ack</button>
-              <button class="btn btn-sm btn-info text-white emg-act" data-id="${e.id}" data-op="respond" title="Mark as Responding">Respond</button>
-              <button class="btn btn-sm btn-success emg-act" data-id="${e.id}" data-op="resolve" title="Mark as Resolved">Resolve</button>
-            ` : `<span class="text-muted small align-self-center ms-1">Closed</span>`}
-          </div>`;
-
-        return [
-          studentCol,
-          e.section_name || e.section || '—',
-          reporter,
-          `<strong>${escapeHtml(e.emergency_type || 'Emergency')}</strong>`,
-          renderLocationCell(e),
-          `<span class="badge bg-${emgStatusColors[status] || 'secondary'}">${emgStatusLabels[status] || status}</span>`,
-          btns
-        ];
-      });
-
-      if (emgDt) emgDt.destroy();
-      emgDt = $('#emgTable').DataTable({
-        data: rows,
-        columns: [{},{},{},{},{},{},{}],
-        destroy: true,
-        pageLength: 10,
-        order: [],
-        language: { emptyTable: "No active emergencies." }
-      });
-    }, 'json');
-  }
-
-  // Handle opening Live Location / Emergency Modal
-  $(document).on('click', '.emg-view-loc', function () {
-    const id = $(this).data('id');
-    openEmergencyModal(id);
-  });
-
-  function openEmergencyModal(id) {
-    activeModalEmgId = id;
-    $('#nurseEmergencyModal').modal('show');
-    fetchEmergencyDetails(id, true);
-
-    if (modalPollInterval) clearInterval(modalPollInterval);
-    modalPollInterval = setInterval(function () {
-      if (activeModalEmgId && $('#nurseEmergencyModal').is(':visible')) {
-        fetchEmergencyDetails(activeModalEmgId, false);
-      }
-    }, 3500);
-  }
-
-  $('#nurseEmergencyModal').on('hidden.bs.modal', function () {
-    activeModalEmgId = null;
-    if (modalPollInterval) {
-      clearInterval(modalPollInterval);
-      modalPollInterval = null;
-    }
-  });
-
-  function fetchEmergencyDetails(id, fitMap) {
-    $.get(APP_URL + '/api/emergencies.php', { action: 'live_tracking', emergency_id: id }, function (res) {
-      if (!res.success || !res.emergency) return;
-      const emg = res.emergency;
-      const history = res.history || [];
-      const studentName = emg.first_name ? (emg.first_name + ' ' + emg.last_name) : 'Student #' + emg.student_id;
-
-      $('#nemgModalTitle').text(`Emergency #${emg.id} — ${studentName}`);
-      $('#nemgStudentName').text(studentName);
-      $('#nemgStudentMeta').text(`${emg.student_number || 'N/A'} · ${emg.section_name || emg.section || 'No Section'} ${emg.phone ? '· ' + emg.phone : ''}`);
-      $('#nemgType').text(emg.emergency_type || 'Emergency');
-      $('#nemgStatusBadge').html(`<span class="badge bg-${emgStatusColors[emg.status] || 'secondary'}">${emgStatusLabels[emg.status] || emg.status}</span> · Priority: <span class="text-uppercase fw-bold">${emg.priority || 'urgent'}</span>`);
-      $('#nemgDescription').text(emg.description || 'No additional description provided.');
-
-      // Action buttons in modal
-      const isOpen = !['resolved','cancelled','false_alarm'].includes(emg.status);
-      let actHtml = '';
-      if (isOpen) {
-        actHtml = `
-          <button class="btn btn-outline-warning emg-act" data-id="${emg.id}" data-op="acknowledge"><i class="bi bi-check-lg me-1"></i> Acknowledge</button>
-          <button class="btn btn-info text-white emg-act" data-id="${emg.id}" data-op="respond"><i class="bi bi-person-walking me-1"></i> Respond</button>
-          <button class="btn btn-success emg-act" data-id="${emg.id}" data-op="resolve"><i class="bi bi-check-circle-fill me-1"></i> Mark Resolved</button>
-        `;
-      }
-      $('#nemgActionButtons').html(actHtml);
-
-      // Handle Location Presentation
-      if (emg.source === 'adviser' || emg.location_source === 'manual') {
-        $('#nemgSourceBadge').removeClass('bg-danger').addClass('bg-primary').text('Adviser Manual Location');
-        $('#nemgLocationText').html(`<i class="bi bi-geo-alt-fill text-danger me-2"></i>${escapeHtml(emg.location || 'Reported Location')}`);
-        $('#nemgLocationSubtext').html(`Manually reported by Adviser · ${emg.created_at || ''}`);
-        $('#nemgMapContainer').hide();
-      } else {
-        // Student GPS SOS
-        $('#nemgSourceBadge').removeClass('bg-primary').addClass('bg-danger').text('Student SOS GPS Tracking');
-        if (emg.latitude && emg.longitude) {
-          const lat = parseFloat(emg.latitude);
-          const lng = parseFloat(emg.longitude);
-          const acc = emg.location_accuracy ? ` (±${escapeHtml(emg.location_accuracy)})` : '';
-          const updated = timeAgo(emg.location_updated_at || emg.created_at);
-
-          $('#nemgLocationText').html(`<i class="bi bi-crosshair text-danger me-2"></i>GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}${acc}`);
-          $('#nemgLocationSubtext').html(`Real-Time Device GPS · Last updated: <strong>${updated}</strong> (${emg.location_updated_at || emg.created_at})`);
-          $('#nemgGoogleMapsLink').attr('href', `https://www.google.com/maps?q=${lat},${lng}`);
-          $('#nemgMapContainer').show();
-
-          // Render / Update Leaflet Map
-          renderLeafletMap(lat, lng, emg.location_accuracy, studentName, emg.emergency_type, history, fitMap);
-        } else {
-          $('#nemgLocationText').html('<span class="text-warning"><i class="bi bi-exclamation-triangle me-2"></i>GPS Location Unavailable</span>');
-          $('#nemgLocationSubtext').text('Student initiated SOS without granting device GPS access.');
-          $('#nemgMapContainer').hide();
+  // ---- Today's arrivals by hour ----
+  function renderThroughput() {
+    var canvas = document.getElementById('nurseThroughputChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: <?= json_encode($hourLabels) ?>,
+        datasets: [{
+          label: 'Arrivals',
+          data: <?= json_encode(array_map('intval', $hourly)) ?>,
+          backgroundColor: 'rgba(13,148,136,0.75)',
+          hoverBackgroundColor: '#0D9488',
+          borderRadius: 6,
+          maxBarThickness: 22
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#075B2E',
+            cornerRadius: 8,
+            callbacks: { label: function (c) { return c.parsed.y + ' arrival(s)'; } }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, color: '#6B7280', font: { size: 10 } } },
+          y: { beginAtZero: true, grid: { color: 'rgba(31,41,55,0.06)' }, ticks: { precision: 0, color: '#6B7280', font: { size: 10 } } }
         }
       }
-    }, 'json');
-  }
-
-  function renderLeafletMap(lat, lng, accuracy, name, type, history, fitMap) {
-    const mapEl = document.getElementById('nurseTrackingMap');
-    if (!mapEl || typeof L === 'undefined') return;
-
-    if (!leafletMap) {
-      leafletMap = L.map('nurseTrackingMap').setView([lat, lng], 17);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(leafletMap);
-    } else {
-      if (fitMap) {
-        leafletMap.setView([lat, lng], 17);
-      }
-      setTimeout(() => leafletMap.invalidateSize(), 200);
-    }
-
-    // Red Pulsing Marker
-    const markerHtml = `<div style="background-color:#dc3545;width:20px;height:20px;border-radius:50%;border:3px solid white;box-shadow:0 0 10px rgba(220,53,69,0.8);animation:pulse 1.5s infinite;"></div>`;
-    const icon = L.divIcon({ html: markerHtml, className: 'sos-map-marker', iconSize: [20, 20], iconAnchor: [10, 10] });
-
-    if (leafletMarker) {
-      leafletMarker.setLatLng([lat, lng]);
-      leafletMarker.setPopupContent(`<strong>${escapeHtml(name)}</strong><br>${escapeHtml(type)}<br><small class="text-muted">${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
-    } else {
-      leafletMarker = L.marker([lat, lng], { icon: icon }).addTo(leafletMap);
-      leafletMarker.bindPopup(`<strong>${escapeHtml(name)}</strong><br>${escapeHtml(type)}<br><small class="text-muted">${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`).openPopup();
-    }
-
-    // Accuracy Circle
-    const accMeters = accuracy ? parseFloat(accuracy) : 15;
-    if (leafletCircle) {
-      leafletCircle.setLatLng([lat, lng]).setRadius(accMeters);
-    } else {
-      leafletCircle = L.circle([lat, lng], { radius: accMeters, color: '#dc3545', fillOpacity: 0.15 }).addTo(leafletMap);
-    }
-
-    // Movement History Polyline
-    if (history && history.length > 1) {
-      const latlngs = history.map(h => [parseFloat(h.latitude), parseFloat(h.longitude)]);
-      if (leafletPolyline) {
-        leafletPolyline.setLatLngs(latlngs);
-      } else {
-        leafletPolyline = L.polyline(latlngs, { color: '#dc3545', dashArray: '5, 8', weight: 3 }).addTo(leafletMap);
-      }
-    }
-  }
-
-  // Update Status Actions
-  $(document).on('click', '.emg-act', function () {
-    const id = $(this).data('id');
-    const op = $(this).data('op');
-    const data = { action: 'update_status', emergency_id: id, op: op, csrf_token: $('meta[name="csrf-token"]').attr('content') };
-    if (op === 'resolve') {
-      const notes = prompt('Resolution notes (optional):');
-      data.resolution_notes = notes || '';
-    }
-    $.post(APP_URL + '/api/emergencies.php', data, function (res) {
-      if (res.success) {
-        toastSuccess(res.message);
-        loadEmergencies();
-        if (activeModalEmgId === id) fetchEmergencyDetails(id, false);
-      } else {
-        toastError(res.message);
-      }
-    }, 'json');
-  });
-
-  loadEmergencies();
-  setInterval(loadEmergencies, 5000);
-})();
-</script>
-<script>
-(function () {
-  'use strict';
-  const btn = document.getElementById('enableFcmBtn');
-  if (btn && typeof window.enableFCMNotifications === 'function') {
-    btn.addEventListener('click', function () {
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Requesting...';
-      window.enableFCMNotifications();
-      setTimeout(function () {
-        btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Enabled';
-        btn.classList.remove('btn-success');
-        btn.classList.add('btn-outline-success');
-      }, 2000);
     });
   }
+
+  function whenChartReady() {
+    if (typeof Chart !== 'undefined') return renderThroughput();
+    var tries = 0;
+    (function wait() {
+      if (typeof Chart !== 'undefined' || tries > 25) return renderThroughput();
+      tries++; setTimeout(wait, 120);
+    })();
+  }
+  whenChartReady();
+
+  // ---- Live queue refresh (reuses the existing endpoint) ----
+  var ERROR_HTML = <?= json_encode(dbg_error_state('Unable to refresh the live queue.')) ?>;
+
+  function refreshQueue() {
+    if (document.hidden) return;
+    $.ajax({
+      url: APP_URL + '/api/queue.php',
+      method: 'GET',
+      dataType: 'json',
+      data: { action: 'get_status' },
+      success: function (res) {
+        if (!res || !res.success || !res.data) return;
+        var d = res.data;
+        var waiting = parseInt(d.total_waiting, 10) || 0;
+        var done = parseInt(d.total_completed, 10) || 0;
+
+        var w1 = document.getElementById('dashWaitingCount');
+        if (w1) w1.textContent = waiting;
+
+        var doneEl = document.getElementById('dashCompletedCount');
+        if (doneEl) doneEl.textContent = done;
+
+        // If the line clears out, keep the panel meaningful instead of stale
+        var host = document.getElementById('dashQueueLiveRegion');
+        if (host && waiting === 0 && !d.now_serving) {
+          host.innerHTML =
+            '<div class="dbg-empty"><div class="dbg-empty__icon"><i class="bi bi-people"></i></div>'
+            + '<h6>No patients waiting</h6><p>The waiting line is clear right now.</p></div>';
+        }
+      },
+      error: function () {
+        var host = document.getElementById('dashQueueLiveRegion');
+        if (host && !host.dataset.errored) {
+          host.dataset.errored = '1';
+          host.innerHTML = ERROR_HTML;
+        }
+      }
+    });
+  }
+
+  refreshQueue();
+  setInterval(refreshQueue, 15000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshQueue(); });
 })();
 </script>
 </body>
 </html>
-

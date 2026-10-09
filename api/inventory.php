@@ -153,7 +153,7 @@ if ($action === 'categories') {
 // ================================================================
 if ($action === 'add') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $medicineName   = trim($_POST['medicine_name'] ?? '');
     $genericName    = trim($_POST['generic_name'] ?? '');
@@ -287,7 +287,7 @@ if ($action === 'add') {
 // ================================================================
 if ($action === 'update') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $id = (int)($_POST['id'] ?? 0);
     if ($id <= 0) json_response(false, [], 'Invalid medicine.');
@@ -315,6 +315,7 @@ if ($action === 'update') {
     ]);
 
     log_activity($user['id'], 'Updated medicine', 'inventory', "Medicine #$id");
+    update_medicine_status($db, $id);
     json_response(true, [], 'Medicine updated.');
 }
 
@@ -323,11 +324,11 @@ if ($action === 'update') {
 // ================================================================
 if ($action === 'stock_update') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
-    $id = (int)$_POST['id'];
-    $type = $_POST['type']; // stock_in / stock_out / adjustment
-    $qty = (int)$_POST['quantity'];
+    $id = (int)($_POST['id'] ?? 0);
+    $type = $_POST['type'] ?? ''; // stock_in / stock_out / adjustment
+    $qty = (int)($_POST['quantity'] ?? 0);
     $reason = trim($_POST['reason'] ?? '');
 
     if (!in_array($type, ['stock_in', 'stock_out', 'adjustment'], true) || $qty <= 0) json_response(false, [], 'Invalid input.');
@@ -338,17 +339,18 @@ if ($action === 'stock_update') {
     if ($current === false) json_response(false, [], 'Medicine not found.');
 
     if ($type === 'stock_in') {
-        $newQty = $current + $qty;
+        $newQty = (int)$current + $qty;
     } elseif ($type === 'stock_out') {
-        if ($qty > $current) json_response(false, [], 'Not enough stock available.');
-        $newQty = $current - $qty;
+        if ($qty > (int)$current) json_response(false, [], 'Not enough stock available.');
+        $newQty = (int)$current - $qty;
     } else { // adjustment: set absolute quantity
         $newQty = $qty;
     }
 
     $db->prepare("UPDATE medicines SET quantity=? WHERE id=?")->execute([$newQty, $id]);
+    update_medicine_status($db, $id);
     $db->prepare("INSERT INTO inventory_logs (medicine_id, change_type, quantity_change, remarks, logged_by) VALUES (?,?,?,?,?)")
-       ->execute([$id, $type === 'adjustment' ? 'adjustment' : ($type === 'stock_in' ? 'in' : 'out'), $newQty - $current, $reason, $user['id']]);
+       ->execute([$id, $type === 'adjustment' ? 'adjustment' : ($type === 'stock_in' ? 'in' : 'out'), $newQty - (int)$current, $reason, $user['id']]);
 
     log_activity($user['id'], ucfirst(str_replace('_', ' ', $type)), 'inventory', "Medicine #$id qty $qty");
     json_response(true, ['new_quantity' => $newQty], 'Stock updated.');
@@ -359,7 +361,7 @@ if ($action === 'stock_update') {
 // ================================================================
 if ($action === 'delete') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $id = (int)($_POST['id'] ?? 0);
     $hard = !empty($_POST['hard']);
     if ($hard) {
@@ -371,12 +373,9 @@ if ($action === 'delete') {
     json_response(true, [], 'Medicine ' . ($hard ? 'deleted' : 'archived') . '.');
 }
 
-// ================================================================
-// BULK DELETE / ARCHIVE
-// ================================================================
 if ($action === 'bulk_delete' || $action === 'bulk_archive') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $ids = $_POST['ids'] ?? [];
     if (!is_array($ids) || !$ids) json_response(false, [], 'No medicines selected.');
     $safe = array_values(array_filter(array_map('intval', $ids), fn($i) => $i > 0));
@@ -398,7 +397,7 @@ if ($action === 'bulk_delete' || $action === 'bulk_archive') {
 // ================================================================
 if ($action === 'bulk_stock_update') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $ids = $_POST['ids'] ?? [];
     $delta = (int)($_POST['delta'] ?? 0); // + adds, - subtracts
     if (!is_array($ids) || !$ids || $delta === 0) json_response(false, [], 'Invalid input.');
@@ -413,7 +412,7 @@ if ($action === 'bulk_stock_update') {
 
 if ($action === 'bulk_category') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $ids = $_POST['ids'] ?? [];
     $category = trim($_POST['category'] ?? '');
     if (!is_array($ids) || !$ids || !$category) json_response(false, [], 'Invalid input.');
@@ -520,8 +519,6 @@ if ($action === 'import_preview') {
         $location = trim((string)($row[$colMap['location'] ?? 12] ?? ''));
         $desc   = trim((string)($row[$colMap['description'] ?? 13] ?? ''));
 
-        file_put_contents(__DIR__ . '/../csv_debug.log', date('Y-m-d H:i:s') . ' [CSV DEBUG] Line=' . $lineNo . ' Medicine=' . $mName . ' RawExpiration=' . var_export($expiration, true) . ' ColMap=' . var_export($colMap, true) . "\n", FILE_APPEND);
-
         // validate required
         if (!$mName) { $rowErr[] = 'Medicine Name is required'; }
         if ($qty === '') { $rowErr[] = 'Quantity is required'; }
@@ -541,7 +538,6 @@ if ($action === 'import_preview') {
                 }
             }
             if ($expDateObj && $expDateObj < new DateTime('today')) { $rowErr[] = 'Expiration date is in the past'; }
-            file_put_contents(__DIR__ . '/../csv_debug.log', date('Y-m-d H:i:s') . ' [CSV DEBUG] Line=' . $lineNo . ' Medicine=' . $mName . ' Parsed=' . ($expDateObj ? $expDateObj->format('Y-m-d') : 'null') . ' Today=' . (new DateTime('today'))->format('Y-m-d') . ' IsPast=' . ($expDateObj && $expDateObj < new DateTime('today') ? 'YES' : 'NO') . "\n", FILE_APPEND);
         }
 
         // validate reorder

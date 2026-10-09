@@ -33,7 +33,6 @@ class MICAAutomationEngine
             'low_stock'             => $this->checkLowStock(),
             'expiring_medicines'    => $this->checkExpiringMedicines(),
             'graduating_students'   => $this->checkGraduatingStudents(),
-            'appointment_reminders' => $this->checkAppointmentReminders(),
             'pending_requests'      => $this->checkPendingRequests(),
             'inventory_anomalies'   => $this->detectInventoryAnomalies(),
             'daily_summary'         => $this->generateDailyClinicSummary(),
@@ -215,47 +214,12 @@ class MICAAutomationEngine
     }
 
     /**
-     * 4. Appointment Reminders & Proactive Notifications
-     */
-    public function checkAppointmentReminders(): array
-    {
-        // Reminders for appointments tomorrow
-        $stmt = $this->db->query("
-            SELECT a.id, a.appointment_date, a.appointment_time, a.reason,
-                   s.user_id as student_user_id, u.first_name, u.last_name
-            FROM appointments a
-            JOIN students s ON s.id = a.student_id
-            JOIN users u ON u.id = s.user_id
-            WHERE a.appointment_date = DATE_ADD(CURDATE(), INTERVAL 1 DAY)
-              AND a.status = 'approved'
-        ");
-        $tomorrowApps = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        foreach ($tomorrowApps as $app) {
-            push_notification(
-                (int)$app['student_user_id'],
-                'appointment_reminder',
-                'Appointment Reminder Tomorrow',
-                "Reminder: You have a clinic appointment tomorrow (" . date('M j, Y', strtotime($app['appointment_date'])) . ") at " . date('h:i A', strtotime($app['appointment_time'])) . " for " . $app['reason'] . ".",
-                APP_URL . '/pages/student/appointments.php',
-                null,
-                'medium',
-                $app['id']
-            );
-        }
-
-        return [
-            'reminders_sent' => count($tomorrowApps)
-        ];
-    }
-
-    /**
-     * 5. Pending Account & Appointment Requests
+     * 4. Pending Account & Clinic Action Requests
      */
     public function checkPendingRequests(): array
     {
         $pendingUsers = (int)$this->db->query("SELECT COUNT(*) FROM users WHERE status = 'pending'")->fetchColumn();
-        $pendingApps = (int)$this->db->query("SELECT COUNT(*) FROM appointments WHERE status = 'pending'")->fetchColumn();
+        $activeEmergencies = (int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
 
         if ($pendingUsers > 0) {
             $this->actionService->createAction([
@@ -270,34 +234,34 @@ class MICAAutomationEngine
             ]);
         }
 
-        if ($pendingApps > 0) {
+        if ($activeEmergencies > 0) {
             $this->actionService->createAction([
                 'target_role'  => 'nurse',
-                'action_type'  => 'pending_review',
-                'target_type'  => 'appointment',
+                'action_type'  => 'emergency_triage',
+                'target_type'  => 'sos_emergency',
                 'target_id'    => null,
-                'title'        => "{$pendingApps} Pending Appointment Request(s)",
-                'description'  => "There are {$pendingApps} student appointment request(s) awaiting clinical triage and approval.",
-                'reason'       => 'Unreviewed appointment bookings.',
-                'priority'     => 'medium',
+                'title'        => "{$activeEmergencies} Active SOS Emergency Alert(s)",
+                'description'  => "There are {$activeEmergencies} live emergency request(s) requiring clinical response and triage.",
+                'reason'       => 'Active medical emergency response required.',
+                'priority'     => 'critical',
             ]);
         }
 
         return [
-            'pending_users' => $pendingUsers,
-            'pending_appointments' => $pendingApps
+            'pending_users'      => $pendingUsers,
+            'active_emergencies' => $activeEmergencies
         ];
     }
 
     /**
-     * 6. Anomaly Detection Engine
+     * 5. Anomaly Detection Engine
      * Detects sudden inventory depletion spikes, abnormal consultation influx, and failed logins.
      */
     public function detectInventoryAnomalies(): array
     {
         $anomalies = [];
 
-        // Check for unusual stock outflows (> 50 units in single day or 3x average)
+        // Check for unusual stock outflows (> 40 units in 48 hours)
         $stmt = $this->db->query("
             SELECT ml.medicine_id, m.medicine_name, m.unit, SUM(ml.quantity) as total_out, COUNT(*) as log_events
             FROM medicine_logs ml
@@ -362,19 +326,19 @@ class MICAAutomationEngine
     }
 
     /**
-     * 7. Daily Clinic Intelligence Summary Synthesis
+     * 6. Daily Clinic Intelligence Summary Synthesis (Assistive Decision Support)
      */
     public function generateDailyClinicSummary(): array
     {
         $today = date('Y-m-d');
         $yesterday = date('Y-m-d', strtotime('-1 day'));
 
-        $todayApps = (int)$this->db->query("SELECT COUNT(*) FROM appointments WHERE appointment_date = '$today' AND status NOT IN ('cancelled','rejected')")->fetchColumn();
-        $pendingApps = (int)$this->db->query("SELECT COUNT(*) FROM appointments WHERE status = 'pending'")->fetchColumn();
+        $todayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$today'")->fetchColumn();
+        $yesterdayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$yesterday'")->fetchColumn();
         $lowStockMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE quantity <= reorder_level AND is_archived = 0")->fetchColumn();
         $expiringMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE expiration_date IS NOT NULL AND expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND is_archived = 0")->fetchColumn();
         $activeEmergencies = (int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
-        $yesterdayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$yesterday'")->fetchColumn();
+        $pendingUsers = (int)$this->db->query("SELECT COUNT(*) FROM users WHERE status = 'pending'")->fetchColumn();
 
         $recommendedActions = [];
         if ($activeEmergencies > 0) {
@@ -383,20 +347,20 @@ class MICAAutomationEngine
         if ($lowStockMeds > 0) {
             $recommendedActions[] = "Review {$lowStockMeds} medicine(s) currently below reorder threshold.";
         }
-        if ($pendingApps > 0) {
-            $recommendedActions[] = "Review {$pendingApps} pending appointment request(s).";
-        }
         if ($expiringMeds > 0) {
             $recommendedActions[] = "Inspect {$expiringMeds} medicine batch(es) expiring within 30 days.";
         }
+        if ($pendingUsers > 0) {
+            $recommendedActions[] = "Review {$pendingUsers} pending account verification(s).";
+        }
 
         return [
-            'today_appointments'   => $todayApps,
-            'pending_appointments' => $pendingApps,
+            'today_visits'         => $todayVisits,
+            'yesterday_visits'     => $yesterdayVisits,
             'low_stock_medicines'  => $lowStockMeds,
             'expiring_medicines'   => $expiringMeds,
             'active_emergencies'   => $activeEmergencies,
-            'yesterday_visits'     => $yesterdayVisits,
+            'pending_users'        => $pendingUsers,
             'recommended_actions'  => $recommendedActions,
             'generated_at'         => date('Y-m-d H:i:s'),
         ];

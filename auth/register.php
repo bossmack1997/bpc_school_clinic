@@ -12,6 +12,7 @@
  */
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/ai/MICARegistrationValidator.php';
+require_once __DIR__ . '/../includes/mail.php';
 
 // Prevent caching of authentication pages
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -28,12 +29,12 @@ $old = $_POST ?? [];
 
 // Determine default role selection from GET/POST
 $rawRoleReq = strtolower(trim($_REQUEST['role'] ?? $_REQUEST['type'] ?? $_REQUEST['account_type'] ?? 'student'));
+// Admin accounts are NOT available via public registration.
+// Admin accounts are created exclusively from the Admin Dashboard.
 $roleNormMap = [
     'student'       => 'student',
     'teacher'       => 'teacher',
     'nurse'         => 'nurse',
-    'admin'         => 'admin',
-    'administrator' => 'admin',
 ];
 $selectedRole = $roleNormMap[$rawRoleReq] ?? 'student';
 
@@ -67,13 +68,22 @@ if (!function_exists('upload_registration_file')) {
     }
 }
 
+// Fetch active sections grouped for teacher advisory selection and student course selection
+$sectionsQuery = $db->query("SELECT id, name, course, year_level FROM sections WHERE status = 'active' AND name != 'Unassigned' ORDER BY course, year_level, name");
+$allSections = $sectionsQuery ? $sectionsQuery->fetchAll(PDO::FETCH_ASSOC) : [];
+$sectionsByCourse = [];
+foreach ($allSections as $s) {
+    $c = !empty($s['course']) ? $s['course'] : 'General';
+    $sectionsByCourse[$c][] = $s;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
 
     $rawRole = strtolower(trim($_POST['account_type'] ?? $_POST['role'] ?? 'student'));
 
     if (!isset($roleNormMap[$rawRole])) {
-        $errors[] = 'Invalid account type selected. Please choose Student, Teacher, Nurse, or Administration.';
+        $errors[] = 'Invalid account type selected. Please choose Student, Teacher, or Nurse.';
         $role = 'student';
     } else {
         $role = $roleNormMap[$rawRole];
@@ -113,18 +123,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->beginTransaction();
             $hash = password_hash($password, PASSWORD_DEFAULT);
 
-            $decision      = $validation['decision']; // 'approved' or 'review'
-            $accountStatus = ($decision === 'approved') ? 'active' : 'pending';
-            $regStatus     = ($decision === 'approved') ? 'approved' : 'review';
-            $valReason     = $validation['reason'];
-            $valConfidence = $validation['confidence'];
+            // Generate 6-Digit Cryptographic OTP for institutional email ownership verification
+            $otpCode      = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+            $otpHash      = hash('sha256', $otpCode);
+            $otpExpiresAt = date('Y-m-d H:i:s', time() + 600); // 10 minutes
 
+            // Administrator self-registrations are always queued as co_admin for administrative review
+            $adminType = ($role === 'admin') ? 'co_admin' : null;
+            $decision = ($role === 'admin') ? 'review' : $validation['decision'];
+            $accountStatus = 'pending';
+            $regStatus     = ($decision === 'approved') ? 'approved' : 'review';
+            $valReason     = ($role === 'admin') ? 'Administrator self-registration awaiting institutional approval' : $validation['reason'];
+            $valConfidence = $validation['confidence'];
+            $riskLevel     = $validation['risk_level'] ?? 'low';
+
+            // All accounts are saved with email_verified = 0 and status = 'pending' until OTP verification completes
             $stmt = $db->prepare("
-                INSERT INTO users (role, username, email, password_hash, first_name, middle_name, last_name, gender, date_of_birth, phone, profile_picture, status, registration_status, validation_reason, validation_confidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (
+                    role, admin_type, username, email, password_hash, first_name, middle_name, last_name, 
+                    gender, date_of_birth, phone, profile_picture, status, email_verified,
+                    otp_hash, otp_expires_at, otp_attempts, otp_last_sent_at, risk_level,
+                    registration_status, validation_reason, validation_confidence
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, 
+                    ?, ?, ?, ?, 'pending', 0,
+                    ?, ?, 0, NOW(), ?,
+                    ?, ?, ?
+                )
             ");
             $stmt->execute([
                 $role,
+                $adminType,
                 $username,
                 $email,
                 $hash,
@@ -135,7 +164,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $dob ?: null,
                 $contact ?: null,
                 $profilePicRel,
-                $accountStatus,
+                $otpHash,
+                $otpExpiresAt,
+                $riskLevel,
                 $regStatus,
                 $valReason,
                 $valConfidence
@@ -147,23 +178,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $course    = $validation['metadata']['course'] ?? trim($_POST['course'] ?? '');
                 $yearLevel = $validation['metadata']['year_level'] ?? trim($_POST['year_level'] ?? '');
                 $section   = $validation['metadata']['section'] ?? trim($_POST['section'] ?? '');
+                $emergName = trim($_POST['emergency_contact_name'] ?? '');
+                $emergNum  = trim($_POST['emergency_contact_number'] ?? '');
+                $bloodType = trim($_POST['blood_type'] ?? '');
+                $allergies = trim($_POST['allergies'] ?? '');
 
                 $stmt = $db->prepare("
-                    INSERT INTO students (user_id, student_number, course, year_level, section, valid_id_path)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO students (
+                        user_id, student_number, course, year_level, section,
+                        emergency_contact_name, emergency_contact_number, blood_type, allergies, valid_id_path
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
-                $stmt->execute([$userId, $studentNo, $course ?: null, $yearLevel ?: null, $section ?: null, $validIdRel]);
+                $stmt->execute([
+                    $userId,
+                    $studentNo,
+                    $course ?: null,
+                    $yearLevel ?: null,
+                    $section ?: null,
+                    $emergName ?: null,
+                    $emergNum ?: null,
+                    $bloodType ?: null,
+                    $allergies ?: null,
+                    $validIdRel
+                ]);
                 $studentId = (int)$db->lastInsertId();
 
-                if ($accountStatus === 'active') {
-                    try {
-                        ensure_student_qr($db, $studentId, $userId);
-                    } catch (Exception $qrE) {
-                        error_log('QR generation on registration failed: ' . $qrE->getMessage());
-                    }
-                }
-
-                log_activity($userId, 'Registered new student account (' . $regStatus . ')', 'auth');
+                log_activity($userId, 'Initiated student registration (pending OTP verification)', 'auth');
 
             } elseif ($role === 'teacher') {
                 $employeeId = $validation['metadata']['employee_id'] ?? trim($_POST['employee_id'] ?? '');
@@ -183,7 +223,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $contact ?: null
                 ]);
 
-                log_activity($userId, 'Registered new teacher account (' . $regStatus . ')', 'auth');
+                // Store requested advisory sections (up to 3) as inactive until admin approval
+                $requestedSections = $_POST['teacher_sections'] ?? [];
+                if (is_array($requestedSections)) {
+                    $requestedSections = array_slice(array_map('intval', $requestedSections), 0, 3);
+                    $secStmt = $db->prepare("
+                        INSERT INTO advisory_assignments (teacher_id, section_id, school_year, status, self_managed)
+                        VALUES (?, ?, '2026-2027', 'inactive', 1)
+                    ");
+                    foreach ($requestedSections as $secId) {
+                        if ($secId > 0) {
+                            $secStmt->execute([$userId, $secId]);
+                        }
+                    }
+                }
+
+                log_activity($userId, 'Initiated teacher registration with advisory sections (pending OTP & Admin approval)', 'auth');
 
             } elseif ($role === 'nurse') {
                 $employeeId    = $validation['metadata']['employee_id'] ?? trim($_POST['employee_id'] ?? '');
@@ -204,27 +259,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $profilePicRel
                 ]);
 
-                log_activity($userId, 'Registered new nurse account (' . $regStatus . ')', 'auth');
+                log_activity($userId, 'Initiated nurse registration (pending OTP verification)', 'auth');
 
             } elseif ($role === 'admin') {
-                log_activity($userId, 'Registered administration account request (' . $regStatus . ')', 'auth', 'Administrator: ' . $username);
+                log_activity($userId, 'Initiated administrator registration (pending OTP verification)', 'auth', 'Administrator: ' . $username);
             }
 
-            // If account is flagged for review, create an AI action item for administrators
+            // If account decision is 'review', pre-queue AI action item for administrators
             if ($decision === 'review') {
                 $validator->logReviewAction($userId, $validation);
-                set_flash('info', 'Registration submitted! Your account is undergoing clinic administrative verification (' . $valReason . '). You will be able to log in once approved.');
-            } else {
-                set_flash('success', 'Registration approved! Your account is active. You can now sign in.');
             }
 
+            // Dispatch One-Time Password to authorized email
+            $fullName = trim($firstName . ' ' . $lastName);
+            send_registration_otp_email($email, $otpCode, $fullName, $role);
+
+            // Store session verification reference
+            $_SESSION['pending_verification_user_id'] = $userId;
+
             $db->commit();
-            redirect('login.php');
+            redirect('verify_registration.php');
 
         } catch (Exception $e) {
             if ($db->inTransaction()) $db->rollBack();
             error_log('Registration error: ' . $e->getMessage());
-            $errors[] = 'Something went wrong while creating your account. Please try again.';
+            $errors[] = 'Something went wrong while initiating your registration. Please try again.';
         }
     }
 }
@@ -235,49 +294,6 @@ $pageTitle = 'Create an Account';
 <html lang="en">
 <head>
 <?php include __DIR__ . '/../includes/head.php'; ?>
-<style>
-  .role-btn {
-    border-radius: 12px;
-    font-size: 0.88rem;
-    font-weight: 600;
-    transition: all 0.2s ease;
-    border: 2px solid var(--border, #d1d5db);
-    background: #fff;
-    color: var(--text-dark, #1f2937);
-  }
-  .role-btn:hover {
-    border-color: var(--primary, #0b6b3a);
-    color: var(--primary, #0b6b3a);
-    background: var(--primary-light, #EAF7EF);
-  }
-  .role-btn.active {
-    background: var(--primary, #0b6b3a) !important;
-    border-color: var(--primary, #0b6b3a) !important;
-    color: #ffffff !important;
-    box-shadow: 0 4px 12px rgba(11, 107, 58, 0.25);
-  }
-  .role-btn.btn-doctor.active {
-    background: #0284c7 !important;
-    border-color: #0284c7 !important;
-    color: #ffffff !important;
-    box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
-  }
-  .role-btn.btn-nurse.active {
-    background: #059669 !important;
-    border-color: #059669 !important;
-    color: #ffffff !important;
-    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
-  }
-  .role-btn.btn-admin.active {
-    background: #0f172a !important;
-    border-color: #0f172a !important;
-    color: #ffffff !important;
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3);
-  }
-  .role-btn i {
-    font-size: 1.25rem;
-  }
-</style>
 </head>
 <body>
 <div class="auth-wrapper">
@@ -308,32 +324,27 @@ $pageTitle = 'Create an Account';
           </label>
           <div class="row g-2" id="roleSelectorGroup">
             <div class="col-6 col-sm-3">
-              <button type="button" class="btn role-btn w-100 py-2 text-center <?= $selectedRole === 'student' ? 'active' : '' ?>" data-role="student">
-                <i class="bi bi-mortarboard-fill d-block mb-1"></i>
-                <span>Student</span>
+              <button type="button" class="app-choice app-choice--inline w-100 <?= $selectedRole === 'student' ? 'is-active' : '' ?>" data-role="student" aria-pressed="<?= $selectedRole === 'student' ? 'true' : 'false' ?>">
+                <span class="app-choice__icon"><i class="bi bi-mortarboard-fill"></i></span>
+                <span class="app-choice__title">Student</span>
               </button>
             </div>
             <div class="col-6 col-sm-3">
-              <button type="button" class="btn role-btn btn-doctor w-100 py-2 text-center <?= $selectedRole === 'teacher' ? 'active' : '' ?>" data-role="teacher">
-                <i class="bi bi-person-workspace d-block mb-1"></i>
-                <span>Teacher</span>
+              <button type="button" class="app-choice app-choice--inline w-100 <?= $selectedRole === 'teacher' ? 'is-active' : '' ?>" data-role="teacher" aria-pressed="<?= $selectedRole === 'teacher' ? 'true' : 'false' ?>">
+                <span class="app-choice__icon"><i class="bi bi-person-workspace"></i></span>
+                <span class="app-choice__title">Teacher</span>
               </button>
             </div>
             <div class="col-6 col-sm-3">
-              <button type="button" class="btn role-btn btn-nurse w-100 py-2 text-center <?= $selectedRole === 'nurse' ? 'active' : '' ?>" data-role="nurse">
-                <i class="bi bi-person-badge-fill d-block mb-1"></i>
-                <span>Nurse</span>
+              <button type="button" class="app-choice app-choice--inline w-100 <?= $selectedRole === 'nurse' ? 'is-active' : '' ?>" data-role="nurse" aria-pressed="<?= $selectedRole === 'nurse' ? 'true' : 'false' ?>">
+                <span class="app-choice__icon"><i class="bi bi-person-badge-fill"></i></span>
+                <span class="app-choice__title">Nurse</span>
               </button>
             </div>
-            <div class="col-6 col-sm-3">
-              <button type="button" class="btn role-btn btn-admin w-100 py-2 text-center <?= $selectedRole === 'admin' ? 'active' : '' ?>" data-role="admin">
-                <i class="bi bi-shield-lock-fill d-block mb-1"></i>
-                <span>Admin</span>
-              </button>
-            </div>
-          </div>
-          <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole) ?>">
         </div>
+
+        <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole) ?>">
+      </div>
 
         <!-- Section: Personal Information -->
         <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary)"><i class="bi bi-person-vcard me-1"></i> Personal Information</h6>
@@ -371,52 +382,109 @@ $pageTitle = 'Create an Account';
 
         <!-- Section: Student Details (Student Only) -->
         <div class="role-section section-student">
-          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-mortarboard-fill me-1"></i> School Information</h6>
+          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-mortarboard-fill me-1"></i> Academic & Emergency Details</h6>
           <div class="row g-2 mb-2">
             <div class="col-md-6">
               <label class="form-label small fw-semibold">Student Number *</label>
               <input type="text" name="student_number" id="studentNumberInput" class="form-control" placeholder="e.g. 2024-00123" value="<?= e($old['student_number'] ?? '') ?>">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Course</label>
-              <input type="text" name="course" class="form-control" placeholder="e.g. BSIT" value="<?= e($old['course'] ?? '') ?>">
+              <label class="form-label small fw-semibold">Course *</label>
+              <select name="course" id="studentCourseInput" class="form-select">
+                <option value="">Select Course</option>
+                <option value="BSIS" <?= (($old['course'] ?? '') === 'BSIS') ? 'selected' : '' ?>>BSIS (Information Systems)</option>
+                <option value="BSOM" <?= (($old['course'] ?? '') === 'BSOM') ? 'selected' : '' ?>>BSOM (Office Management)</option>
+                <option value="ACT" <?= (($old['course'] ?? '') === 'ACT') ? 'selected' : '' ?>>ACT (Computer Technology)</option>
+                <option value="BSAIS" <?= (($old['course'] ?? '') === 'BSAIS') ? 'selected' : '' ?>>BSAIS (Accounting Info Systems)</option>
+              </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Year Level</label>
-              <select name="year_level" class="form-select">
-                <option value="">Select</option>
+              <label class="form-label small fw-semibold">Year Level *</label>
+              <select name="year_level" id="studentYearInput" class="form-select">
+                <option value="">Select Year Level</option>
                 <?php foreach (['1st Year','2nd Year','3rd Year','4th Year'] as $y): ?>
                   <option <?= (($old['year_level'] ?? '') === $y) ? 'selected' : '' ?>><?= $y ?></option>
                 <?php endforeach; ?>
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Section</label>
-              <input type="text" name="section" class="form-control" placeholder="e.g. A" value="<?= e($old['section'] ?? '') ?>">
+              <label class="form-label small fw-semibold">Section *</label>
+              <select name="section" id="studentSectionInput" class="form-select">
+                <option value="">Select Section</option>
+                <?php foreach (['A','B','C','D'] as $secL): ?>
+                  <option value="<?= $secL ?>" <?= (($old['section'] ?? '') === $secL) ? 'selected' : '' ?>>Section <?= $secL ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Emergency Contact Person</label>
+              <input type="text" name="emergency_contact_name" class="form-control" placeholder="Parent / Guardian name" value="<?= e($old['emergency_contact_name'] ?? '') ?>">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Emergency Contact Number</label>
+              <input type="text" name="emergency_contact_number" class="form-control" placeholder="e.g. 09171234567" value="<?= e($old['emergency_contact_number'] ?? '') ?>">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Blood Type (Optional)</label>
+              <select name="blood_type" class="form-select">
+                <option value="">Select Blood Type</option>
+                <?php foreach (['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown'] as $bt): ?>
+                  <option <?= (($old['blood_type'] ?? '') === $bt) ? 'selected' : '' ?>><?= $bt ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Known Allergies / Medical Notes</label>
+              <input type="text" name="allergies" class="form-control" placeholder="e.g. Penicillin, Asthma, None" value="<?= e($old['allergies'] ?? '') ?>">
             </div>
           </div>
         </div>
 
         <!-- Section: Teacher Details (Teacher Only) -->
         <div class="role-section section-teacher">
-          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-person-workspace me-1 text-primary"></i> Teacher Details</h6>
+          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-person-workspace me-1 text-primary"></i> Teacher Credentials & Advisory Assignment</h6>
           <div class="row g-2 mb-2">
             <div class="col-md-6">
               <label class="form-label small fw-semibold">Teacher Employee ID *</label>
               <input type="text" name="employee_id" id="teacherEmployeeIdInput" class="form-control" maxlength="50" placeholder="e.g. TCH-2026-001" value="<?= e($old['employee_id'] ?? '') ?>">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Department</label>
-              <input type="text" name="department" id="teacherDepartmentInput" class="form-control" maxlength="100" placeholder="e.g. College Department" value="<?= e($old['department'] ?? '') ?>">
+              <label class="form-label small fw-semibold">Department / Faculty</label>
+              <input type="text" name="department" id="teacherDepartmentInput" class="form-control" maxlength="100" placeholder="e.g. College of Information and Communications Technology" value="<?= e($old['department'] ?? '') ?>">
             </div>
-            <div class="col-md-12">
-              <label class="form-label small fw-semibold">Assigned Section (optional)</label>
-              <input type="text" name="section" class="form-control" placeholder="e.g. BSIT 1-A" value="<?= e($old['section'] ?? '') ?>">
+            <div class="col-12 mt-2">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label small fw-semibold mb-0"><i class="bi bi-diagram-3 me-1 text-primary"></i> Select Advisory Sections (Max 3)</label>
+                <span class="badge bg-primary rounded-pill" id="teacherSecCountBadge">0 / 3 selected</span>
+              </div>
+              <div class="border rounded p-2 bg-light" style="max-height: 200px; overflow-y: auto;">
+                <?php if (empty($sectionsByCourse)): ?>
+                  <div class="text-muted small p-2">No active sections configured.</div>
+                <?php else: ?>
+                  <?php foreach ($sectionsByCourse as $courseName => $sList): ?>
+                    <div class="fw-bold small text-dark border-bottom pb-1 mb-2 mt-1"><i class="bi bi-mortarboard me-1 text-success"></i> <?= e($courseName) ?></div>
+                    <div class="row g-2 mb-2">
+                      <?php foreach ($sList as $sec): ?>
+                        <div class="col-6 col-sm-4">
+                          <div class="form-check p-2 bg-white rounded border border-light-subtle h-100">
+                            <input class="form-check-input teacher-sec-cb" type="checkbox" name="teacher_sections[]" value="<?= (int)$sec['id'] ?>" id="sec_<?= (int)$sec['id'] ?>">
+                            <label class="form-check-label small fw-medium text-dark d-block cursor-pointer" for="sec_<?= (int)$sec['id'] ?>">
+                              <?= e($sec['name']) ?>
+                              <span class="text-muted d-block" style="font-size:0.72rem;"><?= e($sec['year_level'] ?? '') ?></span>
+                            </label>
+                          </div>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </div>
+              <div class="form-text small">Select up to 3 sections that you are the official class adviser for.</div>
             </div>
           </div>
           <div class="card p-2 mb-2 small" style="background:#e0f2fe;border:none;color:#0369a1;">
-            <div class="fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i> Privacy-limited access</div>
-            <div>Teachers can submit clinic referrals and emergency reports. They cannot access confidential medical records or medicines.</div>
+            <div class="fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i> Privacy-compliant advisory access</div>
+            <div>Advisory sections will be reviewed and activated by the Clinic Administrator upon registration approval.</div>
           </div>
         </div>
 
@@ -435,20 +503,27 @@ $pageTitle = 'Create an Account';
           </div>
         </div>
 
-        <!-- Section: Administrator Info (Admin Only) -->
-        <div class="role-section section-admin">
-          <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-shield-check me-1"></i> Administrative Office</h6>
-          <div class="row g-2 mb-2">
-            <div class="col-md-12">
-              <label class="form-label small fw-semibold">Administrative Department / Unit</label>
-              <input type="text" name="admin_office" class="form-control" placeholder="e.g. Clinic Administration, MIS Office, Office of Student Affairs" value="<?= e($old['admin_office'] ?? '') ?>">
-            </div>
-          </div>
-          <div class="card p-2 mb-2 small bg-dark text-white border-0 rounded-3">
-            <div class="fw-semibold mb-1"><i class="bi bi-shield-lock-fill me-1 text-warning"></i> Administrator Privileges</div>
-            <div class="text-light opacity-75">Administration accounts manage users, clinic configuration, reports, and system settings. Approval is required before access is granted.</div>
-          </div>
-        </div>
+  <!-- =====================================================================
+       ADMIN ACCOUNTS ARE NOT CREATED VIA PUBLIC REGISTRATION.
+       Admin accounts are managed exclusively from the Admin Dashboard
+       (pages/admin/admin_accounts.php) by an existing Primary Administrator.
+       ===================================================================== -->
+
+        <!-- Section: Administrator Info (Admin Only — hidden from public) -->
+        <!-- Admin accounts are NOT created here; they are managed via the Admin Dashboard. -->
+        <div class="role-section section-admin" style="display:none;">
+    <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-shield-check me-1"></i> Administrative Office</h6>
+    <div class="row g-2 mb-2">
+      <div class="col-md-12">
+        <label class="form-label small fw-semibold">Administrative Department / Unit</label>
+        <input type="text" name="admin_office" class="form-control" placeholder="e.g. Clinic Administration, MIS Office, Office of Student Affairs" value="<?= e($old['admin_office'] ?? '') ?>">
+      </div>
+    </div>
+    <div class="card p-2 mb-2 small bg-dark text-white border-0 rounded-3">
+      <div class="fw-semibold mb-1"><i class="bi bi-shield-lock-fill me-1 text-warning"></i> Administrator Privileges</div>
+      <div class="text-light opacity-75">Administration accounts manage users, clinic configuration, reports, and system settings. Approval is required before access is granted.</div>
+    </div>
+  </div>
 
         <!-- Section: Account Credentials -->
         <h6 class="fw-semibold mb-2" style="font-size:0.85rem;color:var(--text-secondary);margin-top:16px;"><i class="bi bi-shield-lock-fill me-1"></i> Account Credentials</h6>
@@ -510,7 +585,7 @@ $pageTitle = 'Create an Account';
     student: {
       title: 'Student Registration',
       sideTitle: 'Join BPC Clinic',
-      sideDesc: 'Register as a student to book clinic appointments, track your medical history, and get your clinic QR code.',
+      sideDesc: 'Register as a student to access clinic consultations, track your medical history, and get your clinic QR code.',
       sideIcon: '<i class="bi bi-mortarboard-fill"></i>',
       btnText: 'Create Student Account',
       btnClass: 'btn-primary',
@@ -551,27 +626,12 @@ $pageTitle = 'Create an Account';
       empIdReq: true,
       validIdReq: false,
       validIdLabel: 'PRC ID / Valid ID'
-    },
-    admin: {
-      title: 'Administrator Registration',
-      sideTitle: 'System Administration',
-      sideDesc: 'Register as an Administrator to oversee clinic operations, doctor & nurse accounts, inventory, and reporting.',
-      sideIcon: '<i class="bi bi-shield-lock-fill"></i>',
-      btnText: 'Register Administrator Account',
-      btnClass: 'btn-dark',
-      genderReq: false,
-      dobReq: false,
-      contactReq: true,
-      studentNumReq: false,
-      empIdReq: false,
-      validIdReq: false,
-      validIdLabel: 'Valid ID (Optional)'
     }
   };
 
   const form = document.getElementById('unifiedRegForm');
   const accountTypeInput = document.getElementById('accountTypeInput');
-  const roleBtns = document.querySelectorAll('.role-btn');
+  const roleBtns = document.querySelectorAll('#roleSelectorGroup .app-choice');
 
   // Input references
   const genderInput = document.getElementById('genderInput');
@@ -591,12 +651,10 @@ $pageTitle = 'Create an Account';
     accountTypeInput.value = roleKey;
 
     // Update buttons UI
-    roleBtns.forEach(btn => {
-      if (btn.dataset.role === roleKey) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
+roleBtns.forEach(btn => {
+      const isActive = btn.dataset.role === roleKey;
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
 
     // Update Header and Side text
@@ -643,9 +701,38 @@ $pageTitle = 'Create an Account';
     });
   });
 
+  // Advisory section checkboxes counter and max 3 limit
+  const teacherSecCbs = document.querySelectorAll('.teacher-sec-cb');
+  const teacherSecCountBadge = document.getElementById('teacherSecCountBadge');
+
+  function updateSecBadge() {
+    const checked = document.querySelectorAll('.teacher-sec-cb:checked');
+    if (teacherSecCountBadge) {
+      teacherSecCountBadge.textContent = checked.length + ' / 3 selected';
+      if (checked.length > 0) {
+        teacherSecCountBadge.className = 'badge bg-success rounded-pill';
+      } else {
+        teacherSecCountBadge.className = 'badge bg-primary rounded-pill';
+      }
+    }
+  }
+
+  teacherSecCbs.forEach(cb => {
+    cb.addEventListener('change', function () {
+      const checked = document.querySelectorAll('.teacher-sec-cb:checked');
+      if (checked.length > 3) {
+        this.checked = false;
+        alert('You can select a maximum of 3 advisory sections.');
+        return;
+      }
+      updateSecBadge();
+    });
+  });
+
   // Initial setup based on current value
   const initialRole = accountTypeInput.value || 'student';
   switchRole(initialRole);
+  updateSecBadge();
 
   // Form submit handler with password complexity validation
   const pw = document.getElementById('regPw');
@@ -667,6 +754,30 @@ $pageTitle = 'Create an Account';
       alert('Passwords do not match.');
       confirmPw.focus();
       return false;
+    }
+
+    if (accountTypeInput.value === 'student') {
+      const course = document.getElementById('studentCourseInput');
+      const year = document.getElementById('studentYearInput');
+      const sec = document.getElementById('studentSectionInput');
+      if (course && !course.value) {
+        e.preventDefault();
+        alert('Please select your course.');
+        course.focus();
+        return false;
+      }
+      if (year && !year.value) {
+        e.preventDefault();
+        alert('Please select your year level.');
+        year.focus();
+        return false;
+      }
+      if (sec && !sec.value) {
+        e.preventDefault();
+        alert('Please select your section.');
+        sec.focus();
+        return false;
+      }
     }
 
     submitBtn.disabled = true;

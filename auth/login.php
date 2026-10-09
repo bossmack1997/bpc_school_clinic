@@ -10,6 +10,14 @@ if (is_logged_in()) {
     redirect(dashboard_url_for(current_user()['role']));
 }
 
+$db = getDB();
+
+// If no active Primary Administrator exists in database, direct to initial setup wizard
+if (!has_active_primary_admin($db)) {
+    set_flash('info', 'No active Primary Administrator found. Please complete the initial system setup.');
+    redirect(APP_URL . '/setup/initial_admin.php');
+}
+
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -74,7 +82,7 @@ $pageTitle = 'Login';
     <div class="auth-side">
       <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo" style="width:70px;height:70px;object-fit:contain;"></div>
       <h2 class="mb-2">AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</h2>
-      <p class="mb-0">Digital health records, appointments, and clinic monitoring for Bulacan Polytechnic College with health monitoring and clinic assistance.</p>
+      <p class="mb-0">Secure digital health records, clinic services, emergency response, and health monitoring for Bulacan Polytechnic College.</p>
     </div>
     <div class="auth-form-side">
       <h4 class="mb-1">Welcome back</h4>
@@ -112,22 +120,7 @@ $pageTitle = 'Login';
             <div class="invalid-feedback" id="passwordError">Please enter your password.</div>
           </div>
         </div>
-        <!-- Password requirements (informational, shown while typing) -->
-        <div class="mb-3" id="pwRules" style="display:none;">
-          <div class="card p-3 small">
-            <div class="fw-semibold mb-2">Password Requirements</div>
-            <ul class="mb-0" id="pwReqList" style="list-style:none;padding-left:0;">
-              <li id="reqLength"><i class="bi bi-x-circle-fill text-danger me-1"></i> Minimum 8 characters</li>
-              <li id="reqUpper"><i class="bi bi-x-circle-fill text-danger me-1"></i> At least one uppercase letter</li>
-              <li id="reqLower"><i class="bi bi-x-circle-fill text-danger me-1"></i> At least one lowercase letter</li>
-              <li id="reqNumber"><i class="bi bi-x-circle-fill text-danger me-1"></i> At least one number</li>
-              <li id="reqSpecial"><i class="bi bi-x-circle-fill text-danger me-1"></i> At least one special character</li>
-            </ul>
-            <div class="mt-2">Strength: <span id="pwStrength" class="fw-semibold">—</span></div>
-            <div class="text-muted small mt-1">Example strong password: <code>Clinic@2026</code></div>
-            <div class="text-muted small mt-2" id="capsLockHint" style="display:none;color:var(--warning);">Caps Lock is ON</div>
-          </div>
-        </div>
+        <div class="text-muted small mt-1 mb-2" id="capsLockHint" style="display:none;color:var(--warning);"><i class="bi bi-exclamation-circle-fill me-1"></i>Caps Lock is ON</div>
         <div class="d-flex justify-content-between align-items-center mb-3">
           <div class="form-check">
             <input class="form-check-input" type="checkbox" name="remember" id="remember">
@@ -140,14 +133,13 @@ $pageTitle = 'Login';
           <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
         </button>
         <div class="text-center mt-3 pt-2 border-top">
-          <p class="small text-muted mb-2">Don't have an account? Choose your role to register:</p>
+          <p class="small text-muted mb-2">Don't have an account?</p>
           <div class="d-flex justify-content-center gap-2 flex-wrap mb-2">
-            <a href="register_student.php" class="btn btn-sm btn-outline-primary"><i class="bi bi-mortarboard me-1"></i> Student</a>
-            <a href="register_teacher.php" class="btn btn-sm btn-outline-info"><i class="bi bi-person-workspace me-1"></i> Teacher</a>
-            <a href="register_nurse.php" class="btn btn-sm btn-outline-success"><i class="bi bi-person-badge-fill me-1"></i> Nurse</a>
-            <a href="register_admin.php" class="btn btn-sm btn-outline-dark"><i class="bi bi-shield-lock me-1"></i> Administrator</a>
+            <a href="register.php?role=student" class="btn btn-sm btn-outline-primary"><i class="bi bi-mortarboard me-1"></i> Student</a>
+            <a href="register.php?role=teacher" class="btn btn-sm btn-outline-info"><i class="bi bi-person-workspace me-1"></i> Teacher</a>
+            <a href="register.php?role=nurse" class="btn btn-sm btn-outline-success"><i class="bi bi-person-badge-fill me-1"></i> Nurse</a>
           </div>
-          <p class="small text-muted mb-0"><a href="register_hub.php" class="text-secondary text-decoration-none fw-medium"><i class="bi bi-grid-fill me-1"></i>Choose Account Type Hub</a></p>
+          <p class="small text-muted mb-0"><a href="register.php" class="text-secondary text-decoration-none fw-medium"><i class="bi bi-person-plus-fill me-1"></i>Create New Account</a></p>
         </div>
       </form>
     </div>
@@ -220,52 +212,21 @@ $pageTitle = 'Login';
 })();
 </script>
 <script>
-// Password strength & caps lock hints (informational on login)
+// Caps lock hint for login password field
 (function () {
   const pw = document.getElementById('password');
-  const pwRules = document.getElementById('pwRules');
-  const pwReq = {
-    length: document.getElementById('reqLength'),
-    upper: document.getElementById('reqUpper'),
-    lower: document.getElementById('reqLower'),
-    number: document.getElementById('reqNumber'),
-    special: document.getElementById('reqSpecial')
-  };
-  const pwStrength = document.getElementById('pwStrength');
   const capsHint = document.getElementById('capsLockHint');
 
-  function scorePassword(s) {
-    let score = 0;
-    if (s.length >= 8) score++;
-    if (/[A-Z]/.test(s)) score++;
-    if (/[a-z]/.test(s)) score++;
-    if (/[0-9]/.test(s)) score++;
-    if (/[^A-Za-z0-9]/.test(s)) score++;
-    return score;
-  }
-
-  function updateRules() {
-    const v = pw.value || '';
-    pwReq.length.querySelector('i').className = v.length >= 8 ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
-    pwReq.upper.querySelector('i').className = /[A-Z]/.test(v) ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
-    pwReq.lower.querySelector('i').className = /[a-z]/.test(v) ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
-    pwReq.number.querySelector('i').className = /[0-9]/.test(v) ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
-    pwReq.special.querySelector('i').className = /[^A-Za-z0-9]/.test(v) ? 'bi bi-check-circle-fill text-success me-1' : 'bi bi-x-circle-fill text-danger me-1';
-    const score = scorePassword(v);
-    const labels = ['Very Weak','Weak','Medium','Strong','Very Strong'];
-    pwStrength.textContent = v ? labels[Math.max(0, Math.min(labels.length - 1, score - 1))] : '—';
-  }
-
-  if (pw) {
-    pw.addEventListener('focus', function () { pwRules.style.display = ''; updateRules(); });
-    pw.addEventListener('blur', function () { setTimeout(()=>{ pwRules.style.display = 'none'; }, 300); });
-    pw.addEventListener('input', updateRules);
+  if (pw && capsHint) {
     pw.addEventListener('keyup', function (e) {
       if (e.getModifierState && e.getModifierState('CapsLock')) {
         capsHint.style.display = '';
       } else {
         capsHint.style.display = 'none';
       }
+    });
+    pw.addEventListener('blur', function () {
+      capsHint.style.display = 'none';
     });
   }
 })();

@@ -8,52 +8,6 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 <html lang="en">
 <head>
 <?php include __DIR__ . '/../../includes/head.php'; ?>
-<style>
-  .diag-card {
-    background: #ffffff;
-    border-radius: 12px;
-    border: 1px solid var(--border-color, #E2E8F0);
-    padding: 18px;
-    transition: transform 0.2s, box-shadow 0.2s;
-  }
-  .diag-card:hover {
-    box-shadow: 0 6px 16px rgba(0,0,0,0.06);
-  }
-  .diag-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.25rem;
-    flex-shrink: 0;
-  }
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  .status-pill.pass { background: #DCFCE7; color: #166534; }
-  .status-pill.warn { background: #FEF3C7; color: #92400E; }
-  .status-pill.fail { background: #FEE2E2; color: #991B1B; }
-  .status-pill.info { background: #E0F2FE; color: #075985; }
-  .live-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-  .live-dot.pass { background: #16A34A; }
-  .live-dot.warn { background: #D97706; }
-  .live-dot.fail { background: #DC2626; }
-  .live-dot.info { background: #0284C7; }
-</style>
 </head>
 <body>
 <div class="app-wrapper">
@@ -81,10 +35,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
       <div class="row g-3" id="diagGrid">
         <!-- 1. Secure Context & HTTPS -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-success-light text-success"><i class="bi bi-shield-lock-fill"></i></div>
-              <div id="statusHttps" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-success-light text-success"><i class="bi bi-shield-lock-fill"></i></div>
+              <div id="statusHttps" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Secure Context (HTTPS / Localhost)</h6>
             <p class="text-muted small mb-2" id="descHttps">Checking if the current origin is a valid secure context for PWA features.</p>
@@ -94,10 +48,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 
         <!-- 2. Web App Manifest -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-primary-light text-primary"><i class="bi bi-file-earmark-code"></i></div>
-              <div id="statusManifest" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-primary-light text-primary"><i class="bi bi-file-earmark-code"></i></div>
+              <div id="statusManifest" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Web App Manifest</h6>
             <p class="text-muted small mb-2" id="descManifest">Verifying manifest.json configuration, icons, and theme color.</p>
@@ -107,10 +61,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 
         <!-- 3. Service Worker -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-success-light text-success"><i class="bi bi-gear-wide-connected"></i></div>
-              <div id="statusSw" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-success-light text-success"><i class="bi bi-gear-wide-connected"></i></div>
+              <div id="statusSw" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Service Worker &amp; Offline Cache</h6>
             <p class="text-muted small mb-2" id="descSw">Verifying service worker registration and static cache version.</p>
@@ -120,10 +74,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 
         <!-- 4. PWA Display Mode -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-info-light text-info"><i class="bi bi-phone-fill"></i></div>
-              <div id="statusDisplay" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-info-light text-info"><i class="bi bi-phone-fill"></i></div>
+              <div id="statusDisplay" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Display Mode / Installation</h6>
             <p class="text-muted small mb-2" id="descDisplay">Checks whether the app is currently running in standalone PWA mode.</p>
@@ -133,10 +87,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 
         <!-- 5. Geolocation API (SOS Emergency) -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-danger-light text-danger"><i class="bi bi-geo-alt-fill"></i></div>
-              <div id="statusGps" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-danger-light text-danger"><i class="bi bi-geo-alt-fill"></i></div>
+              <div id="statusGps" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Geolocation API (SOS GPS)</h6>
             <p class="text-muted small mb-2" id="descGps">Checks browser GPS capability for emergency location transmission.</p>
@@ -147,10 +101,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 
         <!-- 6. Camera API (QR Scanner) -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-primary-light text-primary"><i class="bi bi-camera-video-fill"></i></div>
-              <div id="statusCamera" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-primary-light text-primary"><i class="bi bi-camera-video-fill"></i></div>
+              <div id="statusCamera" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Camera Stream (QR Scanner)</h6>
             <p class="text-muted small mb-2" id="descCamera">Checks webcam/rear camera video stream for student QR check-in.</p>
@@ -161,10 +115,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 
         <!-- 7. Microphone API (MICA Voice AI) -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-success-light text-success"><i class="bi bi-mic-fill"></i></div>
-              <div id="statusMic" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-success-light text-success"><i class="bi bi-mic-fill"></i></div>
+              <div id="statusMic" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Microphone &amp; Speech (MICA AI)</h6>
             <p class="text-muted small mb-2" id="descMic">Checks audio input &amp; Web Speech Recognition for voice assistance.</p>
@@ -175,10 +129,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 
         <!-- 8. Push Notifications API -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-warning-light text-warning"><i class="bi bi-bell-fill"></i></div>
-              <div id="statusPush" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-warning-light text-warning"><i class="bi bi-bell-fill"></i></div>
+              <div id="statusPush" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Notification Permission</h6>
             <p class="text-muted small mb-2" id="descPush">Checks browser permissions for clinic alert push notifications.</p>
@@ -189,10 +143,10 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
 
         <!-- 9. Network Status -->
         <div class="col-md-6 col-lg-4">
-          <div class="diag-card h-100">
+          <div class="app-card h-100">
             <div class="d-flex align-items-start justify-content-between mb-3">
-              <div class="diag-icon bg-secondary text-white"><i class="bi bi-wifi"></i></div>
-              <div id="statusNetwork" class="status-pill info"><span class="live-dot info"></span> Checking...</div>
+              <div class="app-stat__icon bg-secondary text-white"><i class="bi bi-wifi"></i></div>
+              <div id="statusNetwork" class="app-badge app-badge--info"><span class="app-dot app-dot--info"></span> Checking...</div>
             </div>
             <h6 class="fw-bold mb-1">Network Connectivity</h6>
             <p class="text-muted small mb-2" id="descNetwork">Live connection status and effective connection type.</p>
@@ -212,8 +166,8 @@ $pageTitle = 'PWA Diagnostics & Device Readiness';
   function setPill(id, type, text) {
     const el = document.getElementById(id);
     if (!el) return;
-    el.className = 'status-pill ' + type;
-    el.innerHTML = '<span class="live-dot ' + type + '"></span> ' + text;
+    el.className = 'app-badge app-badge--' + type;
+    el.innerHTML = '<span class="app-dot app-dot--' + type + '"></span> ' + text;
   }
 
   window.runDiagnostics = function () {

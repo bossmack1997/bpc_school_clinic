@@ -18,28 +18,6 @@ if (function_exists('get_qr_setting')) {
     }
 }
 ?>
-<style>
-#qrReader {
-  width: 100% !important;
-  height: 100% !important;
-  border: none !important;
-  padding: 0 !important;
-  position: relative;
-}
-#qrReader video {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
-  border-radius: 8px;
-}
-#qrReader img[alt="Info icon"],
-#qrReader > div:first-child:not([style*="position"]) {
-  display: none !important;
-}
-#qrReader #qr-shaded-region {
-  border-radius: 8px !important;
-}
-</style>
 <div class="card shadow-sm mb-4" id="qrScannerCard">
   <div class="card-header d-flex align-items-center justify-content-between">
     <h6 class="mb-0"><i class="bi bi-qr-code-scan text-success me-1"></i> <?= e($scannerTitle) ?></h6>
@@ -49,7 +27,7 @@ if (function_exists('get_qr_setting')) {
     <div class="row g-3 align-items-start">
       <div class="col-md-5">
         <div id="qrVideoContainer" class="position-relative border rounded-3 overflow-hidden bg-dark" style="min-height: 300px; height: 300px;">
-          <div id="qrReader" style="width: 100%; height: 100%;"></div>
+          <div id="qrReader" class="app-qr-reader"></div>
           <div id="qrScannerOverlay"
                class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center text-center text-white"
                style="background: rgba(0,0,0,0.7); z-index: 10;">
@@ -100,21 +78,21 @@ if (function_exists('get_qr_setting')) {
 </div>
 
 <?php if ($scannerMode === 'check_in' || $scannerMode === 'smart'): ?>
-<div class="modal fade" id="queueResultModal" tabindex="-1">
+<div class="modal fade" id="queueResultModal" tabindex="-1" aria-labelledby="queueResultModalTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
-      <div class="modal-header bg-success text-white">
-        <h6 class="mb-0"><i class="bi bi-clipboard-check me-1"></i> Check-In Successful</h6>
+      <div class="modal-header">
+        <h6 class="modal-title" id="queueResultModalTitle"><?= bpc_icon('check-circle') ?> Check-In Successful</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body text-center py-4">
-        <div id="queueNumberDisplay" class="display-2 fw-bold text-success mb-2">—</div>
-        <div class="text-muted" id="queueStudentName">—</div>
-        <div class="text-muted small" id="queueStudentDetails">—</div>
+        <div class="app-muted mb-2">Queue Number</div>
+        <div id="queueNumberDisplay" style="font-size:3rem;font-weight:700;line-height:1;color:var(--primary);letter-spacing:-0.03em;">&mdash;</div>
+        <div class="mt-3" style="font-weight:600;color:var(--text-primary);" id="queueStudentName">&mdash;</div>
+        <div class="app-muted" id="queueStudentDetails">&mdash;</div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">
-          <i class="bi bi-x me-1"></i> Close
-        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
     </div>
   </div>
@@ -593,12 +571,12 @@ if (function_exists('get_qr_setting')) {
 
       $('#smartEmergencyBtn').off('click').on('click', function () {
         const sid = $('#smartStudentId').val();
-        if (sid) window.location.href = APP + '/pages/nurse/patients_today.php?student_id=' + sid;
+        if (sid) window.location.href = APP + '/pages/nurse/queue.php?priority=urgent&student_id=' + sid;
       });
 
       $('#smartApptBtn').off('click').on('click', function () {
         const sid = $('#smartStudentId').val();
-        if (sid) window.location.href = APP + '/pages/nurse/appointments.php?student_id=' + sid;
+        if (sid) window.location.href = APP + '/pages/nurse/walkin.php?student_id=' + sid;
       });
     }
 

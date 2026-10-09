@@ -59,18 +59,54 @@ $(function () {
   }, 300); // Brief delay to let CSS paint, then hide
 
   // ================================================================
-  // Sidebar Toggle (Mobile) - hamburger button
+  // Skip-link target — give the main region a stable id once
   // ================================================================
+  (function () {
+    if (!document.getElementById('mainContent')) {
+      var main = document.querySelector('.main-content');
+      if (main) main.id = 'mainContent';
+    }
+  })();
+
+  // ================================================================
+  // Sidebar Toggle (Mobile) - hamburger button + scrim
+  // ================================================================
+  var $sidebar = $('.sidebar');
+  var $scrim = $('#sidebarScrim');
+
+  // Drawer open/close. Visibility is owned by the .is-visible class in
+  // responsive.css so the fade transition can run; the hidden attribute
+  // would kill it by forcing display:none.
+  function setSidebar(open) {
+    $sidebar.toggleClass('show', open);
+    $scrim.toggleClass('is-visible', open);
+    $('#sidebarToggle').attr('aria-expanded', open ? 'true' : 'false');
+    $('.mica-fab').toggleClass('is-dimmed', open);
+  }
+
   $('#sidebarToggle').on('click', function () {
-    $('.sidebar').toggleClass('show');
+    setSidebar(!$sidebar.hasClass('show'));
   });
+
+  if ($scrim && $scrim.length) {
+    $scrim.on('click', function () {
+      setSidebar(false);
+    });
+  }
 
   // Close sidebar on outside click (mobile)
   $(document).on('click', function (e) {
     if (window.innerWidth < 1200) {
-      if (!$(e.target).closest('.sidebar, #sidebarToggle').length) {
-        $('.sidebar').removeClass('show');
+      if (!$(e.target).closest('.sidebar, #sidebarToggle, #sidebarScrim').length) {
+        setSidebar(false);
       }
+    }
+  });
+
+  $(document).on('keydown', function (e) {
+    if (e.key === 'Escape' && $sidebar.hasClass('show')) {
+      setSidebar(false);
+      $('#sidebarToggle').trigger('focus');
     }
   });
 
@@ -79,43 +115,51 @@ $(function () {
   // ================================================================
   const storedCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
 
+  // The collapsed class is the single source of truth. All geometry
+  // (sidebar width and main-content offset) lives in design-system.css
+  // and responsive.css, so this never writes inline styles that would
+  // fight the stylesheet or drift from the breakpoints.
+  const SIDEBAR_RAIL_MIN = 1360;
+  const SIDEBAR_DRAWER_MAX = 1199;
+
   function applySidebarState(collapsed) {
-    if (collapsed) {
-      $('.sidebar').addClass('collapsed');
-      $('.main-content').css('margin-left', '72px');
-      $('.main-content').css('width', 'calc(100% - 72px)');
-    } else {
-      $('.sidebar').removeClass('collapsed');
-      $('.main-content').css('margin-left', '');
-      $('.main-content').css('width', '');
-    }
-    localStorage.setItem('sidebar-collapsed', collapsed);
+    $('.sidebar').toggleClass('collapsed', !!collapsed);
+    localStorage.setItem('sidebar-collapsed', !!collapsed);
   }
 
-  // Apply stored state on load (only for desktop)
-  if (window.innerWidth >= 1200) {
+  // The rail is the default between 1200px and 1359px, so honour the
+  // stored preference but never let it leak into drawer mode.
+  if (window.innerWidth >= SIDEBAR_DRAWER_MAX + 1) {
     applySidebarState(storedCollapsed);
   }
 
   $(document).on('click', '.sidebar-toggle-collapse', function (e) {
     e.stopPropagation();
-    const isCollapsed = $('.sidebar').hasClass('collapsed');
-    applySidebarState(!isCollapsed);
+    applySidebarState(!$('.sidebar').hasClass('collapsed'));
   });
 
-  // Reset sidebar on window resize crossing the threshold
+  // Reset sidebar on window resize crossing a breakpoint
   let lastWidth = window.innerWidth;
   $(window).on('resize', function () {
     const w = window.innerWidth;
-    if ((lastWidth < 1200 && w >= 1200) || (lastWidth >= 1200 && w < 1200)) {
-      if (w >= 1200) {
-        applySidebarState(localStorage.getItem('sidebar-collapsed') === 'true');
-        $('.sidebar').removeClass('show');
-      } else {
+    const crossedDrawer = (lastWidth <= SIDEBAR_DRAWER_MAX && w > SIDEBAR_DRAWER_MAX)
+      || (lastWidth > SIDEBAR_DRAWER_MAX && w <= SIDEBAR_DRAWER_MAX);
+    const crossedRail = (lastWidth < SIDEBAR_RAIL_MIN && w >= SIDEBAR_RAIL_MIN)
+      || (lastWidth >= SIDEBAR_RAIL_MIN && w < SIDEBAR_RAIL_MIN);
+
+    if (crossedDrawer) {
+      if (w <= SIDEBAR_DRAWER_MAX) {
+        // Entering drawer mode: close the drawer and clear the rail state
+        setSidebar(false);
         $('.sidebar').removeClass('collapsed');
-        $('.main-content').css('margin-left', '');
-        $('.main-content').css('width', '');
+      } else {
+        applySidebarState(localStorage.getItem('sidebar-collapsed') === 'true');
+        setSidebar(false);
       }
+    } else if (crossedRail) {
+      // Entering the icon-rail range the stylesheet owns the width, so
+      // drop the class to avoid a stale pin state on the way back out.
+      if (w < SIDEBAR_RAIL_MIN) applySidebarState(false);
     }
     lastWidth = w;
   });
@@ -127,15 +171,16 @@ $(function () {
   const storedTheme = localStorage.getItem('clinic-theme') || 'light';
 
   function applyTheme(theme) {
-    if (theme === 'dark') {
+    const isDark = theme === 'dark';
+    if (isDark) {
       document.documentElement.setAttribute('data-theme', 'dark');
-      darkToggle.find('i').removeClass('bi-moon-stars').addClass('bi-sun');
-      darkToggle.attr('title', 'Switch to Light Mode');
     } else {
       document.documentElement.removeAttribute('data-theme');
-      darkToggle.find('i').removeClass('bi-sun').addClass('bi-moon-stars');
-      darkToggle.attr('title', 'Switch to Dark Mode');
     }
+    darkToggle
+      .attr('title', isDark ? 'Switch to light theme' : 'Switch to dark theme')
+      .attr('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme')
+      .html(isDark ? darkToggle.attr('data-icon-sun') : darkToggle.attr('data-icon-moon'));
     localStorage.setItem('clinic-theme', theme);
   }
 
@@ -345,6 +390,20 @@ $(function () {
     });
   }
 
+  // ================================================================
+  // SOS — open modal from sidebar floating action
+  // ================================================================
+  $(document).on('click', '[data-action="open-sos"]', function (e) {
+    e.preventDefault();
+    if (typeof MICA !== 'undefined' && MICA.open) {
+      MICA.open();
+    }
+    var sosModal = $('#sosModal');
+    if (sosModal.length) {
+      sosModal.modal('show');
+    }
+  });
+
 }); // end DOM ready
 
 // ================================================================
@@ -483,6 +542,13 @@ function openSosDetailsModal(sos) {
   var hasGps = sos.latitude != null && sos.longitude != null && sos.latitude !== '' && sos.longitude !== '';
   var mapsUrl = hasGps ? 'https://www.google.com/maps?q=' + encodeURIComponent(sos.latitude + ',' + sos.longitude) : '#';
   var isManual = sos.location_source === 'manual' || (!hasGps && sos.location);
+  var statusLabels = { active: 'Active', responded: 'Responded', resolved: 'Resolved', false_alarm: 'False Alarm' };
+  var statusColors = { active: 'danger', responded: 'warning text-dark', resolved: 'success', false_alarm: 'secondary' };
+  var statusBadge = '<span class="badge bg-' + (statusColors[sos.sos_status] || 'secondary') + '">' + (statusLabels[sos.sos_status] || (sos.sos_status || 'Unknown')) + '</span>';
+  var contact = sos.contact_number || sos.phone || sos.mobile || sos.reporter_phone || 'N/A';
+  var dateValue = sos.created_at || sos.sos_created_at || sos.location_updated_at || null;
+  var dateLabel = dateValue ? new Date(dateValue.replace(' ', 'T')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+  var timeLabel = dateValue ? new Date(dateValue.replace(' ', 'T')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'N/A';
 
   var locationHtml = '';
   if (hasGps) {
@@ -645,32 +711,132 @@ function confirmAction(message, callback) {
   });
 }
 
-function toastSuccess(msg) {
-  Swal.fire({
-    icon: 'success',
-    title: msg,
-    timer: 2000,
-    showConfirmButton: false,
-    position: 'top-end',
-    toast: true,
-    customClass: {
-      popup: 'rounded-4 shadow-lg',
-    },
-  });
+// ================================================================
+// UNIFIED TOAST SYSTEM
+// ----------------------------------------------------------------
+// One non-blocking feedback channel for every role and every page.
+//   success / error / warning / info / emergency
+// Desktop  bottom-right · Mobile bottom-centre
+// Errors are non-blocking by design: the surrounding form or panel
+// keeps its state so the user can correct and retry immediately.
+// Blocking acknowledgement is still available via showErrorDialog().
+// ================================================================
+var BPC_ICON_PATHS = {
+  success: '<path d="M20 6 9 17l-5-5"/>',
+  error: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
+  warning: '<path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
+  emergency: '<path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4Z"/><path d="M12 8v4M12 16h.01"/>'
+};
+
+var BPC_ICON_CLOSE = '<path d="M18 6 6 18M6 6l12 12"/>';
+
+function bpcToastIcon(kind) {
+  return '<svg class="bpc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" '
+    + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+    + (BPC_ICON_PATHS[kind] || BPC_ICON_PATHS.info) + '</svg>';
 }
 
-function toastError(msg) {
-  Swal.fire({
-    icon: 'error',
-    title: 'Error',
-    text: msg,
-    confirmButtonColor: '#0B6B3A',
-    customClass: {
-      confirmButton: 'btn btn-primary',
-    },
-    buttonsStyling: false,
+function bpcToastStack() {
+  var stack = document.getElementById('appToastStack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'appToastStack';
+    stack.className = 'app-toast-stack';
+    stack.setAttribute('role', 'region');
+    stack.setAttribute('aria-label', 'Notifications');
+    document.body.appendChild(stack);
+  }
+  return stack;
+}
+
+function dismissBpcToast(el) {
+  if (!el || el.dataset.leaving === '1') return;
+  el.dataset.leaving = '1';
+  el.classList.add('is-leaving');
+  window.setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+}
+
+/**
+ * Unified toast.
+ * @param {string} message
+ * @param {string} [kind]  success | error | warning | info | emergency
+ * @param {string} [title]
+ */
+function bpcToast(message, kind, title) {
+  if (!message) return null;
+  kind = kind || 'info';
+
+  var stack = bpcToastStack();
+  var el = document.createElement('div');
+  el.className = 'app-toast app-toast--' + kind;
+  el.setAttribute('role', (kind === 'error' || kind === 'emergency') ? 'alert' : 'status');
+  el.setAttribute('aria-live', (kind === 'error' || kind === 'emergency') ? 'assertive' : 'polite');
+
+  var body = '';
+  if (title) {
+    body += '<div class="app-toast__title">' + escapeHtml(String(title)) + '</div>';
+    body += '<p class="app-toast__text">' + escapeHtml(String(message)) + '</p>';
+  } else {
+    body += '<div class="app-toast__title">' + escapeHtml(String(message)) + '</div>';
+  }
+
+  el.innerHTML = '<span class="app-toast__icon">' + bpcToastIcon(kind) + '</span>'
+    + '<div class="app-toast__body">' + body + '</div>'
+    + '<button type="button" class="app-toast__close" aria-label="Dismiss notification">'
+    + '<svg class="bpc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" '
+    + 'stroke-linecap="round" aria-hidden="true" focusable="false">' + BPC_ICON_CLOSE + '</svg>'
+    + '</button>';
+
+  el.querySelector('.app-toast__close').addEventListener('click', function () { dismissBpcToast(el); });
+
+  stack.appendChild(el);
+
+  var ttl = (kind === 'error' || kind === 'emergency') ? 7000 : 3200;
+  var timer = window.setTimeout(function () { dismissBpcToast(el); }, ttl);
+
+  // Pause the countdown while the pointer rests on the toast.
+  el.addEventListener('mouseenter', function () { window.clearTimeout(timer); });
+  el.addEventListener('mouseleave', function () { window.clearTimeout(timer); dismissBpcToast(el); });
+
+  // Never let the stack grow past a readable number of rows.
+  while (stack.children.length > 4) { dismissBpcToast(stack.firstElementChild); }
+
+  return el;
+}
+
+window.bpcToast = bpcToast;
+
+function toastSuccess(msg) { bpcToast(msg, 'success'); }
+function toastError(msg, title) { bpcToast(msg, 'error', title); }
+function toastWarning(msg) { bpcToast(msg, 'warning'); }
+function toastInfo(msg) { bpcToast(msg, 'info'); }
+function toastEmergency(msg) { bpcToast(msg, 'emergency', 'Emergency'); }
+
+window.toastSuccess = toastSuccess;
+window.toastError = toastError;
+window.toastWarning = toastWarning;
+window.toastInfo = toastInfo;
+window.toastEmergency = toastEmergency;
+
+/**
+ * Blocking acknowledgement for the rare failure a user MUST read
+ * (destructive actions, session loss). Same visual language as the
+ * rest of the system — no raw technical text reaches the user.
+ */
+function showErrorDialog(message, title) {
+  return Swal.fire({
+    title: title || 'Something went wrong',
+    html: '<p class="mb-0" style="font-size:0.9rem;color:var(--text-secondary)">'
+      + escapeHtml(message || 'Unable to complete the request. Please try again.')
+      + '</p>',
+    showConfirmButton: true,
+    confirmButtonText: 'Close',
+    customClass: { confirmButton: 'btn btn-primary', popup: 'app-swal' },
+    buttonsStyling: false
   });
 }
+window.showErrorDialog = showErrorDialog;
 
 // ================================================================
 // Loading Overlay Helper
@@ -689,12 +855,27 @@ function showLoading(show) {
 // DataTable Defaults (Premium styling)
 // ================================================================
 if (typeof $.fn.DataTable !== 'undefined') {
+  // Shared empty state. DataTables renders this inside the table body, so it
+  // must be a full-width block rather than a bare sentence, and it explains
+  // what happened instead of just reporting "no data".
+  function dtEmptyState() {
+    return '<div class="empty-state" style="padding:32px 16px;">'
+      + '<div class="empty-state__icon"><i class="bi bi-inbox" aria-hidden="true"></i></div>'
+      + '<h6 class="empty-state__title">No records found</h6>'
+      + '<p class="empty-state__text">There are currently no records matching this view. '
+      + 'Try changing your search or filters.</p>'
+      + '</div>';
+  }
+
   $.extend(true, $.fn.dataTable.defaults, {
     language: {
       search: '<i class="bi bi-search me-1"></i>',
       searchPlaceholder: 'Search...',
       lengthMenu: '_MENU_ per page',
-      emptyTable: 'No data available',
+      zeroRecords: dtEmptyState(),
+      emptyTable: dtEmptyState(),
+      infoEmpty: 'Showing 0 to 0 of 0 records',
+      infoFiltered: '(filtered from _MAX_ total records)',
     },
     dom: '<"d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"<"d-flex align-items-center gap-2"l><"d-flex"f>>t<"d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2"<"d-flex align-items-center"i><"d-flex"p>>',
     pageLength: 10,

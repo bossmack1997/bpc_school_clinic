@@ -43,7 +43,7 @@ $typeMeta = [
           <option value="all">All Notifications</option>
           <option value="unread">Unread</option>
           <option value="read">Read</option>
-          <option value="emergency">🚨 Emergency</option>
+          <option value="emergency">Emergency</option>
           <option value="appointment">Appointment</option>
           <option value="consultation">Consultation</option>
           <option value="health">Health</option>
@@ -99,11 +99,11 @@ $typeMeta = [
 <!-- ============================================================ -->
 <!-- Notification Detail Modal                                    -->
 <!-- ============================================================ -->
-<div class="modal fade" id="notifDetailModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="notifDetailModal" tabindex="-1" aria-hidden="true" aria-labelledby="notifDetailModalTitle">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-success text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-bell-fill me-2"></i> Notification Details</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--info">
+      <h5 class="modal-title" id="notifDetailModalTitle"><?= bpc_icon('bell') ?> Notification Details</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" id="notifDetailBody">
@@ -123,11 +123,11 @@ $typeMeta = [
 <!-- ============================================================ -->
 <!-- SOS Detail Modal (Emergency notifications)                   -->
 <!-- ============================================================ -->
-<div class="modal fade" id="notifSosModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="notifSosModal" tabindex="-1" aria-hidden="true" aria-labelledby="notifSosModalTitle" data-bs-backdrop="static">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-danger text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill me-2"></i> Emergency SOS Details</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--danger">
+      <h5 class="modal-title" id="notifSosModalTitle"><?= bpc_icon('alert-triangle') ?> Emergency SOS Details</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" id="notifSosBody">

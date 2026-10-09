@@ -9,7 +9,7 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
-require_role(['admin', 'adviser']);
+require_role(['admin', 'teacher']);
 
 header('Content-Type: application/json');
 $db = getDB();

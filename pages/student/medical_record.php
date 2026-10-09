@@ -26,14 +26,17 @@ $pageTitle = 'My Medical Record';
 </div>
 
 <!-- Detail Modal -->
-<div class="modal fade" id="recordDetailModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="recordDetailModal" tabindex="-1" aria-labelledby="recordDetailModalTitle" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-success text-white rounded-top-4">
-        <h6 class="modal-title"><i class="bi bi-file-earmark-medical me-2"></i> Medical Record Details</h6>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title" id="recordDetailModalTitle"><?= bpc_icon('file-medical') ?> Medical Record Details</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body" id="recordDetailBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
   </div>
 </div>

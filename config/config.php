@@ -43,6 +43,11 @@ if ($__appEnv === 'local' || $__appEnv === 'development' || $__appEnv === 'dev')
     define('APP_ENV', 'production');
 }
 
+// Technical error details are logged, never shown. In local development a
+// short trace reference is appended to error messages so the browser
+// console stays useful; it is never exposed in production.
+define('APP_DEBUG', APP_ENV === 'local');
+
 // ============================================================
 // APP_KEY — required for QR HMAC and other security features
 // ============================================================
@@ -103,6 +108,8 @@ require_once BASE_PATH . '/includes/csrf.php';
 require_once BASE_PATH . '/includes/security.php';
 require_once BASE_PATH . '/includes/auth.php';
 require_once BASE_PATH . '/includes/mail.php';
+require_once BASE_PATH . '/includes/icons.php';
+require_once BASE_PATH . '/includes/dashboard_ui.php';
 
 // Initialize session after security functions are loaded
 if (session_status() === PHP_SESSION_NONE) {

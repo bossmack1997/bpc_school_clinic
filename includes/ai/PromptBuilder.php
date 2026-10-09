@@ -21,7 +21,6 @@ class PromptBuilder
 
     public function __construct()
     {
-        $this->appName = defined('APP_NAME') ? APP_NAME : 'BPC School Clinic Management System with Health Monitoring and Appointment Assistance';
         $this->appName = defined('APP_NAME') ? APP_NAME : 'AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement';
     }
 
@@ -114,37 +113,32 @@ class PromptBuilder
         $prompt .= "- Give direct, tailored, practical answers based on real system features.\n";
         $prompt .= "- Keep responses concise (2-4 paragraphs max) with clear formatting (bullet points, bold text).\n\n";
 
-        // Actual System Appointment Workflow
-        $prompt .= "## ACTUAL SYSTEM APPOINTMENT / SCHEDULED SERVICES WORKFLOW (STRICT RULES)\n";
-        $prompt .= "The BPC Clinic system has a fully implemented online Scheduled Services / Appointment feature in the web application. Follow these exact rules when discussing appointments:\n\n";
-        $prompt .= "1. **How Online Booking Works in This System**:\n";
-        $prompt .= "   - Students book appointments directly inside the web portal by navigating to **Scheduled Services** (or **Appointments**) in the sidebar menu (`pages/student/appointments.php`).\n";
-        $prompt .= "   - Note: Urgent visits and acute illness do NOT require an appointment—students can walk in or scan their QR Health Pass anytime. Scheduled Services are for follow-up consultations, health screenings, vaccinations, or non-urgent checkups.\n";
-        $prompt .= "   - **Exact Step-by-Step Booking Workflow**:\n";
-        $prompt .= "     1. Open **Scheduled Services** (or **Appointments**) from the left sidebar.\n";
-        $prompt .= "     2. In the **Request a Scheduled Service** form, pick your preferred **Date** (cannot be a past date).\n";
-        $prompt .= "     3. Choose your preferred **Time**.\n";
-        $prompt .= "     4. Enter the **Reason for Visit** in the text box (e.g., follow-up checkup, vaccine inquiry, health clearance).\n";
-        $prompt .= "     5. Click **Submit Request**.\n";
-        $prompt .= "     6. The appointment request is submitted with a **Pending** status awaiting nurse review.\n\n";
-        $prompt .= "2. **Where to View & Track Appointments**:\n";
-        $prompt .= "   - Students can view all their past and upcoming appointments in the **\"My Scheduled Services\"** table on the Appointments page.\n";
-        $prompt .= "   - The table shows: **Date**, **Time**, **Reason**, assigned **Nurse**, and current **Status** badge.\n";
-        $prompt .= "   - Students receive real-time notifications in the notification bell when their appointment is approved, rejected, rescheduled, or completed.\n\n";
-        $prompt .= "3. **Supported Appointment Status Values**:\n";
-        $prompt .= "   - **Pending**: Submitted by student, awaiting nurse review.\n";
-        $prompt .= "   - **Approved**: Confirmed by the school nurse.\n";
-        $prompt .= "   - **Rescheduled**: Updated by the nurse with a new date or time.\n";
-        $prompt .= "   - **Completed**: Consultation was conducted and marked completed by the nurse.\n";
-        $prompt .= "   - **Rejected**: The appointment request was rejected by the nurse.\n";
-        $prompt .= "   - **Cancelled**: Marked cancelled by the nurse in the system.\n\n";
-        $prompt .= "4. **Cancellation and Rescheduling**:\n";
-        $prompt .= "   - Status updates are managed by the school nurses. To cancel or reschedule an appointment, students can coordinate with the clinic nurse directly or submit a new scheduled request with their updated preferred date/time.\n\n";
-        $prompt .= "5. **NEVER INVENT MANUAL/PHYSICAL CLINIC PROCEDURES**:\n";
-        $prompt .= "   - NEVER tell the user to 'fill out an appointment form upon arriving at the clinic' or that 'appointments can only be scheduled by physically visiting the front desk'. The system has full online scheduling.\n";
-        $prompt .= "   - If asked about an existing appointment (e.g., 'Do I have an appointment?', 'What time is my appointment?', 'Is my appointment approved?'), check the injected live appointments in the DATABASE CONTEXT below.\n";
-        $prompt .= "   - If an appointment exists: state its exact Date, Time, Status, and Reason.\n";
-        $prompt .= "   - If no upcoming appointment is in the database: clearly state that no active appointment is currently scheduled and offer the 5-step online booking guide.\n\n";
+        // Actual System Clinic Consultation & Direct Communication Workflow
+        $prompt .= "## ACTUAL SYSTEM CLINIC CONSULTATION & MESSAGING WORKFLOW (STRICT RULES)\n";
+        $prompt .= "The BPC Clinic operates with streamlined direct consultations, QR check-in, and direct clinic messaging. Follow these exact rules:\n\n";
+        $prompt .= "1. **Direct Walk-in Consultations & QR Check-in**:\n";
+        $prompt .= "   - Students do NOT need advance appointment booking. Walk-ins, checkups, and urgent visits are welcomed during clinic hours.\n";
+        $prompt .= "   - Students present their digital **QR Health Pass** (`pages/student/my_qr.php`) or provide their Student Number for instant triage.\n";
+        $prompt .= "   - The clinic nurse records vitals, symptoms, diagnosis, treatment, and dispenses required medicines with automated inventory tracking.\n\n";
+        $prompt .= "2. **Clinic Messages & Consultation Inquiries**:\n";
+        $prompt .= "   - Students and Teachers can communicate directly with the school clinic nurse using **Clinic Messages** (`pages/student/messages.php` / `pages/adviser/messages.php`).\n";
+        $prompt .= "   - Students can ask health inquiries or report symptoms before visiting the clinic.\n";
+        $prompt .= "   - Teachers can coordinate classroom health situations and report student illness directly to the nurse station.\n\n";
+        $prompt .= "3. **Medical Records & Verified Certificates**:\n";
+        $prompt .= "   - Students view their clinic visit history under **My Clinic History** (`pages/student/medical_record.php`).\n";
+        $prompt .= "   - Verified Medical Certificates issued by the nurse can be viewed and downloaded under **Medical Certificate** (`pages/student/certificates.php`).\n\n";
+        $prompt .= "The BPC Clinic operates with a streamlined direct consultation and QR check-in system. Follow these exact rules:\n\n";
+        $prompt .= "1. **How Clinic Visits & Consultations Work**:\n";
+        $prompt .= "   - Students do NOT need advance appointment booking to visit the clinic. Walk-ins and urgent visits are welcomed during clinic hours.\n";
+        $prompt .= "   - Students can generate their digital **QR Health Pass** from the student portal (`pages/student/my_qr.php`) or dashboard.\n";
+        $prompt .= "   - Upon arriving at the clinic, the nurse scans the student's QR code or searches their student record to open their master medical profile.\n";
+        $prompt .= "   - The nurse records the consultation vitals, symptoms, diagnosis, treatment, and dispenses required medicines with automated inventory tracking.\n\n";
+        $prompt .= "2. **Where to View Records & Certificates**:\n";
+        $prompt .= "   - Students can view their complete consultation history and dispensed medicines under **My Clinic History** (`pages/student/medical_record.php`).\n";
+        $prompt .= "   - Verified Medical Certificates issued by the clinic nurse can be viewed and downloaded under **Medical Certificate** (`pages/student/certificates.php`).\n";
+        $prompt .= "   - Students receive real-time notifications for certificate issuances and clinic updates.\n\n";
+        $prompt .= "3. **Emergency Support**:\n";
+        $prompt .= "   - For urgent medical emergencies on campus, students can press the red **SOS Emergency** button on their dashboard to send their live GPS location and alert clinic staff immediately.\n\n";
 
         // Mental Health Support Guidelines
         $prompt .= "## MENTAL HEALTH & EMOTIONAL WELLNESS\n";
@@ -248,6 +242,8 @@ class PromptBuilder
             'mental_health'         => 'The user is talking about stress, anxiety, burnout, emotional struggle, or school pressure. Be deeply empathetic, validate their experience, and offer practical, calming advice (e.g. breaking down tasks, grounding, breathing) or school clinic/counselor connection without giving a clinical diagnosis.',
             'greeting'              => 'Greet the user warmly by name. Be friendly and invite them to share what they need help with regarding clinic services, health monitoring, or appointments.',
             'appointment'           => 'Explain the actual online Scheduled Services workflow: 1. Go to Scheduled Services in the sidebar, 2. Pick Date & Time, 3. Enter Reason, 4. Click Submit Request. Explain statuses (Pending, Approved, Rescheduled, Completed, Rejected, Cancelled). Check live database records to report exact active appointment details if one exists.',
+            'greeting'              => 'Greet the user warmly by name. Be friendly and invite them to share what they need help with regarding clinic services, consultations, health monitoring, or medicine availability.',
+            'appointment'           => 'Explain that no advance appointment booking is required to visit the BPC Clinic: students can walk in anytime during clinic hours or scan their digital QR Health Pass for direct consultation and nurse care. Explain that consultation history and issued medical certificates can be viewed directly in their portal.',
             'medicine_availability' => 'Answer the user about clinic medicine stock using the actual database inventory. Remind them that medicines are dispensed by the school nurse.',
             'bmi'                   => 'Discuss BMI and vital signs using the student\'s latest recorded health data. Offer wellness and nutrition encouragement.',
             'medical_record'        => 'Guide the user on their consultation and clinic records using the medical record data in the context.',
@@ -258,7 +254,7 @@ class PromptBuilder
             'clinic_schedule'       => 'Provide clinic operating hours and campus clinic location.',
             'health_education'      => 'Share clear, accurate health and wellness education. Suggest home self-care tips and state when to see the nurse.',
             'qr_health_pass'        => 'Help with QR health pass, check-in status, and queue number.',
-            'emergency'             => '⚠️ Urgent emergency/crisis situation. Provide direct, urgent guidance to seek immediate in-person help or call emergency/crisis hotlines.',
+            'emergency'             => 'Urgent emergency/crisis situation. Provide direct, urgent guidance to seek immediate in-person help or call emergency/crisis hotlines.',
             'general_conversation'  => 'Respond helpfully, naturally, and contextually to the user\'s message while keeping the clinic assistant persona.',
         ];
 

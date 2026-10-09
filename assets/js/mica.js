@@ -83,7 +83,6 @@
       minConfidence: 0.35,          // minimum transcript confidence for noise filtering
       navigationCommands: [
         { match: /(open|go to|show|navigate to)\s+(dashboard|home)/i,            url: 'dashboard.php' },
-        { match: /(open|go to|show|navigate to)\s+(appointments?|booking)/i,     url: 'appointments.php' },
         { match: /(open|go to|show|navigate to)\s+(medical\s*record|health\s*record)/i, url: 'medical_record.php' },
         { match: /(open|go to|show|navigate to)\s+(health monitoring|vitals)/i,  url: 'health_monitoring.php' },
         { match: /(open|go to|show|navigate to)\s+(vaccination|vaccines?|shots)/i, url: 'vaccination.php' },
@@ -708,38 +707,38 @@ function escapeHtml(text) {
 
     if (role === 'nurse') {
       quickActions = [
-        { icon: '📅', label: 'Appointments', action: 'appointments_nurse' },
-        { icon: '💊', label: 'Medicine Stock', action: 'medicines' },
-        { icon: '🚨', label: 'Emergencies', action: 'emergencies_nurse' },
-        { icon: '🏥', label: 'Nearby Hospitals', action: 'nearby_hospital' },
-        { icon: '📄', label: 'Certificates', action: 'certificates_nurse' },
-        { icon: '📢', label: 'Announcements', action: 'announcements' },
+        { icon: '', label: 'Appointments', action: 'appointments_nurse' },
+        { icon: '', label: 'Medicine Stock', action: 'medicines' },
+        { icon: '', label: 'Emergencies', action: 'emergencies_nurse' },
+        { icon: '', label: 'Nearby Hospitals', action: 'nearby_hospital' },
+        { icon: '', label: 'Certificates', action: 'certificates_nurse' },
+        { icon: '', label: 'Announcements', action: 'announcements' },
       ];
     } else if (role === 'teacher' || role === 'adviser') {
       quickActions = [
-        { icon: '👥', label: 'My Advisory', action: 'advisory_teacher' },
-        { icon: '🏥', label: 'Clinic Referrals', action: 'referrals_teacher' },
-        { icon: '🏥', label: 'Nearest Hospital', action: 'nearby_hospital' },
-        { icon: '📢', label: 'Announcements', action: 'announcements' },
-        { icon: '🚨', label: 'SOS Protocol', action: 'sos_protocol' },
+        { icon: '', label: 'My Advisory', action: 'advisory_teacher' },
+        { icon: '', label: 'Clinic Referrals', action: 'referrals_teacher' },
+        { icon: '', label: 'Nearest Hospital', action: 'nearby_hospital' },
+        { icon: '', label: 'Announcements', action: 'announcements' },
+        { icon: '', label: 'SOS Protocol', action: 'sos_protocol' },
       ];
     } else if (role === 'admin') {
       quickActions = [
-        { icon: '👥', label: 'User Overview', action: 'users_admin' },
-        { icon: '📚', label: 'Sections', action: 'sections_admin' },
-        { icon: '🏥', label: 'Nearby Hospitals', action: 'nearby_hospital' },
-        { icon: '📊', label: 'Analytics', action: 'analytics_admin' },
-        { icon: '📢', label: 'Announcements', action: 'announcements' },
+        { icon: '', label: 'User Overview', action: 'users_admin' },
+        { icon: '', label: 'Sections', action: 'sections_admin' },
+        { icon: '', label: 'Nearby Hospitals', action: 'nearby_hospital' },
+        { icon: '', label: 'Analytics', action: 'analytics_admin' },
+        { icon: '', label: 'Announcements', action: 'announcements' },
       ];
     } else {
       quickActions = [
-        { icon: '🏥', label: 'Nearest Hospital', action: 'nearby_hospital' },
-        { icon: '📊', label: 'BMI', action: 'bmi' },
-        { icon: '📅', label: 'Appointments', action: 'appointments' },
-        { icon: '📄', label: 'Records', action: 'records' },
-        { icon: '💊', label: 'Medicines', action: 'medicines' },
-        { icon: '💉', label: 'Vaccines', action: 'vaccines' },
-        { icon: '🚨', label: 'SOS', action: 'sos' },
+        { icon: '', label: 'Nearest Hospital', action: 'nearby_hospital' },
+        { icon: '', label: 'BMI', action: 'bmi' },
+        { icon: '', label: 'Appointments', action: 'appointments' },
+        { icon: '', label: 'Records', action: 'records' },
+        { icon: '', label: 'Medicines', action: 'medicines' },
+        { icon: '', label: 'Vaccines', action: 'vaccines' },
+        { icon: '', label: 'SOS', action: 'sos' },
       ];
     }
 
@@ -762,11 +761,11 @@ function escapeHtml(text) {
           '<div class="dropdown">' +
             '<button class="mica-header-btn" type="button" id="micaSettingsBtn" data-bs-toggle="dropdown" aria-expanded="false" title="Settings"><i class="bi bi-gear-fill"></i></button>' +
             '<ul class="dropdown-menu dropdown-menu-end shadow" style="min-width:210px;">' +
-              '<li><span class="dropdown-item-text small text-muted">🔊 Volume</span></li>' +
+              '<li><span class="dropdown-item-text small text-muted"> Volume</span></li>' +
               '<li class="px-3 pb-1"><input type="range" class="w-100" id="micaVolume" min="0" max="100" value="100" step="5"></li>' +
-              '<li><span class="dropdown-item-text small text-muted">⚡ Speed (<span id="micaSpeedVal">1.0x</span>)</span></li>' +
+              '<li><span class="dropdown-item-text small text-muted"> Speed (<span id="micaSpeedVal">1.0x</span>)</span></li>' +
               '<li class="px-3 pb-1"><input type="range" class="w-100" id="micaSpeed" min="50" max="200" value="100" step="10"></li>' +
-              '<li><span class="dropdown-item-text small text-muted">🎙 Continuous</span></li>' +
+              '<li><span class="dropdown-item-text small text-muted"> Continuous</span></li>' +
               '<li class="px-3 pb-1"><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="micaContinuous"></div></li>' +
               '<li><button class="dropdown-item small" id="micaTestVoice"><i class="bi bi-volume-up me-1"></i>Test Voice</button></li>' +
               '<li><hr class="dropdown-divider"></li>' +
@@ -937,7 +936,7 @@ function escapeHtml(text) {
     div.className = 'mica-message mica-ai';
     div.innerHTML =
       '<div class="mica-bubble">' +
-        '<div><strong>👋 ' + timeOfDay + ', ' + escapeHtml(firstName) + '!</strong><br><br>' +
+        '<div><strong> ' + timeOfDay + ', ' + escapeHtml(firstName) + '!</strong><br><br>' +
         'I\'m <strong>MICA</strong> — your <strong>Medical Intelligent Clinic Assistant</strong><br>' +
         'from Bulacan Polytechnic College.<br><br>' +
         roleScope +
@@ -1116,23 +1115,23 @@ function escapeHtml(text) {
     if (st === 'granted' && C.state.micaLocation && C.state.micaLocation.available) {
       if (C.state.micaLocation.lowAccuracy) {
         C.dom.locationIndicator.className = 'mica-location-indicator unavailable';
-        C.dom.locationText.textContent = '📍 Coarse Location (±' + (C.state.micaLocation.accuracy || '50km') + ') • Tap to refine';
+        C.dom.locationText.textContent = 'Coarse Location (±' + (C.state.micaLocation.accuracy || '50km') + ') • Tap to refine';
       } else {
         C.dom.locationIndicator.className = 'mica-location-indicator active';
-        C.dom.locationText.textContent = '📍 Location available • Accuracy: ±' + (C.state.micaLocation.accuracy || '20m');
+        C.dom.locationText.textContent = 'Location available • Accuracy: ±' + (C.state.micaLocation.accuracy || '20m');
       }
       C.dom.locationIndicator.style.display = 'flex';
     } else if (st === 'prompting') {
       C.dom.locationIndicator.className = 'mica-location-indicator';
-      C.dom.locationText.textContent = '📍 Requesting location permission...';
+      C.dom.locationText.textContent = 'Requesting location permission...';
       C.dom.locationIndicator.style.display = 'flex';
     } else if (st === 'denied') {
       C.dom.locationIndicator.className = 'mica-location-indicator denied';
-      C.dom.locationText.textContent = '📍 Location blocked in browser (Tap to allow)';
+      C.dom.locationText.textContent = 'Location blocked in browser (Tap to allow)';
       C.dom.locationIndicator.style.display = 'flex';
     } else if (st === 'timeout' || st === 'unavailable') {
       C.dom.locationIndicator.className = 'mica-location-indicator unavailable';
-      C.dom.locationText.textContent = '📍 GPS unavailable (Tap to retry)';
+      C.dom.locationText.textContent = ' GPS unavailable (Tap to retry)';
       C.dom.locationIndicator.style.display = 'flex';
     } else {
       C.dom.locationIndicator.style.display = 'none';
@@ -1342,7 +1341,7 @@ function escapeHtml(text) {
   // ================================================================
   function handleNavigation(text) {
     if (text.match(/(log|sign)?\s*(out|logout|sign out)/i) && !text.match(/about|without|login|sign in/i)) {
-      addMessage('ai', 'Logging you out now... 👋');
+      addMessage('ai', 'Logging you out now... ');
       setTimeout(function () { window.location.href = C.config.appUrl + '/auth/logout.php'; }, 800);
       return true;
     }
@@ -1352,7 +1351,7 @@ function escapeHtml(text) {
       var match = text.match(cmd.match);
       if (match) {
         var pageName = match[2] || 'that page';
-        addMessage('ai', 'Navigating to ' + pageName + '... 🚀');
+        addMessage('ai', 'Navigating to ' + pageName + '... ');
         setTimeout(function () {
           window.location.href = C.config.appUrl + '/pages/' + getRolePath() + '/' + cmd.url;
         }, 600);
@@ -1368,7 +1367,7 @@ function escapeHtml(text) {
   function showSOSPrompt() {
     if (typeof Swal === 'undefined') return;
     Swal.fire({
-      title: '🚨 EMERGENCY DETECTED',
+      title: ' EMERGENCY DETECTED',
       html: '<p>The AI detected a possible medical emergency.</p><p class="fw-bold text-danger">Do you need to activate the SOS Emergency System?</p>',
       icon: 'warning',
       showCancelButton: true,
@@ -1542,8 +1541,8 @@ function escapeHtml(text) {
       isStartingRecognition = false;
       C.state.recognitionState = 'listening';
       C.state.isListening = true;
-      if (C.dom.micaInput) C.dom.micaInput.placeholder = '🎤 Listening...';
-      showStatus('🎤 Listening...');
+      if (C.dom.micaInput) C.dom.micaInput.placeholder = 'Listening...';
+      showStatus('Listening...');
     };
 
     recognition.onresult = function (event) {
@@ -1556,7 +1555,7 @@ function escapeHtml(text) {
       }
       if (interimTranscript && C.dom.micaInput) {
         C.dom.micaInput.value = interimTranscript;
-        showStatus('🎤 ' + interimTranscript);
+        showStatus(' ' + interimTranscript);
       }
       if (finalTranscript) {
         console.log('[MICA] Final transcript:', finalTranscript.trim());
@@ -1652,8 +1651,8 @@ function escapeHtml(text) {
 
     isStartingRecognition = true;
     setMode('listening');
-    if (C.dom.micaInput) C.dom.micaInput.placeholder = '🎤 Listening...';
-    showStatus('🎤 Listening...');
+    if (C.dom.micaInput) C.dom.micaInput.placeholder = 'Listening...';
+    showStatus('Listening...');
     C.state.recognitionState = 'starting';
 
     try {
@@ -1805,7 +1804,7 @@ function escapeHtml(text) {
       C.state.synthCurrentChunk = 0;
       if (C.config.continuousMode && C.state.isOpen) {
         setMode('idle');
-        showStatus('🎤 Listening...');
+        showStatus('Listening...');
         setTimeout(function () {
           if (C.config.continuousMode && C.state.isOpen && !C.state.isPlaying) {
             startListening();
@@ -1928,7 +1927,7 @@ function escapeHtml(text) {
     if (C.state.voiceTestRunning) return;
     C.state.voiceTestRunning = true;
     stopSpeaking();
-    showStatus('🔊 Testing voice...');
+    showStatus('Testing voice...');
     var sample = "Hello! I'm MICA, your Medical Intelligent Clinic Assistant from Bulacan Polytechnic College.";
     speakQueued(sample);
     setTimeout(function () { C.state.voiceTestRunning = false; }, 5000);
@@ -2133,7 +2132,7 @@ function escapeHtml(text) {
       C.dom.replayBtn.addEventListener('click', function () {
         if (C.state.lastResponse) {
           stopSpeaking();
-          addMessage('ai', '🔄 Replaying...');
+          addMessage('ai', 'Replaying...');
           speakQueued(C.state.lastResponse);
         } else {
           showStatus('No previous response to replay');
@@ -2198,11 +2197,11 @@ function escapeHtml(text) {
       C.dom.locationIndicator.addEventListener('click', function () {
         requestLocation(true).then(function (loc) {
           if (loc) {
-            showStatus('📍 Location updated: ±' + (loc.accuracy || '20m'));
+            showStatus('Location updated: ±' + (loc.accuracy || '20m'));
           } else if (C.state.locationState === 'denied') {
-            showStatus('⚠️ Location blocked in browser settings.');
+            showStatus('Location blocked in browser settings.');
           } else {
-            showStatus('⚠️ Unable to obtain GPS coordinates.');
+            showStatus('Unable to obtain GPS coordinates.');
           }
         });
       });
@@ -2448,7 +2447,6 @@ function escapeHtml(text) {
     });
   }
 })();
-
 
 
 

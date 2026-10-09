@@ -18,6 +18,10 @@
 <script src="<?= asset_url('js/sweetalert2.all.min.js') ?>"></script>
 <script src="<?= asset_url('js/chart.umd.min.js') ?>"></script>
 <script src="<?= asset_url('js/aos.js') ?>"></script>
+<?php /* Shared loading / empty / error state helpers. Loaded here, before
+        page scripts and before main.js, so any list page can rely on
+        BPCState being defined. */ ?>
+<?= dbg_state_js() ?>
 <script src="<?= asset_url('js/main.js') ?>"></script>
 <script src="<?= asset_url('js/pwa.js') ?>"></script>
 <?php if (getenv('FIREBASE_PROJECT_ID')): ?>

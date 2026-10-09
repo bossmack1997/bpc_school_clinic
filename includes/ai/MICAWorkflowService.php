@@ -95,7 +95,7 @@ class MICAWorkflowService
 
         $lines = ["**Confirmed System Fact:** There are currently **" . count($lowMeds) . "** medicine item(s) at or below their reorder threshold:\n"];
         foreach ($lowMeds as $m) {
-            $status = ($m['quantity'] <= 0) ? '🔴 **OUT OF STOCK**' : '⚠️ Low Stock';
+            $status = ($m['quantity'] <= 0) ? '**OUT OF STOCK**' : 'Low Stock';
             $lines[] = "- **{$m['medicine_name']}** ({$m['generic_name']}): **{$m['quantity']} {$m['unit']}** remaining (Minimum Reorder Level: {$m['reorder_level']} {$m['unit']}) — $status";
         }
 
@@ -146,13 +146,13 @@ class MICAWorkflowService
         foreach ($expiring as $m) {
             $days = (int)$m['days_left'];
             if ($days < 0) {
-                $status = "⛔ **EXPIRED (" . abs($days) . " days ago)**";
+                $status = "**EXPIRED (" . abs($days) . " days ago)**";
             } elseif ($days <= 7) {
-                $status = "🔴 **Critical: Expires in $days days**";
+                $status = "**Critical: Expires in $days days**";
             } elseif ($days <= 30) {
-                $status = "⚠️ **Warning: Expires in $days days**";
+                $status = "**Warning: Expires in $days days**";
             } else {
-                $status = "🕒 Expiring in $days days";
+                $status = "Expiring in $days days";
             }
             $lines[] = "- **{$m['medicine_name']}**: {$m['quantity']} {$m['unit']} (Exp: " . date('M j, Y', strtotime($m['expiration_date'])) . ") — $status";
         }
@@ -174,62 +174,42 @@ class MICAWorkflowService
     private function handleAppointmentQuery(string $role, string $msg): array
     {
         if ($role === 'student') {
-            // Check student's own appointments
-            $sStmt = $this->db->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
-            $sStmt->execute([$this->user['id']]);
-            $studentId = $sStmt->fetchColumn();
-
-            $stmt = $this->db->prepare("
-                SELECT * FROM appointments 
-                WHERE student_id = ? AND appointment_date >= CURDATE()
-                ORDER BY appointment_date ASC, appointment_time ASC
-            ");
-            $stmt->execute([$studentId]);
-            $apps = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            if ($apps) {
-                $lines = ["**Confirmed System Fact:** You have **" . count($apps) . "** upcoming clinic appointment(s):\n"];
-                foreach ($apps as $a) {
-                    $lines[] = "- **" . date('l, F j, Y', strtotime($a['appointment_date'])) . "** at **" . date('h:i A', strtotime($a['appointment_time'])) . "**";
-                    $lines[] = "  Reason: {$a['reason']} | Status: **" . strtoupper($a['status']) . "**";
-                }
-                $lines[] = "\n**Recommendation:** Please arrive 5 minutes before your scheduled time and have your Student QR ready for check-in.";
-                return ['handled' => true, 'reply' => implode("\n", $lines), 'type' => 'student_app_grounded'];
-            } else {
-                return [
-                    'handled' => true,
-                    'reply'   => "**Confirmed:** You currently have no scheduled appointments.\n\n**Recommendation:** If you wish to book a consultation for tomorrow or an upcoming date, you can submit an appointment request through the **Book Appointment** menu or right here with MICA.",
-                    'type'    => 'student_app_grounded'
-                ];
-            }
+            return [
+                'handled' => true,
+                'reply'   => "**Clinic Consultation Information:**\n\n" .
+                             "- **Direct Walk-ins Welcome:** You do not need to book an advance appointment to visit the BPC School Clinic. Walk-in consultations and emergency care are available Monday to Friday from 8:00 AM to 5:00 PM.\n" .
+                             "- **QR Check-in:** Present your digital **QR Health Pass** (`pages/student/my_qr.php`) or Student ID upon arrival.\n" .
+                             "- **Direct Clinic Messaging:** If you have an inquiry or want to notify the nurse before visiting, open **Clinic Messages** (`pages/student/messages.php`).",
+                'type'    => 'student_walkin_info'
+            ];
         }
 
-        // Clinical staff query for appointments tomorrow or pending
-        $stmt = $this->db->query("
-            SELECT a.*, s.student_number, u.first_name, u.last_name, u.phone
-            FROM appointments a
-            JOIN students s ON s.id = a.student_id
+        // Clinical staff query for today's visits and consultations
+        $today = date('Y-m-d');
+        $stmt = $this->db->prepare("
+            SELECT c.*, s.student_number, u.first_name, u.last_name
+            FROM consultations c
+            JOIN students s ON s.id = c.student_id
             JOIN users u ON u.id = s.user_id
-            WHERE a.appointment_date = DATE_ADD(CURDATE(), INTERVAL 1 DAY)
-              AND a.status NOT IN ('cancelled','rejected')
-            ORDER BY a.appointment_time ASC
+            WHERE DATE(c.consultation_date) = ?
+            ORDER BY c.consultation_date DESC
         ");
-        $tomorrowApps = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt->execute([$today]);
+        $todayVisits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $pendingCount = (int)$this->db->query("SELECT COUNT(*) FROM appointments WHERE status = 'pending'")->fetchColumn();
-
-        $lines = ["**Confirmed System Fact:**"];
-        $lines[] = "- Scheduled Appointments for Tomorrow (" . date('M j, Y', strtotime('+1 day')) . "): **" . count($tomorrowApps) . "**";
-        $lines[] = "- Total Pending Requests Awaiting Approval: **{$pendingCount}**\n";
-
-        if ($tomorrowApps) {
-            $lines[] = "**Tomorrow's Roster:**";
-            foreach ($tomorrowApps as $ta) {
-                $lines[] = "- **" . date('h:i A', strtotime($ta['appointment_time'])) . "**: {$ta['first_name']} {$ta['last_name']} (Student #{$ta['student_number']}) — {$ta['reason']} [Status: " . ucfirst($ta['status']) . "]";
+        $lines = ["**Confirmed Clinic Visits Today (" . date('M j, Y') . "):** **" . count($todayVisits) . "** recorded visit(s).\n"];
+        if ($todayVisits) {
+            $lines[] = "**Recent Patient Consultations:**";
+            foreach (array_slice($todayVisits, 0, 5) as $tv) {
+                $time = date('h:i A', strtotime($tv['consultation_date']));
+                $lines[] = "- **{$time}**: {$tv['first_name']} {$tv['last_name']} (#{$tv['student_number']}) — {$tv['chief_complaint']} [Diagnosis: {$tv['diagnosis']}]";
             }
+        } else {
+            $lines[] = "No patient consultations recorded yet for today.";
         }
+        $lines[] = "\n*Students and teachers may walk in or communicate via the Clinic Communications Hub.*";
 
-        return ['handled' => true, 'reply' => implode("\n", $lines), 'type' => 'staff_app_grounded'];
+        return ['handled' => true, 'reply' => implode("\n", $lines), 'type' => 'clinical_visits_grounded'];
     }
 
     /**

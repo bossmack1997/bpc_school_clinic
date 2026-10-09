@@ -49,7 +49,7 @@ function require_role($roles) {
             exit;
         }
         set_flash('danger', 'Access denied: you do not have permission to view this page.');
-        redirect(APP_URL . '/dashboard.php');
+        redirect(dashboard_url_for($userRole ?: 'student'));
         exit;
     }
 }
@@ -68,10 +68,79 @@ function is_supported_role($role) {
     return in_array(canonical_role($role), ['student', 'nurse', 'teacher', 'admin'], true);
 }
 
+/**
+ * Check if the system has an active Primary Administrator in the database.
+ */
+function has_active_primary_admin(?PDO $db = null): bool {
+    $db = $db ?? getDB();
+    try {
+        $stmt = $db->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND admin_type = 'primary_admin' AND status = 'active'");
+        return ((int)$stmt->fetchColumn()) > 0;
+    } catch (Throwable $e) {
+        $stmt = $db->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'");
+        return ((int)$stmt->fetchColumn()) > 0;
+    }
+}
+
+/**
+ * Check if a given user array or the currently logged-in user is a Primary Administrator.
+ */
+function is_primary_admin(?array $user = null): bool {
+    $user = $user ?? current_user();
+    if (!$user) return false;
+    return canonical_role($user['role'] ?? '') === 'admin' && (($user['admin_type'] ?? '') === 'primary_admin');
+}
+
+/**
+ * Check if an administrator has a specific permission.
+ * Primary Administrator has all permissions unconditionally.
+ * Co-Administrators are verified against the admin_permissions table.
+ */
+function has_admin_permission(string $permission, ?array $user = null, ?PDO $db = null): bool {
+    $user = $user ?? current_user();
+    if (!$user || canonical_role($user['role'] ?? '') !== 'admin') {
+        return false;
+    }
+    // Primary Admin always has all permissions
+    if (is_primary_admin($user)) {
+        return true;
+    }
+    $db = $db ?? getDB();
+    $userId = (int)($user['id'] ?? 0);
+    if ($userId <= 0) return false;
+
+    try {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM admin_permissions WHERE user_id = ? AND permission_key = ?");
+        $stmt->execute([$userId, $permission]);
+        return ((int)$stmt->fetchColumn()) > 0;
+    } catch (Throwable $e) {
+        error_log("has_admin_permission error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Enforce a specific admin permission, throwing 403 or redirecting if unauthorized.
+ */
+function require_admin_permission(string $permission): void {
+    require_role('admin');
+    if (!has_admin_permission($permission)) {
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => "Access denied: missing '{$permission}' permission."]);
+            exit;
+        }
+        set_flash('danger', 'Access denied: you do not have permission for this action.');
+        redirect(APP_URL . '/pages/admin/dashboard.php');
+        exit;
+    }
+}
+
 function login_user(array $userRow) {
     $_SESSION['user'] = [
         'id'         => (int)$userRow['id'],
         'role'       => canonical_role($userRow['role']),
+        'admin_type' => $userRow['admin_type'] ?? null,
         'username'   => $userRow['username'],
         'email'      => $userRow['email'],
         'first_name' => $userRow['first_name'],

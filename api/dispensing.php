@@ -9,7 +9,7 @@ $action = $_REQUEST['action'] ?? '';
 
 if ($action === 'search_medicines') {
     $q = '%' . ($_GET['q'] ?? '') . '%';
-    $stmt = $db->prepare("SELECT id, medicine_name, generic_name, brand, category, quantity, unit, reorder_level, expiration_date, batch_number FROM medicines WHERE (medicine_name LIKE ? OR generic_name LIKE ? OR brand LIKE ?) AND is_archived = 0 ORDER BY medicine_name LIMIT 10");
+    $stmt = $db->prepare("SELECT id, medicine_name, generic_name, brand, category, quantity, unit, reorder_level, expiration_date, batch_number, status FROM medicines WHERE (medicine_name LIKE ? OR generic_name LIKE ? OR brand LIKE ?) AND is_archived = 0 ORDER BY medicine_name LIMIT 10");
     $stmt->execute([$q, $q, $q]);
     json_response(true, ['data' => $stmt->fetchAll()]);
 }
@@ -23,16 +23,24 @@ if ($action === 'dispense') {
     $diagnosis = trim($_POST['diagnosis'] ?? '');
     $remarks = trim($_POST['remarks'] ?? '');
 
-    if ($studentId <= 0 || $medicineId <= 0 || $quantity <= 0) json_response(false, [], 'Invalid input.');
-    if (!$purpose) json_response(false, [], 'Purpose/Reason is required.');
+    if ($studentId <= 0 || $medicineId <= 0 || $quantity <= 0) {
+        json_response(false, [], 'Invalid input parameters.');
+    }
+    if (!$purpose) {
+        json_response(false, [], 'Purpose/Reason is required.');
+    }
 
-    $stmt = $db->prepare("SELECT id, medicine_name, quantity, unit, expiration_date, category FROM medicines WHERE id=? AND is_archived = 0");
+    $stmt = $db->prepare("SELECT id, medicine_name, quantity, unit, expiration_date, category, reorder_level FROM medicines WHERE id=? AND is_archived = 0");
     $stmt->execute([$medicineId]);
     $medicine = $stmt->fetch();
-    if (!$medicine) json_response(false, [], 'Medicine not found.');
+    if (!$medicine) {
+        json_response(false, [], 'Medicine not found.');
+    }
 
     // Out of stock check
-    if ((int)$medicine['quantity'] <= 0) json_response(false, [], 'Medicine is out of stock.');
+    if ((int)$medicine['quantity'] <= 0) {
+        json_response(false, [], 'Medicine is out of stock.');
+    }
 
     // Expiration check
     if (!empty($medicine['expiration_date']) && strtotime($medicine['expiration_date']) < strtotime(date('Y-m-d'))) {
@@ -40,12 +48,34 @@ if ($action === 'dispense') {
     }
 
     // Quantity exceeds available stock check
-    if ($quantity > (int)$medicine['quantity']) json_response(false, [], 'Not enough stock. Only ' . $medicine['quantity'] . ' ' . $medicine['unit'] . ' available.');
+    if ($quantity > (int)$medicine['quantity']) {
+        json_response(false, [], 'Not enough stock. Only ' . $medicine['quantity'] . ' ' . $medicine['unit'] . ' available.');
+    }
 
     $db->beginTransaction();
     try {
         $newQty = (int)$medicine['quantity'] - $quantity;
         $db->prepare("UPDATE medicines SET quantity=? WHERE id=?")->execute([$newQty, $medicineId]);
+        update_medicine_status($db, $medicineId);
+
+        // Low stock notification if remaining is at or below reorder level
+        $reorderLvl = (int)($medicine['reorder_level'] ?? 20);
+        if ($newQty <= $reorderLvl) {
+            try {
+                $nUsers = $db->query("SELECT id FROM users WHERE role IN ('nurse','admin') AND status = 'active'")->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($nUsers as $nUid) {
+                    push_notification(
+                        (int)$nUid,
+                        'inventory',
+                        'Low Stock Warning',
+                        "{$medicine['medicine_name']} is low in stock ({$newQty} remaining).",
+                        APP_URL . '/pages/nurse/inventory.php?status=low_stock',
+                        null,
+                        'high'
+                    );
+                }
+            } catch (Throwable $ignore) {}
+        }
 
         // Log in medicine_logs with reason
         $reason = 'Dispensed to Student #' . $studentId . ' — ' . ($purpose ?: 'Dispensing');
@@ -82,7 +112,7 @@ if ($action === 'dispense') {
         json_response(true, ['new_quantity' => $newQty], 'Medicine dispensed successfully.');
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to dispense: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'The medicine could not be dispensed. Please try again.', 'dispensing/dispense'));
     }
 }
 
@@ -131,7 +161,7 @@ if ($action === 'all_history') {
     $params = [];
     if ($search !== '') {
         $like = '%' . $search . '%';
-        $where .= " AND (m.medicine_name LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR s.student_number LIKE ? OR ml.reason LIKE ?)";
+        $where .= " AND (m.medicine_name LIKE ? OR su.first_name LIKE ? OR su.last_name LIKE ? OR s.student_number LIKE ? OR ml.reason LIKE ?)";
         $params = array_merge($params, [$like, $like, $like, $like, $like]);
     }
 
@@ -139,7 +169,7 @@ if ($action === 'all_history') {
         SELECT COUNT(*) FROM medicine_logs ml
         JOIN medicines m ON m.id = ml.medicine_id
         LEFT JOIN students s ON s.id = ml.student_id
-        LEFT JOIN users u ON u.id = s.user_id
+        LEFT JOIN users su ON su.id = s.user_id
         WHERE $where
     ");
     $countStmt->execute($params);

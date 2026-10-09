@@ -84,11 +84,11 @@ $navRoleDir = in_array($u['role'] ?? '', $validRoleDirs, true) ? $u['role'] : 's
 <!-- ================================================================ -->
 <!-- SOS Emergency Details Modal (global — populated by JS on click)  -->
 <!-- ================================================================ -->
-<div class="modal fade" id="sosDetailsModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="sosDetailsModal" tabindex="-1" aria-hidden="true" aria-labelledby="sosDetailsModalTitle" data-bs-backdrop="static">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-danger text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill me-2"></i>SOS Emergency Details</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--danger">
+      <h5 class="modal-title" id="sosDetailsModalTitle"><?= bpc_icon('alert-triangle') ?> SOS Emergency Details</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body" id="sosDetailsBody">

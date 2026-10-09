@@ -173,7 +173,7 @@ class MICAActionService
      */
     public function approveReorderRequest(int $reorderId, int $approvedQty, ?string $notes = null): array
     {
-        if (!in_array($this->user['role'] ?? '', ['nurse', 'admin', 'doctor'], true)) {
+        if (!in_array(canonical_role($this->user['role'] ?? ''), ['nurse', 'admin'], true)) {
             return ['success' => false, 'message' => 'Unauthorized. Only clinical staff or administrators can approve reorders.'];
         }
 
@@ -210,7 +210,7 @@ class MICAActionService
      */
     public function rejectReorderRequest(int $reorderId, ?string $notes = null): array
     {
-        if (!in_array($this->user['role'] ?? '', ['nurse', 'admin', 'doctor'], true)) {
+        if (!in_array(canonical_role($this->user['role'] ?? ''), ['nurse', 'admin'], true)) {
             return ['success' => false, 'message' => 'Unauthorized.'];
         }
 

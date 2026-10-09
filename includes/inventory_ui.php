@@ -23,54 +23,46 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
   </div>
 
   <!-- Dashboard Cards -->
-  <div class="row g-3 mb-3" id="invStatsRow">
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-primary-subtle text-primary"><i class="bi bi-box-seam"></i></div>
-        <div><div class="stat-label">Total Medicines</div><div class="stat-value counter-animate" data-count="0" id="statTotal">0</div></div>
-      </div></div>
+  <div class="app-stats app-stats--5 mb-3" id="invStatsRow">
+    <div class="dbg-stat dbg-stat--green">
+      <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-box-seam"></i></div></div>
+      <div class="dbg-stat__value counter-animate" data-count="0" id="statTotal">0</div>
+      <div class="dbg-stat__label">Total Medicines</div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-success-subtle text-success"><i class="bi bi-check-circle"></i></div>
-        <div><div class="stat-label">Available</div><div class="stat-value counter-animate" data-count="0" id="statAvail">0</div></div>
-      </div></div>
+    <div class="dbg-stat dbg-stat--teal">
+      <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-check-circle"></i></div></div>
+      <div class="dbg-stat__value counter-animate" data-count="0" id="statAvail">0</div>
+      <div class="dbg-stat__label">Available</div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-warning-subtle text-warning"><i class="bi bi-exclamation-triangle"></i></div>
-        <div><div class="stat-label">Low Stock</div><div class="stat-value counter-animate" data-count="0" id="statLow">0</div></div>
-      </div></div>
+    <div class="dbg-stat dbg-stat--orange">
+      <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-exclamation-triangle"></i></div></div>
+      <div class="dbg-stat__value counter-animate" data-count="0" id="statLow">0</div>
+      <div class="dbg-stat__label">Low Stock</div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-danger-subtle text-danger"><i class="bi bi-x-circle"></i></div>
-        <div><div class="stat-label">Expired</div><div class="stat-value counter-animate" data-count="0" id="statExpired">0</div></div>
-      </div></div>
+    <div class="dbg-stat dbg-stat--red">
+      <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-x-circle"></i></div></div>
+      <div class="dbg-stat__value counter-animate" data-count="0" id="statExpired">0</div>
+      <div class="dbg-stat__label">Expired</div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-info-subtle text-info"><i class="bi bi-clock"></i></div>
-        <div><div class="stat-label">Near Expiration</div><div class="stat-value counter-animate" data-count="0" id="statNear">0</div></div>
-      </div></div>
+    <div class="dbg-stat dbg-stat--blue">
+      <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-clock"></i></div></div>
+      <div class="dbg-stat__value counter-animate" data-count="0" id="statNear">0</div>
+      <div class="dbg-stat__label">Near Expiration</div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-secondary-subtle text-secondary"><i class="bi bi-box-arrow-in-down"></i></div>
-        <div><div class="stat-label">Out of Stock</div><div class="stat-value counter-animate" data-count="0" id="statOut">0</div></div>
-      </div></div>
+    <div class="dbg-stat dbg-stat--red">
+      <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-box-arrow-in-down"></i></div></div>
+      <div class="dbg-stat__value counter-animate" data-count="0" id="statOut">0</div>
+      <div class="dbg-stat__label">Out of Stock</div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-success-subtle text-success"><i class="bi bi-capsule"></i></div>
-        <div><div class="stat-label">Dispensed Today</div><div class="stat-value counter-animate" data-count="0" id="statDispToday">0</div></div>
-      </div></div>
+    <div class="dbg-stat dbg-stat--teal">
+      <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-capsule"></i></div></div>
+      <div class="dbg-stat__value counter-animate" data-count="0" id="statDispToday">0</div>
+      <div class="dbg-stat__label">Dispensed Today</div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-primary-subtle text-primary"><i class="bi bi-tags"></i></div>
-        <div><div class="stat-label">Categories</div><div class="stat-value counter-animate" data-count="0" id="statCats">0</div></div>
-      </div></div>
+    <div class="dbg-stat dbg-stat--green">
+      <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-tags"></i></div></div>
+      <div class="dbg-stat__value counter-animate" data-count="0" id="statCats">0</div>
+      <div class="dbg-stat__label">Categories</div>
     </div>
   </div>
 
@@ -144,11 +136,11 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
 <!-- ============================================================ -->
 <!-- Add / Edit Medicine Modal                                    -->
 <!-- ============================================================ -->
-<div class="modal fade" id="medModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="medModal" tabindex="-1" aria-hidden="true" aria-labelledby="medModalTitle">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-success text-white rounded-top-4">
-        <h5 class="modal-title" id="medModalTitle"><i class="bi bi-plus-circle me-2"></i> Add Medicine</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--success">
+      <h5 class="modal-title" id="medModalTitle"><?= bpc_icon('plus-circle') ?> Add Medicine</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form id="medForm" novalidate>
@@ -189,11 +181,11 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
 </div>
 
 <!-- Stock Update Modal -->
-<div class="modal fade" id="stockModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="stockModal" tabindex="-1" aria-hidden="true" aria-labelledby="stockModalTitle">
   <div class="modal-dialog">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-primary text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-box-arrow-in-up me-2"></i> Stock Adjustment</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--info">
+      <h5 class="modal-title" id="stockModalTitle"><?= bpc_icon('box') ?> Stock Adjustment</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form id="stockForm" novalidate>
@@ -219,11 +211,11 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
 </div>
 
 <!-- Import Modal -->
-<div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true" aria-labelledby="importModalTitle">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-       <div class="modal-header border-0 bg-primary text-white rounded-top-4">
-         <h5 class="modal-title"><i class="bi bi-upload me-2"></i> Import Medicines</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--info">
+      <h5 class="modal-title" id="importModalTitle"><?= bpc_icon('upload') ?> Import Medicines</h5>
          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
        </div>
       <div class="modal-body">
@@ -298,11 +290,31 @@ window.__initInventoryUI = function () {
   // ============================================================
   // Load categories for filter
   // ============================================================
+  function applyInitialFilters() {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('status') || '';
+    const expiry = params.get('expiry') || '';
+    const category = params.get('category') || '';
+    const normalizedStatus = status === 'expiring_soon' ? 'near_expiration' : status;
+
+    if (normalizedStatus && $('#invStatus option[value="' + normalizedStatus + '"]').length) {
+      $('#invStatus').val(normalizedStatus);
+    }
+    if (expiry && $('#invExpiry option[value="' + expiry + '"]').length) {
+      $('#invExpiry').val(expiry);
+    }
+    if (category && $('#invCategory option[value="' + category + '"]').length) {
+      $('#invCategory').val(category);
+    }
+  }
+
   function loadCategories() {
     $.get(APP + '/api/inventory.php', { action: 'categories' }, function (res) {
       if (!res.success) return;
       const $sel = $('#invCategory');
       res.data.forEach(function (c) { $sel.append('<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'); });
+      applyInitialFilters();
+      loadInventory();
     }, 'json');
   }
 
@@ -637,7 +649,6 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
   // ============================================================
   loadStats();
   loadCategories();
-  loadInventory();
   })();
 };
 </script>

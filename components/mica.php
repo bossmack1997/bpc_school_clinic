@@ -38,11 +38,11 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
 <!-- ================================================================ -->
 <!-- SOS Emergency Modal (Global - used by MICA on every page)        -->
 <!-- ================================================================ -->
-<div class="modal fade" id="sosModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="sosModal" tabindex="-1" aria-hidden="true" aria-labelledby="sosModalTitle">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-danger text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill me-2"></i>SOS Emergency</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--danger">
+      <h5 class="modal-title" id="sosModalTitle"><?= bpc_icon('alert-triangle') ?> SOS Emergency</h5>
         <button class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form id="sosForm" novalidate>
@@ -171,7 +171,7 @@ window.getLocation = function (forceFresh) {
     // Use recently acquired fresh location (< 15s) if available and not forced
     if (!forceFresh && window.__MICA_SOS_LOCATION__ && (Date.now() - window.__MICA_SOS_LOC_TIME__ < 15000)) {
       if (statusText && window.__MICA_SOS_LOCATION__.lat) {
-        statusText.textContent = '📍 GPS ready: ' + window.__MICA_SOS_LOCATION__.lat.toFixed(5) + ', ' + window.__MICA_SOS_LOCATION__.lng.toFixed(5);
+        statusText.textContent = 'GPS ready: ' + window.__MICA_SOS_LOCATION__.lat.toFixed(5) + ', ' + window.__MICA_SOS_LOCATION__.lng.toFixed(5);
         if (statusBox) statusBox.className = 'alert alert-success small py-2';
       }
       resolve(window.__MICA_SOS_LOCATION__);
@@ -209,7 +209,7 @@ window.getLocation = function (forceFresh) {
         var lng = pos.coords.longitude;
         var acc = pos.coords.accuracy ? (Math.round(pos.coords.accuracy) + 'm') : null;
         if (statusText) {
-          statusText.textContent = '📍 GPS acquired: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + (acc ? ' (±' + acc + ')' : '');
+          statusText.textContent = 'GPS acquired: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + (acc ? ' (±' + acc + ')' : '');
           if (statusBox) statusBox.className = 'alert alert-success small py-2';
         }
         finish({ lat: lat, lng: lng, accuracy: acc });
@@ -235,7 +235,7 @@ window.getLocation = function (forceFresh) {
             var lng2 = pos2.coords.longitude;
             var acc2 = pos2.coords.accuracy ? (Math.round(pos2.coords.accuracy) + 'm') : null;
             if (statusText) {
-              statusText.textContent = '📍 Location acquired: ' + lat2.toFixed(5) + ', ' + lng2.toFixed(5) + (acc2 ? ' (±' + acc2 + ')' : '');
+              statusText.textContent = 'Location acquired: ' + lat2.toFixed(5) + ', ' + lng2.toFixed(5) + (acc2 ? ' (±' + acc2 + ')' : '');
               if (statusBox) statusBox.className = 'alert alert-success small py-2';
             }
             finish({ lat: lat2, lng: lng2, accuracy: acc2 });
@@ -456,9 +456,9 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
           var emgId = res.emergency_id;
           Swal.fire({
             icon: 'success',
-            title: '🚨 SOS Activated!',
+            title: 'SOS Activated!',
             html: (res.message || 'Your emergency request has been sent to the School Clinic.') +
-                  (lat ? '<br><small class="text-success mt-2 d-block">📍 GPS Coordinates transmitted. Live tracking started.</small>' : '<br><small class="text-warning mt-2 d-block">⚠️ Sent without exact GPS location.</small>'),
+                  (lat ? '<br><small class="text-success mt-2 d-block">GPS coordinates transmitted. Live tracking started.</small>' : '<br><small class="text-warning mt-2 d-block">Sent without exact GPS location.</small>'),
             timer: 5000,
             timerProgressBar: true
           });

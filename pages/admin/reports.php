@@ -19,16 +19,15 @@ $pageTitle = 'Reports';
             <form id="reportForm">
               <div class="mb-3">
                 <label class="form-label small fw-semibold">Report Type</label>
-<select class="form-select" name="type" required>
-                  <option value="appointments">Appointments Report</option>
-                  <option value="consultations">Consultations Report</option>
-                  <option value="inventory">Inventory Report</option>
-                  <option value="health">Health Monitoring Report</option>
-                  <option value="qr_scan_logs">QR Scan Logs Report</option>
-                  <option value="daily_checkins">Daily Check-ins Report</option>
-                  <option value="walkin_stats">Walk-in Statistics Report</option>
-                  <option value="queue_reports">Queue Report</option>
-                  <option value="appointment_attendance">Appointment Attendance Report</option>
+                <select class="form-select" name="type" required>
+                  <option value="consultations" selected>Clinic Consultations Report</option>
+                  <option value="walkin_stats">Walk-in Visits &amp; Triage Report</option>
+                  <option value="inventory">Medicine Inventory &amp; Usage Report</option>
+                  <option value="health">Health &amp; Vital Signs Monitoring Report</option>
+                  <option value="certificates">Medical Certificates Issued Report</option>
+                  <option value="emergencies">Emergency &amp; SOS Incidents Report</option>
+                  <option value="qr_scan_logs">QR Health Pass Scan Logs Report</option>
+                  <option value="daily_checkins">Daily Check-ins Summary Report</option>
                 </select>
               </div>
               <div class="row g-2 mb-3">
@@ -116,8 +115,8 @@ $('#exportCsvBtn').on('click', function () {
 
 $.get(APP_URL + '/api/reports.php', { action: 'history' }, function (res) {
   if (!res.success) return;
-  const rows = res.data.map(r => [r.report_type, (r.period_from||'')+' - '+(r.period_to||''), (r.first_name||'')+' '+(r.last_name||''), r.created_at]);
-  $('#reportHistory').DataTable({ data: rows, columns:[{},{},{},{}], pageLength: 5 });
+  const rows = (res.data || []).map(r => [r.report_type, (r.period_from||'')+' - '+(r.period_to||''), (r.first_name||'')+' '+(r.last_name||''), r.created_at]);
+  $('#reportHistory').DataTable({ data: rows, columns:[{},{},{},{}], pageLength: 5, language: { emptyTable: "No reports generated yet." } });
 }, 'json');
 
 function printReport() {

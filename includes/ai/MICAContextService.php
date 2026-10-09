@@ -45,7 +45,7 @@ class MICAContextService
         // Role-specific database context
         if ($role === 'student') {
             $lines[] = $this->getStudentContextString();
-        } elseif (in_array($role, ['nurse', 'doctor'], true)) {
+        } elseif ($role === 'nurse') {
             $lines[] = $this->getClinicalStaffContextString();
         } elseif ($role === 'admin') {
             $lines[] = $this->getAdminContextString();
@@ -83,23 +83,20 @@ class MICAContextService
                 $lines[] = "Known Allergies: " . ($stud['allergies'] ?? 'None recorded');
                 $lines[] = "Lifecycle Status: " . ucfirst($stud['lifecycle_status'] ?? 'Active');
 
-                // Upcoming Appointments
-                $appStmt = $this->db->prepare("
-                    SELECT appointment_date, appointment_time, reason, status
-                    FROM appointments
-                    WHERE student_id = ? AND appointment_date >= CURDATE()
-                    ORDER BY appointment_date ASC, appointment_time ASC
-                    LIMIT 3
+                // Live Queue Ticket
+                $qStmt = $this->db->prepare("
+                    SELECT queue_number, status, visit_type, created_at
+                    FROM queue_numbers
+                    WHERE student_id = ? AND status IN ('waiting', 'called', 'serving')
+                    ORDER BY created_at DESC
+                    LIMIT 1
                 ");
-                $appStmt->execute([$stud['id']]);
-                $apps = $appStmt->fetchAll(PDO::FETCH_ASSOC);
-                if ($apps) {
-                    $lines[] = "Upcoming Appointments:";
-                    foreach ($apps as $a) {
-                        $lines[] = " - " . date('M j, Y', strtotime($a['appointment_date'])) . " at " . date('h:i A', strtotime($a['appointment_time'])) . " (Status: " . ucfirst($a['status']) . ") Reason: " . $a['reason'];
-                    }
+                $qStmt->execute([$stud['id']]);
+                $activeQueue = $qStmt->fetch(PDO::FETCH_ASSOC);
+                if ($activeQueue) {
+                    $lines[] = "Active Clinic Queue Ticket: {$activeQueue['queue_number']} (Status: " . ucfirst($activeQueue['status']) . ") Purpose: {$activeQueue['visit_type']}";
                 } else {
-                    $lines[] = "Upcoming Appointments: None scheduled.";
+                    $lines[] = "Active Clinic Queue: Not currently in clinic queue.";
                 }
 
                 // Recent Consultations / Visits
@@ -127,6 +124,7 @@ class MICAContextService
 
     /**
      * Nurse and Doctor clinical context
+     * Nurse clinical context
      */
     private function getClinicalStaffContextString(): string
     {
@@ -158,6 +156,11 @@ class MICAContextService
             $todayApps = $this->db->query("SELECT COUNT(*) FROM appointments WHERE appointment_date = CURDATE() AND status NOT IN ('cancelled','rejected')")->fetchColumn();
             $pendingApps = $this->db->query("SELECT COUNT(*) FROM appointments WHERE status = 'pending'")->fetchColumn();
             $lines[] = "Today's Appointments: $todayApps | Pending Approval: $pendingApps";
+            // Today's Queue & Consultations
+            $waitingQueue = (int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
+            $servingQueue = (int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'serving'")->fetchColumn();
+            $todayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = CURDATE()")->fetchColumn();
+            $lines[] = "Live Queue: {$waitingQueue} waiting, {$servingQueue} in consultation | Consultations completed today: {$todayVisits}";
 
             // Active Emergency Requests
             $activeEmergencies = $this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
@@ -317,6 +320,12 @@ class MICAContextService
             JOIN users u ON u.id = s.user_id
             WHERE a.status = 'pending'
             ORDER BY a.appointment_date ASC, a.appointment_time ASC
+            SELECT q.*, s.student_number, u.first_name, u.last_name, u.phone
+            FROM queue_numbers q
+            LEFT JOIN students s ON s.id = q.student_id
+            LEFT JOIN users u ON u.id = s.user_id
+            WHERE q.status = 'waiting' AND DATE(q.created_at) = CURDATE()
+            ORDER BY q.created_at ASC
         ");
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -328,16 +337,22 @@ class MICAContextService
 
         $todayApps = (int)$this->db->query("SELECT COUNT(*) FROM appointments WHERE appointment_date = '$today' AND status NOT IN ('cancelled','rejected')")->fetchColumn();
         $pendingApps = (int)$this->db->query("SELECT COUNT(*) FROM appointments WHERE status = 'pending'")->fetchColumn();
+        $waitingQueue = (int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = '$today' AND status = 'waiting'")->fetchColumn();
+        $servingQueue = (int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = '$today' AND status = 'serving'")->fetchColumn();
         $lowStockMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE quantity <= reorder_level AND is_archived = 0")->fetchColumn();
         $expiringMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE expiration_date IS NOT NULL AND expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND is_archived = 0")->fetchColumn();
         $expiredMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE expiration_date IS NOT NULL AND expiration_date < CURDATE() AND is_archived = 0")->fetchColumn();
         $activeEmergencies = (int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
+        $todayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$today'")->fetchColumn();
         $yesterdayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$yesterday'")->fetchColumn();
         $pendingRegistrations = (int)$this->db->query("SELECT COUNT(*) FROM users WHERE status = 'pending'")->fetchColumn();
 
         return [
             'today_appointments'     => $todayApps,
             'pending_appointments'   => $pendingApps,
+            'waiting_queue'          => $waitingQueue,
+            'serving_queue'          => $servingQueue,
+            'today_visits'           => $todayVisits,
             'low_stock_medicines'    => $lowStockMeds,
             'expiring_medicines_30d' => $expiringMeds,
             'expired_medicines'      => $expiredMeds,

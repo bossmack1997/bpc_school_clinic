@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
-require_role(['nurse', 'doctor', 'admin']);
+require_role(['nurse', 'admin']);
 header('Content-Type: application/json');
 
 $db = getDB();
@@ -26,6 +26,44 @@ if ($action === 'get_student' || $action === 'get') {
         json_response(false, [], 'Student not found.');
     }
     json_response(true, ['data' => $student]);
+}
+
+// One authoritative, read-only record for the nurse's student-selection step.
+// Identity and health context are loaded here; the consultation form only sends
+// visit-specific data and never re-encodes the student's master information.
+if ($action === 'overview') {
+    $id = (int)($_GET['student_id'] ?? 0);
+    if ($id <= 0) json_response(false, [], 'A valid student is required.');
+
+    $stmt = $db->prepare("SELECT s.*, u.first_name, u.last_name, u.email, u.phone, u.status, u.profile_picture,
+        wp.known_medical_conditions, wp.previous_illnesses, wp.current_medications, wp.other_medical_info
+        FROM students s JOIN users u ON u.id = s.user_id
+        LEFT JOIN wellbeing_profiles wp ON wp.student_id = s.id
+        WHERE s.id = ? LIMIT 1");
+    $stmt->execute([$id]);
+    $student = $stmt->fetch();
+    if (!$student) json_response(false, [], 'Student not found.');
+
+    $history = $db->prepare("SELECT id, consultation_date, chief_complaint, diagnosis, treatment, follow_up_date
+        FROM consultations WHERE student_id = ? ORDER BY consultation_date DESC LIMIT 8");
+    $history->execute([$id]);
+    $consultations = $history->fetchAll();
+    $certificates = $db->prepare('SELECT id, certificate_type, date_issued FROM certificates WHERE student_id = ? ORDER BY date_issued DESC LIMIT 5');
+    $certificates->execute([$id]);
+    $emergencies = $db->prepare("SELECT id, emergency_type, status, created_at, location_source FROM sos_emergencies WHERE student_id = ? ORDER BY created_at DESC LIMIT 5");
+    $emergencies->execute([$id]);
+
+    $visitCount = count($consultations);
+    $latest = $consultations[0]['consultation_date'] ?? null;
+    $allergies = trim((string)($student['allergies'] ?? ''));
+    $summary = "This student has {$visitCount} recorded clinic visit" . ($visitCount === 1 ? '' : 's') . '.';
+    if ($allergies !== '') $summary .= ' Recorded allergy information is available for review.';
+    if ($latest) $summary .= ' Most recent consultation: ' . date('M j, Y', strtotime($latest)) . '.';
+    $summary .= ' Consider reviewing the history before documenting this visit.';
+
+    json_response(true, ['student' => $student, 'consultations' => $consultations,
+        'certificates' => $certificates->fetchAll(), 'emergencies' => $emergencies->fetchAll(),
+        'mica_summary' => $summary]);
 }
 
 if ($action === 'search' || $action === 'list') {
@@ -195,15 +233,10 @@ if ($action === 'patient_history') {
     $stmt3->execute([$studentId]);
     $vaccinations = $stmt3->fetchAll();
 
-    $stmt4 = $db->prepare("SELECT * FROM appointments WHERE student_id=? ORDER BY appointment_date DESC LIMIT 10");
-    $stmt4->execute([$studentId]);
-    $appointments = $stmt4->fetchAll();
-
     json_response(true, [
         'consultations' => $consultations,
         'health_monitoring' => $health,
         'vaccinations' => $vaccinations,
-        'appointments' => $appointments,
         'patient_type' => 'student'
     ]);
 }
@@ -283,4 +316,3 @@ if ($action === 'update_enrollment') {
 }
 
 json_response(false, [], 'Unknown action');
-

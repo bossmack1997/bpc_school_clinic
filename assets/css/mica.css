@@ -77,6 +77,55 @@
   box-shadow: 0 8px 30px rgba(11, 107, 58, 0.45);
 }
 
+/* Hover hint — "Ask MICA" label that never covers dashboard content */
+.mica-fab[data-mica-role] {
+  position: fixed;
+}
+.mica-fab::after {
+  content: 'Ask MICA';
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%) translateX(6px);
+  white-space: nowrap;
+  padding: 7px 13px;
+  border-radius: 50px;
+  background: var(--mica-bg);
+  border: 1px solid var(--mica-border);
+  color: var(--mica-text);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: var(--mica-shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 1;
+}
+.mica-fab:hover::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Mobile / small screens: keep the FAB clear of content and safe areas */
+@media (max-width: 767.98px) {
+  .mica-fab {
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    right: 14px;
+    height: 44px;
+    padding: 0 14px;
+  }
+  .mica-fab::after { display: none; }
+  .mica-fab .mica-fab-text { font-size: 0.78rem; }
+}
+
+@media (max-width: 575.98px) {
+  .mica-fab {
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    right: 12px;
+  }
+}
+
 .mica-fab:active {
   transform: translateY(0) scale(0.98);
 }

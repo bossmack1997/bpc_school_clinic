@@ -27,30 +27,11 @@ function generateVisitNumber($db) {
 }
 
 // ================================================================
-// Helper: Generate queue number
-// ================================================================
-function generateQueueNumber($db) {
-    $date = date('Ymd');
-    $stmt = $db->prepare("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE()");
-    $stmt->execute();
-    $count = (int)$stmt->fetchColumn();
-    return 'Q-' . $date . '-' . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
-}
-
-// ================================================================
 // Helper: Log visit action
 // ================================================================
 function logVisitAction($db, $walkInId, $action, $details, $userId) {
     $stmt = $db->prepare("INSERT INTO visit_logs (walk_in_id, action, details, performed_by) VALUES (?,?,?,?)");
     $stmt->execute([$walkInId, $action, $details, $userId]);
-}
-
-// ================================================================
-// HELPER: Get today's walk-in count for queue
-// ================================================================
-function getTodayQueueCount($db) {
-    $stmt = $db->query("SELECT COUNT(*) FROM walk_in_visits WHERE visit_date = CURDATE() AND status NOT IN ('cancelled')");
-    return (int)$stmt->fetchColumn();
 }
 
 // ================================================================
@@ -159,21 +140,25 @@ if ($action === 'save_visit') {
         // Generate visit number
         $visitNumber = generateVisitNumber($db);
         
-        // Generate queue number
-        $queueNumber = generateQueueNumber($db);
-        $todayCount = getTodayQueueCount($db);
-        $estimatedWait = $todayCount * 15; // 15 minutes per patient
+        // Use unified queue API to generate queue number
+        $queueNumber = generate_queue_number($db);
+        $waitingCount = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
+        $estimatedWait = calculate_queue_wait_time($db, $waitingCount);
         
-        // Create queue entry
+        // Create queue entry using unified queue system
         $priority = $_POST['priority_level'] ?? 'normal';
         $fullName = $isTemp ? trim($_POST['temp_full_name'] ?? 'Walk-in Patient') : '';
         
         $qStmt = $db->prepare("
-            INSERT INTO queue_numbers (queue_number, student_id, full_name, visit_type, priority, status, estimated_wait_minutes)
-            VALUES (?, ?, ?, 'walk-in', ?, 'waiting', ?)
+            INSERT INTO queue_numbers (queue_number, student_id, full_name, visit_type, priority, status, estimated_wait_minutes, source, created_at)
+            VALUES (?, ?, ?, 'walk-in', ?, 'waiting', ?, 'walkin_module', NOW())
         ");
         $qStmt->execute([$queueNumber, $studentId, $fullName, $priority, $estimatedWait]);
         $queueId = $db->lastInsertId();
+        
+        if ($studentId) {
+            $db->prepare("UPDATE students SET last_checkin_at = NOW() WHERE id = ?")->execute([$studentId]);
+        }
         
         // Calculate BMI if height and weight provided
         $height = !empty($_POST['height_cm']) ? (float)$_POST['height_cm'] : null;
@@ -253,6 +238,7 @@ if ($action === 'save_visit') {
             'walk_in_id' => $walkInId,
             'visit_number' => $visitNumber,
             'queue_number' => $queueNumber,
+            'queue_id' => $queueId,
             'estimated_wait' => $estimatedWait,
             'bmi' => $bmi,
             'bmi_status' => $bmiStatus,
@@ -260,7 +246,7 @@ if ($action === 'save_visit') {
         ]);
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to save visit: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Failed to save this visit. Please try again.', 'walkin/save'));
     }
 }
 
@@ -318,7 +304,7 @@ if ($action === 'update_consultation') {
         json_response(true, [], 'Consultation updated.');
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to update: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Failed to save the changes. Please try again.', 'walkin/update'));
     }
 }
 
@@ -337,10 +323,13 @@ if ($action === 'dispense_medicine') {
     if (!$walkInId || !$medicineId || $quantity <= 0) json_response(false, [], 'Invalid input.');
     
     // Check medicine stock
-    $stmt = $db->prepare("SELECT medicine_name, quantity FROM medicines WHERE id = ?");
+    $stmt = $db->prepare("SELECT medicine_name, quantity, expiration_date FROM medicines WHERE id = ?");
     $stmt->execute([$medicineId]);
     $medicine = $stmt->fetch();
     if (!$medicine) json_response(false, [], 'Medicine not found.');
+    if (!empty($medicine['expiration_date']) && $medicine['expiration_date'] < date('Y-m-d')) {
+        json_response(false, [], 'Expired medicine cannot be dispensed.');
+    }
     if ($medicine['quantity'] < $quantity) {
         json_response(false, [], "Insufficient stock! Only {$medicine['quantity']} {$medicine['medicine_name']} available.");
     }
@@ -372,7 +361,7 @@ if ($action === 'dispense_medicine') {
         ]);
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to dispense: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'The medicine could not be dispensed. Please try again.', 'walkin/dispense'));
     }
 }
 
@@ -417,6 +406,22 @@ if ($action === 'complete_visit') {
                 $visit['recommendation'],
                 $visit['follow_up_date']
             ]);
+            $consultationId = (int)$db->lastInsertId();
+
+            // The stock was deducted when medicine was dispensed. Link those
+            // existing transactions to this authoritative consultation record
+            // instead of deducting stock a second time.
+            $db->prepare("INSERT INTO consultation_medicines (consultation_id, medicine_id, quantity, dosage_instructions, dispensed_by)
+                SELECT ?, medicine_id, quantity, dosage_instructions, dispensed_by
+                FROM medicine_dispensing WHERE walk_in_id = ?")
+               ->execute([$consultationId, $id]);
+
+            $studentUser = $db->prepare('SELECT user_id FROM students WHERE id = ?');
+            $studentUser->execute([$visit['student_id']]);
+            if ($studentUserId = $studentUser->fetchColumn()) {
+                push_notification((int)$studentUserId, 'clinic', 'Clinic visit recorded',
+                    'Your clinic consultation has been recorded.', APP_URL . '/pages/student/medical_record.php');
+            }
         }
         
         logVisitAction($db, $id, 'completed', 'Visit completed.', $user['id']);
@@ -426,7 +431,7 @@ if ($action === 'complete_visit') {
         json_response(true, ['message' => 'Visit completed successfully.']);
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to complete: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Failed to complete this visit. Please try again.', 'walkin/complete'));
     }
 }
 
@@ -441,26 +446,6 @@ if ($action === 'cancel_visit') {
     $stmt = $db->prepare("UPDATE queue_numbers SET status = 'cancelled' WHERE id = (SELECT queue_id FROM walk_in_visits WHERE id = ?)");
     $stmt->execute([$id]);
     json_response(true, [], 'Visit cancelled.');
-}
-
-// ================================================================
-// ACTION: List Today's Queue
-// ================================================================
-if ($action === 'queue_list') {
-    $stmt = $db->query("
-        SELECT q.*,
-               COALESCE(CONCAT(u.first_name, ' ', u.last_name), q.full_name) AS display_name,
-               s.student_number, s.course, s.year_level
-        FROM queue_numbers q
-        LEFT JOIN students s ON s.id = q.student_id
-        LEFT JOIN users u ON u.id = s.user_id
-        WHERE DATE(q.created_at) = CURDATE()
-        ORDER BY 
-            FIELD(q.priority, 'emergency', 'urgent', 'normal'),
-            FIELD(q.status, 'waiting', 'serving') DESC,
-            q.created_at ASC
-    ");
-    json_response(true, ['data' => $stmt->fetchAll()]);
 }
 
 // ================================================================

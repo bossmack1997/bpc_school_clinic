@@ -138,3 +138,115 @@ function send_password_reset_email($toEmail, $resetLink, $subject = '', $bodyHtm
         return false;
     }
 }
+
+/**
+ * Send a Registration OTP Email for institutional identity verification.
+ *
+ * @param string $toEmail Recipient institutional email
+ * @param string $otpCode 6-digit verification code
+ * @param string $recipientName Optional applicant full name
+ * @param string $role User role
+ * @return bool True on success, false on failure
+ */
+function send_registration_otp_email($toEmail, $otpCode, $recipientName = '', $role = 'student') {
+    $mailer = new PHPMailer(true);
+
+    try {
+        $mailer->isSMTP();
+        $mailer->Host       = getenv('MAIL_HOST') ?: 'smtp.gmail.com';
+        $mailer->SMTPAuth   = true;
+        $mailer->Username   = getenv('MAIL_USERNAME') ?: '';
+        $mailer->Password   = getenv('MAIL_PASSWORD') ?: '';
+        $mailer->SMTPSecure = getenv('MAIL_ENCRYPTION') ?: PHPMailer::ENCRYPTION_SMTPS;
+        $mailer->Port       = (int)(getenv('MAIL_PORT') ?: 587);
+
+        $fromEmail = getenv('MAIL_FROM_ADDRESS') ?: getenv('MAIL_USERNAME') ?: 'no-reply@bpc-clinic.local';
+        $fromName  = getenv('MAIL_FROM_NAME') ?: APP_NAME;
+
+        $mailer->setFrom($fromEmail, $fromName);
+        $mailer->addAddress($toEmail, $recipientName ?: 'Applicant');
+
+        $mailer->isHTML(true);
+        $mailer->Subject = 'BPC School Clinic - Identity Verification Code (OTP: ' . $otpCode . ')';
+
+        $greeting = $recipientName ? 'Hello ' . htmlspecialchars($recipientName, ENT_QUOTES, 'UTF-8') . ',' : 'Hello,';
+        $roleName = ucfirst($role);
+
+        $bodyHtml = '
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <title>Institutional Email Verification</title>
+        </head>
+        <body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,Helvetica,sans-serif;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;padding:24px 0;">
+            <tr>
+              <td align="center">
+                <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                  <tr>
+                    <td style="background-color:#0E7A3E;padding:24px 32px;text-align:center;">
+                      <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">AI-Enhanced School Clinic Management System</h1>
+                      <p style="margin:6px 0 0;color:#e8f5ec;font-size:13px;">Bulacan Polytechnic College Healthcare Service Improvement</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:32px;">
+                      <p style="margin:0 0 16px;color:#333333;font-size:15px;line-height:1.6;">' . $greeting . '</p>
+                      <p style="margin:0 0 16px;color:#333333;font-size:15px;line-height:1.6;">
+                        You are registering for a <strong>' . htmlspecialchars($roleName, ENT_QUOTES, 'UTF-8') . '</strong> account on the BPC School Clinic Management System.
+                      </p>
+                      <p style="margin:0 0 20px;color:#333333;font-size:15px;line-height:1.6;">
+                        Please use the following One-Time Password (OTP) to verify ownership of your institutional email address:
+                      </p>
+                      <div style="background-color:#f0fdf4;border:2px dashed #0E7A3E;border-radius:8px;padding:20px;text-align:center;margin:0 0 24px;">
+                        <span style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0E7A3E;font-family:monospace;">' . htmlspecialchars($otpCode, ENT_QUOTES, 'UTF-8') . '</span>
+                      </div>
+                      <p style="margin:0 0 8px;color:#555555;font-size:13px;line-height:1.5;">
+                        <strong style="color:#b45309;">Important Security Notes:</strong>
+                      </p>
+                      <ul style="margin:0 0 20px;padding-left:20px;color:#555555;font-size:13px;line-height:1.5;">
+                        <li>This OTP will expire in <strong>10 minutes</strong>.</li>
+                        <li>You have a maximum of <strong>5 verification attempts</strong>.</li>
+                        <li>Never share this code with anyone. BPC Clinic staff will never ask for your OTP.</li>
+                      </ul>
+                      <p style="margin:0;color:#777777;font-size:12px;line-height:1.5;">
+                        If you did not initiate this registration, someone may be attempting to use your institutional identity. Please disregard this email or inform the Clinic Administrator.
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background-color:#f4f6f8;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
+                      <p style="margin:0;color:#888888;font-size:12px;">&copy; ' . date('Y') . ' Bulacan Polytechnic College School Clinic System</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>';
+
+        $mailer->Body    = $bodyHtml;
+        $mailer->AltBody = "BPC Clinic Verification Code: $otpCode\n\nExpires in 10 minutes. Do not share this code.";
+
+        $mailer->send();
+        error_log('[MAIL] Registration OTP email sent successfully to ' . $toEmail);
+        return true;
+    } catch (MailException $e) {
+        error_log('[MAIL] Registration OTP email failed to ' . $toEmail . ': ' . $mailer->ErrorInfo);
+        if (defined('APP_ENV') && APP_ENV === 'local') {
+            $_SESSION['demo_registration_otp'] = $otpCode;
+            $_SESSION['demo_registration_email'] = $toEmail;
+        }
+        return false;
+    } catch (Throwable $e) {
+        error_log('[MAIL] Registration OTP email error for ' . $toEmail . ': ' . $e->getMessage());
+        if (defined('APP_ENV') && APP_ENV === 'local') {
+            $_SESSION['demo_registration_otp'] = $otpCode;
+            $_SESSION['demo_registration_email'] = $toEmail;
+        }
+        return false;
+    }
+}
+

@@ -64,7 +64,7 @@ if ($action === 'get_qr') {
 
 if ($action === 'issue') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized. Only medical staff can issue certificates.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized. Only clinic staff can issue certificates.');
 
     $studentId = (int)($_POST['student_id'] ?? 0);
     $certType = trim($_POST['certificate_type'] ?? 'Medical Certificate');
@@ -128,7 +128,7 @@ if ($action === 'issue') {
 
 if ($action === 'delete') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse','doctor','admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse','admin'], true)) json_response(false, [], 'Not authorized.');
 
     $id = (int)($_POST['id'] ?? 0);
     $stmt = $db->prepare("SELECT * FROM certificates WHERE id=?");
