@@ -209,7 +209,7 @@ function updateStatus(id, op) {
 function openResolveModal(id, title) {
   document.getElementById('resolveEmgId').value = id;
   document.getElementById('resolveEmgTitle').textContent = title;
-  new bootstrap.Modal(document.getElementById('resolveModal')).show();
+  BPCModal.show('resolveModal');
 }
 
 $('#resolveModal form').on('submit', function (e) {
@@ -221,7 +221,7 @@ $('#resolveModal form').on('submit', function (e) {
   $.post(APP_URL + '/api/emergencies.php', $(this).serialize() + '&csrf_token=' + csrfToken, function (res) {
     if (res.success) {
       toastSuccess(res.message);
-      bootstrap.Modal.getInstance(document.getElementById('resolveModal')).hide();
+      BPCModal.hide('resolveModal');
       loadEmergencies();
     } else {
       toastError(res.message);

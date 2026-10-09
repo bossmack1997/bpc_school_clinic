@@ -39,7 +39,9 @@
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 1060;
+  /* Below the modal backdrop (1050) so an open modal dims the
+     launcher instead of the launcher floating above the dialog. */
+  z-index: 1045;
   height: 48px;
   border-radius: 50px;
   border: none;
@@ -213,7 +215,10 @@
   position: fixed;
   bottom: 96px;
   right: 24px;
-  z-index: 2147482990 !important;
+  /* Must sit below the modal backdrop (1050) and modal (1055).
+     The previous value (2147482990) forced the assistant panel
+     above every dialog, so modals appeared to open "behind" MICA. */
+  z-index: 1045 !important;
   width: 450px;
   max-width: calc(100vw - 32px);
   height: 640px;

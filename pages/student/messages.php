@@ -328,7 +328,7 @@ function startChatWithUser(recipientId) {
 function openNewMessageModal() {
   $('#modalStaffSearch').val('');
   $('.staff-modal-item').show();
-  new bootstrap.Modal(document.getElementById('newMessageModal')).show();
+  BPCModal.show('newMessageModal');
 }
 
 // -------------------------------------------------------------

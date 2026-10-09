@@ -405,7 +405,7 @@ window.__initNotificationUI = function () {
         $openBtn.addClass('d-none');
       }
       $('#notifDetailFooter').show();
-      new bootstrap.Modal(document.getElementById('notifDetailModal')).show();
+      BPCModal.show('notifDetailModal');
       if (typeof window.loadNotifications === 'function') window.loadNotifications();
     }, 'json');
   }
@@ -507,7 +507,7 @@ window.__initNotificationUI = function () {
     } else {
       $footer.hide();
     }
-    new bootstrap.Modal(document.getElementById('notifSosModal')).show();
+    BPCModal.show('notifSosModal');
     if (typeof window.loadNotifications === 'function') window.loadNotifications();
   }
 
@@ -561,7 +561,7 @@ window.__initNotificationUI = function () {
     confirmDelete(function () {
       $.post(APP + '/api/notifications.php', { action: 'delete', id, csrf_token: csrf }, function (res) {
         if (res.success) {
-          bootstrap.Modal.getInstance(document.getElementById('notifDetailModal')).hide();
+          BPCModal.hide('notifDetailModal');
           toastSuccess(res.message);
           loadNotifCenter();
           if (typeof window.loadNotifications === 'function') window.loadNotifications();

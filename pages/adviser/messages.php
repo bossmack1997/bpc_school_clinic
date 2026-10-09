@@ -328,7 +328,7 @@ function startChatWithUser(recipientId) {
 function openNewCoordinationModal() {
   $('#modalStaffSearch').val('');
   $('.staff-modal-item').show();
-  new bootstrap.Modal(document.getElementById('newCoordModal')).show();
+  BPCModal.show('newCoordModal');
 }
 
 // -------------------------------------------------------------

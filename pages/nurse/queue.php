@@ -771,8 +771,7 @@ $pageTitle = 'Clinic Queue Management';
       // Clear medicines container
       document.getElementById('medicinesContainer').innerHTML = '<div class="text-muted small py-2" id="noMedsHint">No medicines selected yet. Click [+ Add] above to dispense.</div>';
 
-      const modal = new bootstrap.Modal(document.getElementById('consultationWorkspaceModal'));
-      modal.show();
+      BPCModal.show('consultationWorkspaceModal');
     } catch (e) {
       console.error('Error loading consultation workspace:', e);
     }
@@ -887,7 +886,7 @@ $pageTitle = 'Clinic Queue Management';
           });
         }
 
-        bootstrap.Modal.getInstance(document.getElementById('consultationWorkspaceModal')).hide();
+        BPCModal.hide('consultationWorkspaceModal');
         form.reset();
         loadQueueList();
       } else {
@@ -970,7 +969,7 @@ $pageTitle = 'Clinic Queue Management';
       const json = await res.json();
       if (json.success) {
         if (typeof showToast === 'function') showToast(json.message, 'success');
-        bootstrap.Modal.getInstance(document.getElementById('newWalkinModal')).hide();
+        BPCModal.hide('newWalkinModal');
         form.reset();
         document.getElementById('selectedStudentBadge').style.display = 'none';
         loadQueueList();

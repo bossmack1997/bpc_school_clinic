@@ -494,7 +494,7 @@ function openApproveModal(id, medName, suggestedQty) {
   $('#modalMedName').val(medName);
   $('#modalAppQty').val(suggestedQty);
   $('#modalAppNotes').val('');
-  new bootstrap.Modal(document.getElementById('approveReorderModal')).show();
+  BPCModal.show('approveReorderModal');
 }
 
 function submitApproveReorder() {
@@ -518,7 +518,7 @@ function submitApproveReorder() {
     $('#btnConfirmApproveReorder').prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i> Confirm & Approve');
     if (res.success) {
       toastSuccess(res.message);
-      bootstrap.Modal.getInstance(document.getElementById('approveReorderModal')).hide();
+      BPCModal.hide('approveReorderModal');
       loadReorders('all');
       loadRecommendedActions();
     } else {
@@ -562,7 +562,7 @@ function openPrintSlip(r) {
     </div>
   `;
   $('#slipContent').html(slip);
-  new bootstrap.Modal(document.getElementById('printSlipModal')).show();
+  BPCModal.show('printSlipModal');
 }
 
 function printRequisitionSlip() {

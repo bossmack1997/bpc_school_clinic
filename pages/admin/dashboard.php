@@ -238,7 +238,7 @@ $pageDescription = 'Clinic overview and system activity';
             <p class="adm-stat__label">Today's visits</p>
             <span class="adm-stat__ico"><?= bpc_icon('stethoscope') ?></span>
           </div>
-          <div class="adm-stat__value counter-animate" data-count="<?= $todaysVisits ?>"><?= number_format($todaysVisits) ?></div>
+          <div class="adm-stat__value counter-animate" data-count="<?= $todaysVisits ?>" data-metric="visits_today"><?= number_format($todaysVisits) ?></div>
           <div class="adm-stat__note">
             <?php if ($visitsDelta === 0): ?>
               <span class="adm-stat__delta adm-stat__delta--flat"><?= bpc_icon('minus-circle') ?> No change</span>
@@ -258,7 +258,7 @@ $pageDescription = 'Clinic overview and system activity';
             <p class="adm-stat__label">Students</p>
             <span class="adm-stat__ico adm-stat__ico--info"><?= bpc_icon('graduation') ?></span>
           </div>
-          <div class="adm-stat__value counter-animate" data-count="<?= $activeStudents ?>"><?= number_format($activeStudents) ?></div>
+          <div class="adm-stat__value counter-animate" data-count="<?= $activeStudents ?>" data-metric="active_students"><?= number_format($activeStudents) ?></div>
           <div class="adm-stat__note">
             <?= number_format($studentCount) ?> registered
             <span aria-hidden="true">&middot;</span>
@@ -273,7 +273,7 @@ $pageDescription = 'Clinic overview and system activity';
               <?= bpc_icon('user-check') ?>
             </span>
           </div>
-          <div class="adm-stat__value counter-animate" data-count="<?= $pendingTotal ?>"><?= number_format($pendingTotal) ?></div>
+          <div class="adm-stat__value counter-animate" data-count="<?= $pendingTotal ?>" data-metric="pending_approvals"><?= number_format($pendingTotal) ?></div>
           <div class="adm-stat__note">
             <?= $pendingTotal > 0 ? 'Awaiting review' : 'Nothing waiting' ?>
             <span aria-hidden="true">&middot;</span>
@@ -288,7 +288,7 @@ $pageDescription = 'Clinic overview and system activity';
               <?= bpc_icon('pill') ?>
             </span>
           </div>
-          <div class="adm-stat__value counter-animate" data-count="<?= $lowStockCount ?>"><?= number_format($lowStockCount) ?></div>
+          <div class="adm-stat__value counter-animate" data-count="<?= $lowStockCount ?>" data-metric="low_stock"><?= number_format($lowStockCount) ?></div>
           <div class="adm-stat__note">
             <?= $lowStockCount > 0 ? 'At or below reorder level' : 'Stock levels are healthy' ?>
             <span aria-hidden="true">&middot;</span>
@@ -306,15 +306,13 @@ $pageDescription = 'Clinic overview and system activity';
           <div class="adm-card__head">
             <div>
               <h3 class="adm-card__title"><?= bpc_icon('alert-circle') ?> Needs Attention</h3>
-              <p class="adm-card__sub">
+              <p class="adm-card__sub" data-attention-sub>
                 <?= $attention['total'] > 0
                       ? $attention['total'] . ' item' . ($attention['total'] === 1 ? '' : 's') . ' waiting for administrative action'
                       : 'Nothing is waiting for review right now' ?>
               </p>
             </div>
-            <?php if ($attention['total'] > 0): ?>
-              <span class="adm-badge adm-badge--danger"><?= (int)$attention['total'] ?> open</span>
-            <?php endif; ?>
+            <span class="adm-badge adm-badge--danger" data-attention-badge<?= $attention['total'] > 0 ? '' : ' hidden'?>><?= (int)$attention['total'] ?> open</span>
           </div>
 
           <?php $shownAlerts = 0; ?>
@@ -775,6 +773,105 @@ $pageDescription = 'Clinic overview and system activity';
   // Chart.js is loaded before this script, so init immediately; the empty
   // state is rendered server-side as a fallback if the library is missing.
   selectRange('week');
+})();
+</script>
+<script>
+/* ==================================================================
+   Controlled dashboard auto-refresh
+   ------------------------------------------------------------------
+   Keeps the overview cards and the attention badge current without a
+   full page reload. Requests never overlap, run only while the tab
+   is visible, and fail silently so a transient network blip never
+   nags the administrator. The server remains the single source of
+   truth — every figure is recomputed from the database.
+   ================================================================== */
+(function () {
+  'use strict';
+
+  var REFRESH_MS = 60000;
+  var inFlight = false;
+  var timer = null;
+
+  function fmt(n) {
+    return Number(n || 0).toLocaleString('en-US');
+  }
+
+  function applyMetrics(metrics) {
+    if (!metrics) return;
+    document.querySelectorAll('[data-metric]').forEach(function (el) {
+      var key = el.getAttribute('data-metric');
+      if (Object.prototype.hasOwnProperty.call(metrics, key)) {
+        var val = metrics[key];
+        el.textContent = fmt(val);
+        el.setAttribute('data-count', String(val));
+      }
+    });
+  }
+
+  function applyAttention(total) {
+    var sub = document.querySelector('[data-attention-sub]');
+    var badge = document.querySelector('[data-attention-badge]');
+    if (sub) {
+      sub.textContent = total > 0
+        ? total + ' item' + (total === 1 ? '' : 's') + ' waiting for administrative action'
+        : 'Nothing is waiting for review right now';
+    }
+    if (badge) {
+      if (total > 0) {
+        badge.textContent = total + ' open';
+        badge.hidden = false;
+      } else {
+        badge.hidden = true;
+      }
+    }
+  }
+
+  function refresh() {
+    if (inFlight) return; // never overlap requests
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+
+    inFlight = true;
+    fetch(APP_URL + '/api/admin_dashboard.php', {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'same-origin'
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (body) {
+        if (body && body.success) {
+          applyMetrics(body.data && body.data.metrics);
+          if (typeof body.data.attention_total === 'number') {
+            applyAttention(body.data.attention_total);
+          }
+        }
+      })
+      .catch(function () {
+        /* Transient failure — the next tick retries. No toast spam. */
+      })
+      .finally(function () {
+        inFlight = false;
+      });
+  }
+
+  function start() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(refresh, REFRESH_MS);
+  }
+
+  // Pause polling while the tab is hidden to save requests.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      refresh();
+      start();
+    } else if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  });
+
+  start();
 })();
 </script>
 </body>

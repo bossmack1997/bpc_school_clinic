@@ -1380,7 +1380,9 @@ function escapeHtml(text) {
       if (result.isConfirmed) {
         var modalEl = document.getElementById('sosModal');
         if (modalEl) {
-          var bsModal = new bootstrap.Modal(modalEl);
+          // Reuse the single instance so repeat SOS activations
+          // never stack backdrops or duplicate listeners.
+          var bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
           bsModal.show();
           // GPS location is requested AFTER the student confirms & submits
           // the SOS request (handled inside components/mica.php submitSOS).

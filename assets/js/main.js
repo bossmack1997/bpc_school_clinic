@@ -407,6 +407,108 @@ $(function () {
 }); // end DOM ready
 
 // ================================================================
+// BPCModal — single source of truth for every Bootstrap modal.
+//
+// Root cause fixed here: page scripts previously called
+//   new bootstrap.Modal(el).show()
+// on every open. That constructor call creates a NEW instance
+// each time and overwrites the one stored on the element, so
+// the old instance's listeners (hidden.bs.modal cleanup,
+// backdrop removal) keep firing alongside the new one's. The
+// visible symptoms were stacked backdrops, a stuck dim layer
+// after close, and modals that stop responding after first use.
+//
+// getOrCreateInstance() returns the existing instance when there
+// is one and only creates it once, so open/close/reopen is
+// idempotent.
+// ================================================================
+window.BPCModal = (function () {
+  'use strict';
+
+  function resolve(el) {
+    if (!el) return null;
+    if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+      // Bootstrap failed to load — degrade to a plain class
+      // toggle so the dialog is still reachable rather than dead.
+      el.classList.add('show');
+      el.setAttribute('aria-hidden', 'false');
+      return null;
+    }
+    return bootstrap.Modal.getOrCreateInstance(el);
+  }
+
+  function get(target) {
+    var el = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!el) {
+      console.warn('[BPCModal] modal element not found:', target);
+      return null;
+    }
+    return resolve(el);
+  }
+
+  function show(target) {
+    var m = get(target);
+    if (m && typeof m.show === 'function') m.show();
+    return m;
+  }
+
+  function hide(target) {
+    var m = get(target);
+    if (m && typeof m.hide === 'function') m.hide();
+    return m;
+  }
+
+  /**
+   * Reset every form inside a modal that opted in via
+   * data-reset-on-close, clearing the previous operation's
+   * values so they never leak into the next open. Fields
+   * marked data-preserve (e.g. hidden ids the opener
+   * re-populates) are kept.
+   */
+  function resetForms(modalEl) {
+    if (!modalEl || !modalEl.querySelector) return;
+    var forms = modalEl.querySelectorAll('form[data-reset-on-close], [data-reset-on-close] form');
+    Array.prototype.forEach.call(forms, function (form) {
+      Array.prototype.forEach.call(form.elements, function (field) {
+        if (field.hasAttribute('data-preserve')) return;
+        var type = (field.type || '').toLowerCase();
+        if (field.tagName === 'SELECT') {
+          field.selectedIndex = 0;
+        } else if (type === 'checkbox' || type === 'radio') {
+          field.checked = field.hasAttribute('checked');
+        } else if (type !== 'button' && type !== 'submit' && type !== 'reset' && type !== 'hidden') {
+          field.value = '';
+        }
+      });
+      var msgs = form.querySelectorAll('.invalid-feedback, .form-error');
+      Array.prototype.forEach.call(msgs, function (n) { n.textContent = ''; });
+      Array.prototype.forEach.call(form.querySelectorAll('.is-invalid, .is-valid'), function (n) {
+        n.classList.remove('is-invalid', 'is-valid');
+      });
+    });
+  }
+
+  // One delegated listener: whenever any modal finishes hiding,
+  // reset its opted-in forms. Bound once, so it never duplicates.
+  document.addEventListener('hidden.bs.modal', function (e) {
+    resetForms(e.target);
+    // Safety net: if a script error interrupted Bootstrap's own
+    // cleanup, an orphaned .modal-backdrop can stay behind and
+    // keep the page dimmed/unscrollable. When no modal remains
+    // open, clear any leftover backdrop and restore scrolling.
+    window.setTimeout(function () {
+      if (document.querySelector('.modal.show')) return;
+      document.querySelectorAll('.modal-backdrop').forEach(function (bd) { bd.remove(); });
+      document.body.classList.remove('modal-open');
+      document.body.style.paddingRight = '';
+      document.body.style.overflow = '';
+    }, 60);
+  });
+
+  return { get: get, show: show, hide: hide, resetForms: resetForms };
+})();
+
+// ================================================================
 // Escape HTML helper (global — avoids XSS in dynamic notification HTML)
 // ================================================================
 function escapeHtml(text) {

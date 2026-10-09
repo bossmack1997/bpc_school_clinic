@@ -576,7 +576,7 @@ $('#newPatientBtn').on('click', function () {
   $('#bmiDisplay').html('<span class="text-muted">Auto-calculate</span>');
   $('#followUpDateDiv').addClass('d-none');
   $('#studentSearch').val('').prop('readonly', false);
-  new bootstrap.Modal(document.getElementById('walkinModal')).show();
+  BPCModal.show('walkinModal');
 });
 
 // SAVE WALK-IN
@@ -667,7 +667,7 @@ $(document).on('click', '.view-visit', function () {
       $('#completeVisitBtn').prop('disabled', false);
     }
     
-    new bootstrap.Modal(document.getElementById('consultModal')).show();
+    BPCModal.show('consultModal');
   }, 'json');
 });
 
@@ -740,7 +740,7 @@ $(document).on('click', '.dispense-btn', function () {
     });
   }, 'json');
   
-  new bootstrap.Modal(document.getElementById('dispenseModal')).show();
+  BPCModal.show('dispenseModal');
 });
 
 $('#dispenseMedicine').on('change', function () {

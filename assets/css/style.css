@@ -2589,6 +2589,13 @@ table.dataTable thead th, table.dataTable thead td {
   justify-content: center;
   z-index: 9999;
   transition: opacity 0.4s ease, visibility 0.4s ease;
+  /* Safety net: if the JS that removes the loader never runs
+     (e.g. a script error above it), the loader still fades on
+     its own instead of trapping the interface behind it. */
+  animation: pageLoaderAutoHide 0.4s ease 3s forwards;
+}
+@keyframes pageLoaderAutoHide {
+  to { opacity: 0; visibility: hidden; }
 }
 .page-loader.hidden {
   opacity: 0;

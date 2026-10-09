@@ -2096,7 +2096,9 @@
 .app-toast-stack {
   position: fixed;
   right: var(--sp-5);
-  bottom: var(--sp-5);
+  /* Clear the floating MICA launcher (48px tall at bottom 24px)
+     so the first toast never overlaps the button. */
+  bottom: calc(var(--sp-5) + 68px);
   z-index: var(--z-float);
   display: flex;
   flex-direction: column;

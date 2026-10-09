@@ -69,7 +69,9 @@ $pageTitle = 'Clinic Announcements';
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
-const announcementModal = new bootstrap.Modal(document.getElementById('announcementModal'));
+// getOrCreateInstance keeps a single modal instance so repeated
+// opens never stack backdrops or duplicate event listeners.
+const announcementModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('announcementModal'));
 
 function loadAnnouncements() {
   $.get(APP_URL + '/api/announcements.php', { action: 'list' }, function (res) {

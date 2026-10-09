@@ -472,7 +472,7 @@ function openPermissionsModal(id, name, permissions) {
     chk.checked = permissions.includes(chk.value);
   });
 
-  new bootstrap.Modal(document.getElementById('permissionsModal')).show();
+  BPCModal.show('permissionsModal');
 }
 </script>
 </body>

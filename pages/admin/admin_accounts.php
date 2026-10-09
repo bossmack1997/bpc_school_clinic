@@ -475,13 +475,13 @@ $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
     document.getElementById('statusUserId').value = id;
     document.getElementById('statusUserName').textContent = name;
     document.getElementById('statusSelect').value = currentStatus || 'active';
-    new bootstrap.Modal(document.getElementById('statusModal')).show();
+    BPCModal.show('statusModal');
   };
 
   window.openDeactivateModal = function (id, name) {
     document.getElementById('deactivateUserId').value = id;
     document.getElementById('deactivateUserName').textContent = name;
-    new bootstrap.Modal(document.getElementById('deactivateModal')).show();
+    BPCModal.show('deactivateModal');
   };
 })();
 </script>

@@ -351,7 +351,7 @@ $pageTitle = 'Clinic Queue Tracker';
       const json = await res.json();
       if (json.success) {
         if (typeof showToast === 'function') showToast(json.message, 'success');
-        bootstrap.Modal.getInstance(document.getElementById('selfCheckinModal')).hide();
+        BPCModal.hide('selfCheckinModal');
         form.reset();
         pollStudentQueue();
       } else {

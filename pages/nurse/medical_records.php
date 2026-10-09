@@ -227,7 +227,7 @@ $(document).on('click', '.view-record', function () {
     }
     html += '</div>';
     $('#recordDetailBody').html(html);
-    new bootstrap.Modal(document.getElementById('recordDetailModal')).show();
+    BPCModal.show('recordDetailModal');
   }, 'json');
 });
 

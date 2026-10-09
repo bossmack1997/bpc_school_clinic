@@ -448,8 +448,7 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
 
         var modalEl = document.getElementById('sosModal');
         if (modalEl) {
-          var bsModal = bootstrap.Modal.getInstance(modalEl);
-          if (bsModal) bsModal.hide();
+          BPCModal.hide(modalEl);
         }
 
         if (res && res.success) {

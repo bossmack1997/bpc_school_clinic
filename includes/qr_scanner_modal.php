@@ -108,8 +108,7 @@ async function onQrCodeSuccess(decodedText) {
   alertBox.style.display = 'block';
 
   // Close scanner modal
-  const modalEl = document.getElementById('patientQrScannerModal');
-  bootstrap.Modal.getInstance(modalEl).hide();
+  BPCModal.hide('patientQrScannerModal');
 
   // Open Central Patient Workspace with this QR token
   if (typeof openPatientWorkspace === 'function') {

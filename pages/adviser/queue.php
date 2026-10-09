@@ -310,7 +310,7 @@ $pageTitle = 'Faculty Clinic Queue';
       const json = await res.json();
       if (json.success) {
         if (typeof showToast === 'function') showToast(json.message, 'success');
-        bootstrap.Modal.getInstance(document.getElementById('teacherCheckinModal')).hide();
+        BPCModal.hide('teacherCheckinModal');
         form.reset();
         pollTeacherQueue();
       } else {

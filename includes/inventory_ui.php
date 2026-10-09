@@ -387,7 +387,7 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
     $('#medForm')[0].reset();
     $('#medId').val('');
     $('#medModalTitle').html('<i class="bi bi-plus-circle me-2"></i> Add Medicine');
-    new bootstrap.Modal(document.getElementById('medModal')).show();
+    BPCModal.show('medModal');
   });
 
   $(document).on('click', '.edit-med', function () {
@@ -404,7 +404,7 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
     $('#f_exp').val(m.expiration_date || ''); $('#f_loc').val(m.storage_location || '');
     $('#f_barcode').val(m.barcode || ''); $('#f_desc').val(m.description || '');
     $('#medModalTitle').html('<i class="bi bi-pencil me-2"></i> Edit Medicine');
-    new bootstrap.Modal(document.getElementById('medModal')).show();
+    BPCModal.show('medModal');
   });
 
   $('#medForm').on('submit', function (e) {
@@ -425,7 +425,7 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
     }
 
     $.post(APP + '/api/inventory.php', $(this).serialize() + '&action=' + action + '&csrf_token=' + csrf, function (res) {
-      if (res.success) { toastSuccess(res.message); bootstrap.Modal.getInstance(document.getElementById('medModal')).hide(); loadInventory(); loadStats(); }
+      if (res.success) { toastSuccess(res.message); BPCModal.hide('medModal'); loadInventory(); loadStats(); }
       else toastError(res.message);
     }, 'json');
   });
@@ -435,12 +435,12 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
   // ============================================================
   $(document).on('click', '.stock-med', function () {
     $('#stockId').val($(this).data('id'));
-    new bootstrap.Modal(document.getElementById('stockModal')).show();
+    BPCModal.show('stockModal');
   });
   $('#stockForm').on('submit', function (e) {
     e.preventDefault();
     $.post(APP + '/api/inventory.php', $(this).serialize() + '&action=stock_update&csrf_token=' + csrf, function (res) {
-      if (res.success) { toastSuccess(res.message); bootstrap.Modal.getInstance(document.getElementById('stockModal')).hide(); loadInventory(); loadStats(); }
+      if (res.success) { toastSuccess(res.message); BPCModal.hide('stockModal'); loadInventory(); loadStats(); }
       else toastError(res.message);
     }, 'json');
   });
@@ -485,7 +485,7 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
   // Import (CSV via SheetJS on client, then commit via JSON)
   // ============================================================
   $('#importMedBtn').on('click', function () {
-    new bootstrap.Modal(document.getElementById('importModal')).show();
+    BPCModal.show('importModal');
   });
 
   // ============================================================

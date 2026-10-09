@@ -572,15 +572,14 @@ document.addEventListener('DOMContentLoaded', function () {
 function openRejectModal(id, name) {
   document.getElementById('rejectUserId').value = id;
   document.getElementById('rejectUserName').textContent = name;
-  new bootstrap.Modal(document.getElementById('rejectModal')).show();
+  BPCModal.show('rejectModal');
 }
 
 // View User Modal Handler
 $(document).on('click', '.view-user-btn', function (e) {
   e.preventDefault();
   const id = $(this).data('id');
-  const modal = new bootstrap.Modal(document.getElementById('viewUserModal'));
-  modal.show();
+  BPCModal.show('viewUserModal');
 
   $('#viewUserModalBody').html('<div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div> Loading user details...</div>');
   $('#viewModalFooterNote').empty();
