@@ -1456,6 +1456,16 @@ textarea.form-control {
 
 .modal-backdrop.show { opacity: 0.36; background: #101828; }
 
+/* Center all non-scrollable modals vertically (Bootstrap's modal-dialog-centered
+   pattern applied globally). Scrollable modals stay top-aligned so tall content
+   scrolls from the top instead of clipping. min-height (not height) lets the
+   dialog grow for tall content, and .modal's overflow-y:auto keeps it reachable. */
+.modal-dialog:not(.modal-dialog-scrollable) {
+  display: flex;
+  align-items: center;
+  min-height: calc(100% - var(--bs-modal-margin, 0.5rem) * 2);
+}
+
 .modal.fade .modal-dialog {
   transition: transform var(--motion-slow) var(--ease-out);
   transform: translateY(10px) scale(0.985);
