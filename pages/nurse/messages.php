@@ -432,7 +432,7 @@ function selectConversation(convId) {
     // Patient Workspace / Record link (for students)
     if (!isTeacher && (cp.student_record_id || cp.id)) {
       const studentParam = cp.student_record_id ? ('id=' + cp.student_record_id) : ('user_id=' + cp.id);
-      $('#patientWorkspaceBtn').attr('href', APP_URL + '/pages/nurse/patient-workspace.php?' + studentParam).show();
+      $('#patientWorkspaceBtn').attr('href', APP_URL + '/pages/nurse/patient_history.php?' + studentParam).show();
     } else {
       $('#patientWorkspaceBtn').hide();
     }

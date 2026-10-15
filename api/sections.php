@@ -265,6 +265,20 @@ if ($action === 'section_students') {
     $sec = $secStmt->fetch();
     if (!$sec) json_response(false, [], 'Section not found.');
 
+    if (canonical_role($user['role'] ?? '') === 'teacher') {
+        $assignedStmt = $db->prepare("
+            SELECT id FROM advisory_assignments 
+            WHERE teacher_id = ? AND section_id = ? AND status = 'active'
+              AND (end_date IS NULL OR end_date >= CURDATE())
+              AND (start_date IS NULL OR start_date <= CURDATE())
+            LIMIT 1
+        ");
+        $assignedStmt->execute([(int)$user['id'], $id]);
+        if (!$assignedStmt->fetch()) {
+            json_response(false, [], 'Access denied. You are not assigned as adviser to this section.');
+        }
+    }
+
     $secName = trim((string)$sec['name']);
     $secCourse = trim((string)($sec['course'] ?? ''));
     $secYear = trim((string)($sec['year_level'] ?? ''));

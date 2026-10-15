@@ -85,14 +85,21 @@ if ($action === 'student_record') {
 }
 
 if ($action === 'history') {
-    if ($user['role'] === 'student') {
+    $role = canonical_role($user['role'] ?? '');
+    if ($role === 'student') {
         $stmt = $db->prepare("SELECT id FROM students WHERE user_id=?");
         $stmt->execute([$user['id']]);
         $studentId = $stmt->fetchColumn();
         if (!$studentId) json_response(false, [], 'Student record not found.');
-    } else {
+    } elseif ($role === 'teacher') {
         $studentId = (int)($_GET['student_id'] ?? 0);
         if ($studentId <= 0) json_response(false, [], 'Invalid student.');
+        require_adviser_student_access($db, $studentId);
+    } elseif (in_array($role, ['nurse', 'admin'], true)) {
+        $studentId = (int)($_GET['student_id'] ?? 0);
+        if ($studentId <= 0) json_response(false, [], 'Invalid student.');
+    } else {
+        json_response(false, [], 'Access denied.');
     }
     $stmt = $db->prepare("
         SELECT *,

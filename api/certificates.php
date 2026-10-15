@@ -90,6 +90,7 @@ if ($action === 'issue') {
             }
             $filename = 'cert_' . $studentId . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
             $destRel = 'uploads/certificates/' . $filename;
+            $destAbs = BASE_PATH . '/' . $destRel;
             $uploadDir = dirname($destAbs);
             if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
             if (move_uploaded_file($file['tmp_name'], $destAbs)) {

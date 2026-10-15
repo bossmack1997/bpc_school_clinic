@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
-require_role('nurse');
+require_login();
 header('Content-Type: application/json');
 
 $db = getDB();
@@ -8,6 +8,7 @@ $user = current_user();
 $action = $_REQUEST['action'] ?? '';
 
 if ($action === 'search_medicines') {
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $q = '%' . ($_GET['q'] ?? '') . '%';
     $stmt = $db->prepare("SELECT id, medicine_name, generic_name, brand, category, quantity, unit, reorder_level, expiration_date, batch_number, status FROM medicines WHERE (medicine_name LIKE ? OR generic_name LIKE ? OR brand LIKE ?) AND is_archived = 0 ORDER BY medicine_name LIMIT 10");
     $stmt->execute([$q, $q, $q]);
@@ -16,6 +17,7 @@ if ($action === 'search_medicines') {
 
 if ($action === 'dispense') {
     csrf_verify_or_die();
+    if (canonical_role($user['role'] ?? '') !== 'nurse') json_response(false, [], 'Only nurses can dispense medicine.');
     $studentId = (int)($_POST['student_id'] ?? 0);
     $medicineId = (int)($_POST['medicine_id'] ?? 0);
     $quantity = (int)($_POST['quantity'] ?? 0);
@@ -117,6 +119,7 @@ if ($action === 'dispense') {
 }
 
 if ($action === 'search_students') {
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $q = '%' . ($_GET['q'] ?? '') . '%';
     $stmt = $db->prepare("SELECT s.id, s.student_number, u.first_name, u.last_name FROM students s JOIN users u ON u.id=s.user_id WHERE (s.student_number LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?) AND u.status='active' LIMIT 10");
     $stmt->execute([$q, $q, $q, $q]);
@@ -127,14 +130,19 @@ if ($action === 'history') {
     $studentId = (int)($_GET['student_id'] ?? 0);
     if ($studentId <= 0) json_response(false, [], 'Invalid student.');
 
+    $role = canonical_role($user['role'] ?? '');
     // IDOR protection: students can only access their own history
-    if ($user['role'] === 'student') {
+    if ($role === 'student') {
         $stmt = $db->prepare("SELECT id FROM students WHERE user_id=?");
         $stmt->execute([$user['id']]);
         $myStudentId = (int)$stmt->fetchColumn();
         if ($myStudentId <= 0 || $studentId !== $myStudentId) {
             json_response(false, [], 'Not authorized to view this dispensing history.');
         }
+    } elseif ($role === 'teacher') {
+        require_adviser_student_access($db, $studentId);
+    } elseif (!in_array($role, ['nurse', 'admin'], true)) {
+        json_response(false, [], 'Not authorized.');
     }
 
     $stmt = $db->prepare("
@@ -153,6 +161,7 @@ if ($action === 'history') {
 // DISPENSING HISTORY (all, for nurse) — searchable & printable
 // ================================================================
 if ($action === 'all_history') {
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $search = trim($_GET['search'] ?? '');
     $limit = min((int)($_GET['limit'] ?? 50), 200);
     $offset = (int)($_GET['offset'] ?? 0);

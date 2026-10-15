@@ -438,6 +438,28 @@ if ($action === 'check_in') {
 
     // ---- Teacher/Staff patient check-in (separate, safe path) ----
     if ($patientType === 'teacher') {
+        $existingTicket = get_active_patient_queue_ticket($db, $teacherId, 'teacher');
+        if ($existingTicket) {
+            log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'existing_queue', $location, $teacherId, [
+                'queue_id'     => $existingTicket['id'],
+                'queue_number' => $existingTicket['queue_number'],
+                'visit_type'   => $existingTicket['visit_type'],
+            ], $scanMethod);
+            json_response(true, [
+                'queue_number'   => $existingTicket['queue_number'],
+                'queue_id'       => (int)$existingTicket['id'],
+                'already_queued' => true,
+                'student'        => [
+                    'id'             => $teacherId,
+                    'student_number' => $record['employee_id'] ?? 'STAFF',
+                    'name'           => trim(($record['first_name'] ?? '') . ' ' . ($record['last_name'] ?? '')),
+                    'course'         => $record['department'] ?? 'Staff',
+                    'year_level'     => '',
+                    'section'        => 'Teacher/Staff',
+                ],
+            ], 'Staff patient is already in queue (' . $existingTicket['queue_number'] . ').');
+        }
+
         if (is_duplicate_scan($db, $qrToken, 30)) {
             log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
             json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
@@ -487,8 +509,33 @@ if ($action === 'check_in') {
         }
     }
 
-    if (is_duplicate_scan($db, $result['student']['qr_token'], 30)) {
-        log_qr_scan($db, $studentId, $result['student']['qr_token'], 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
+    $student = $result['record'] ?? $result['student'] ?? [];
+    $studentQrToken = $student['qr_token'] ?? $qrToken;
+
+    $existingTicket = get_active_patient_queue_ticket($db, $studentId, 'student');
+    if ($existingTicket) {
+        log_qr_scan($db, $studentId, $studentQrToken, 'check_in', $user['id'], 'existing_queue', $location, null, [
+            'queue_id'     => $existingTicket['id'],
+            'queue_number' => $existingTicket['queue_number'],
+            'visit_type'   => $existingTicket['visit_type'],
+        ], $scanMethod);
+        json_response(true, [
+            'queue_number'   => $existingTicket['queue_number'],
+            'queue_id'       => (int)$existingTicket['id'],
+            'already_queued' => true,
+            'student'        => [
+                'id'             => $studentId,
+                'student_number' => $student['student_number'] ?? '',
+                'name'           => trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? '')),
+                'course'         => $student['course'] ?? '',
+                'year_level'     => $student['year_level'] ?? '',
+                'section'        => $student['section'] ?? '',
+            ],
+        ], 'Student is already in queue (' . $existingTicket['queue_number'] . ').');
+    }
+
+    if (is_duplicate_scan($db, $studentQrToken, 30)) {
+        log_qr_scan($db, $studentId, $studentQrToken, 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
         json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
     }
 
@@ -501,10 +548,10 @@ if ($action === 'check_in') {
             INSERT INTO queue_numbers (student_id, queue_number, visit_type, qr_token, created_at)
             VALUES (?, ?, ?, ?, NOW())
         ");
-        $stmt->execute([$studentId, $queueNumber, $visitType, $result['student']['qr_token']]);
+        $stmt->execute([$studentId, $queueNumber, $visitType, $studentQrToken]);
         $queueId = $db->lastInsertId();
 
-        log_qr_scan($db, $studentId, $result['student']['qr_token'], 'check_in', $user['id'], 'success', $location, null, [
+        log_qr_scan($db, $studentId, $studentQrToken, 'check_in', $user['id'], 'success', $location, null, [
             'queue_id'     => $queueId,
             'queue_number' => $queueNumber,
             'visit_type'   => $visitType,
@@ -516,43 +563,46 @@ if ($action === 'check_in') {
         $db->commit();
 
         // Notify the student
-        push_notification(
-            $user['id'],
-            'qr_checkin',
-            'Check-in Successful',
-            'Your QR was scanned at the clinic. Queue number: ' . $queueNumber . '. Please proceed to the waiting area.',
-            APP_URL . '/pages/student/my_qr.php',
-            null, 'medium', $studentId
-        );
+        $studentUserId = (int)($student['user_id'] ?? 0);
+        if ($studentUserId > 0) {
+            push_notification(
+                $studentUserId,
+                'qr_checkin',
+                'Check-in Successful',
+                'Your QR was scanned at the clinic. Queue number: ' . $queueNumber . '. Please proceed to the waiting area.',
+                APP_URL . '/pages/student/my_qr.php',
+                null, 'medium', $studentId
+            );
+        }
 
         // Notify all nurses
         $nurseStmt = $db->query("SELECT user_id FROM nurses");
         $nurses = $nurseStmt->fetchAll();
+        $studentFullName = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? ''));
         foreach ($nurses as $nurse) {
             push_notification(
                 $nurse['user_id'],
                 'qr_checkin',
                 'Student Checked In',
-                $result['student']['first_name'] . ' ' . $result['student']['last_name'] .
-                ' (' . $result['student']['student_number'] . ') — Queue: ' . $queueNumber,
+                $studentFullName . ' (' . ($student['student_number'] ?? '') . ') — Queue: ' . $queueNumber,
                 APP_URL . '/pages/nurse/dashboard.php',
                 null, 'medium', $studentId
             );
         }
 
         // Audit log
-        log_activity($user['id'], 'QR Check-in', 'qr_checkin', "Student: {$result['student']['student_number']}, Queue: {$queueNumber}");
+        log_activity($user['id'], 'QR Check-in', 'qr_checkin', "Student: " . ($student['student_number'] ?? $studentId) . ", Queue: {$queueNumber}");
 
         json_response(true, [
             'queue_number' => $queueNumber,
             'queue_id'     => $queueId,
             'student'      => [
                 'id'             => $studentId,
-                'student_number' => $result['student']['student_number'],
-                'name'           => $result['student']['first_name'] . ' ' . $result['student']['last_name'],
-                'course'         => $result['student']['course'],
-                'year_level'     => $result['student']['year_level'],
-                'section'        => $result['student']['section'],
+                'student_number' => $student['student_number'] ?? '',
+                'name'           => $studentFullName,
+                'course'         => $student['course'] ?? '',
+                'year_level'     => $student['year_level'] ?? '',
+                'section'        => $student['section'] ?? '',
             ],
         ], 'Check-in successful. Queue number issued: ' . $queueNumber);
     } catch (Exception $e) {

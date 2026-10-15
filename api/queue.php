@@ -1024,7 +1024,7 @@ if ($action === 'complete_consultation_full') {
                 'clinic',
                 'Clinic Visit Completed',
                 "Your clinic consultation has been completed. Diagnosis: {$diagnosis}.",
-                APP_URL . '/pages/' . ($ticket['patient_type'] === 'teacher' ? 'adviser' : 'student') . '/medical_record.php',
+                ($ticket['patient_type'] === 'teacher' ? APP_URL . '/pages/adviser/consultations.php' : APP_URL . '/pages/student/medical_record.php'),
                 null,
                 'medium'
             );

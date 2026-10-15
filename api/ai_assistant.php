@@ -315,7 +315,7 @@ if ($action === 'sos_emergency') {
             'sos_emergency',
             'CRITICAL SOS: ' . $emergencyType,
             "Emergency reported by {$reporterName} at {$manualLoc}. Immediate clinic triage required.",
-            APP_URL . '/pages/nurse/patients_today.php',
+            APP_URL . '/pages/nurse/emergencies.php',
             $emergencyId,
             'emergency'
         );

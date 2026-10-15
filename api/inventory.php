@@ -331,7 +331,15 @@ if ($action === 'stock_update') {
     $qty = (int)($_POST['quantity'] ?? 0);
     $reason = trim($_POST['reason'] ?? '');
 
-    if (!in_array($type, ['stock_in', 'stock_out', 'adjustment'], true) || $qty <= 0) json_response(false, [], 'Invalid input.');
+    if (!in_array($type, ['stock_in', 'stock_out', 'adjustment'], true)) {
+        json_response(false, [], 'Invalid stock action type.');
+    }
+    if ($type === 'adjustment' && $qty < 0) {
+        json_response(false, [], 'Adjustment quantity cannot be negative.');
+    }
+    if ($type !== 'adjustment' && $qty <= 0) {
+        json_response(false, [], 'Quantity must be greater than zero.');
+    }
 
     $stmt = $db->prepare("SELECT quantity FROM medicines WHERE id=?");
     $stmt->execute([$id]);
@@ -347,13 +355,20 @@ if ($action === 'stock_update') {
         $newQty = $qty;
     }
 
-    $db->prepare("UPDATE medicines SET quantity=? WHERE id=?")->execute([$newQty, $id]);
-    update_medicine_status($db, $id);
-    $db->prepare("INSERT INTO inventory_logs (medicine_id, change_type, quantity_change, remarks, logged_by) VALUES (?,?,?,?,?)")
-       ->execute([$id, $type === 'adjustment' ? 'adjustment' : ($type === 'stock_in' ? 'in' : 'out'), $newQty - (int)$current, $reason, $user['id']]);
+    try {
+        $db->beginTransaction();
+        $db->prepare("UPDATE medicines SET quantity=? WHERE id=?")->execute([$newQty, $id]);
+        update_medicine_status($db, $id);
+        $db->prepare("INSERT INTO inventory_logs (medicine_id, change_type, quantity_change, remarks, logged_by) VALUES (?,?,?,?,?)")
+           ->execute([$id, $type === 'adjustment' ? 'adjustment' : ($type === 'stock_in' ? 'in' : 'out'), $newQty - (int)$current, $reason, $user['id']]);
 
-    log_activity($user['id'], ucfirst(str_replace('_', ' ', $type)), 'inventory', "Medicine #$id qty $qty");
-    json_response(true, ['new_quantity' => $newQty], 'Stock updated.');
+        log_activity($user['id'], ucfirst(str_replace('_', ' ', $type)), 'inventory', "Medicine #$id qty $qty (new total: $newQty)");
+        $db->commit();
+        json_response(true, ['new_quantity' => $newQty], 'Stock updated.');
+    } catch (Exception $e) {
+        $db->rollBack();
+        json_response(false, [], safe_api_error($e, 'Failed to update stock. Please try again.', 'inventory/stock_update'));
+    }
 }
 
 // ================================================================

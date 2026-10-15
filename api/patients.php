@@ -352,8 +352,9 @@ if ($action === 'start_visit') {
         'Clinic Ticket Issued',
         "Your clinic queue ticket #$queueNumber has been issued. Status: Waiting.",
         APP_URL . '/pages/student/queue.php',
-        $ticketId,
-        'normal'
+        null,
+        'normal',
+        $ticketId
     );
 
     log_activity($u['id'], 'Started clinic visit', 'queue', "Ticket #$queueNumber for Student #$studentId ({$student['student_number']})");

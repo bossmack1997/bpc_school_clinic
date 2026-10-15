@@ -176,6 +176,26 @@ function escapeHtml(str) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+
+$(function() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const initId = parseInt(urlParams.get('student_id') || urlParams.get('id') || '0', 10);
+  if (initId > 0) {
+    $.get(APP_URL + '/api/students_api.php', { action: 'get', id: initId }, function(res) {
+      if (res && res.success && res.data) {
+        const s = res.data;
+        $('#pName').text((s.first_name || '') + ' ' + (s.last_name || ''));
+        $('#pNumber').text('Student ID: ' + (s.student_number || '—'));
+        $('#pCourse').text('Course: ' + (s.course || '—'));
+        $('#patientInfo').removeClass('d-none');
+        $('#openWorkspaceBtn').off('click').on('click', function() {
+          openPatientWorkspace(initId);
+        });
+      }
+    }, 'json');
+    loadPatientHistory(initId);
+  }
+});
 </script>
 </body>
 </html>

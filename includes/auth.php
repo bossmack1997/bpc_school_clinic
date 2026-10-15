@@ -43,15 +43,42 @@ function is_logged_in() {
     return is_array($user) && !empty($user['id']);
 }
 
+function is_api_request(): bool {
+    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+        return true;
+    }
+    $uri = $_SERVER['REQUEST_URI'] ?? '';
+    if (str_contains($uri, '/api/')) {
+        return true;
+    }
+    $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+    if (str_contains($accept, 'application/json')) {
+        return true;
+    }
+    return false;
+}
+
 function require_login() {
     if (!is_logged_in()) {
         attempt_remember_me_login();
     }
     if (!is_logged_in()) {
+        if (is_api_request()) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Session expired or not authenticated. Please log in again.']);
+            exit;
+        }
         redirect(APP_URL . '/auth/login.php');
     }
     if (!validate_session()) {
         logout_user();
+        if (is_api_request()) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Session timed out. Please log in again.']);
+            exit;
+        }
         redirect(APP_URL . '/auth/login.php?timeout=1');
     }
     // Prevent caching of protected pages
@@ -63,6 +90,12 @@ function require_login() {
 function check_session_timeout() {
     if (!validate_session()) {
         logout_user();
+        if (is_api_request()) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Session timed out. Please log in again.']);
+            exit;
+        }
         redirect(APP_URL . '/auth/login.php?timeout=1');
     }
 }
@@ -73,6 +106,12 @@ function require_role($roles) {
     $currentUser = current_user();
     if (!$currentUser) {
         logout_user();
+        if (is_api_request()) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Session expired. Please log in again.']);
+            exit;
+        }
         redirect(APP_URL . '/auth/login.php?timeout=1');
         exit;
     }
@@ -83,8 +122,9 @@ function require_role($roles) {
     $roles = array_map('canonical_role', $roles);
     $userRole = canonical_role($currentUser['role'] ?? '');
     if (!in_array($userRole, $roles, true)) {
-        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+        if (is_api_request()) {
             http_response_code(403);
+            header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'Access denied.']);
             exit;
         }

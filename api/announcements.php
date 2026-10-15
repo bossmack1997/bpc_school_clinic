@@ -36,11 +36,11 @@ if ($action === 'add') {
 
     $targetRoles = [];
     if ($audience === 'all') {
-        $targetRoles = ['admin', 'student', 'nurse', 'teacher'];
+        $targetRoles = ['admin', 'student', 'nurse', 'teacher', 'adviser'];
     } elseif ($audience === 'students') {
         $targetRoles = ['student'];
     } elseif ($audience === 'teachers') {
-        $targetRoles = ['adviser'];
+        $targetRoles = ['teacher', 'adviser'];
     } elseif ($audience === 'nurses') {
         $targetRoles = ['nurse'];
     }
@@ -52,7 +52,7 @@ if ($action === 'add') {
         $targetUsers = $stmt->fetchAll();
 
         foreach ($targetUsers as $targetUser) {
-            $roleDir = $targetUser['role'];
+            $roleDir = in_array($targetUser['role'], ['teacher', 'adviser'], true) ? 'adviser' : $targetUser['role'];
             $link = APP_URL . '/pages/' . $roleDir . '/announcements.php';
             push_notification(
                 (int)$targetUser['id'],

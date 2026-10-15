@@ -8,7 +8,8 @@ $user = current_user();
 $action = $_REQUEST['action'] ?? '';
 
 if ($action === 'list') {
-    if ($user['role'] === 'student') {
+    $role = canonical_role($user['role'] ?? '');
+    if ($role === 'student') {
         $stmt = $db->prepare("SELECT id FROM students WHERE user_id=?");
         $stmt->execute([$user['id']]);
         $studentId = $stmt->fetchColumn();
@@ -22,7 +23,7 @@ if ($action === 'list') {
             ORDER BY c.consultation_date DESC
         ");
         $stmt->execute([$studentId]);
-    } else {
+    } elseif (in_array($role, ['nurse', 'admin'], true)) {
         $studentId = (int)($_GET['student_id'] ?? 0);
         $search = trim($_GET['search'] ?? '');
         $where = '1=1';
@@ -44,6 +45,8 @@ if ($action === 'list') {
             ORDER BY c.consultation_date DESC
         ");
         $stmt->execute($params);
+    } else {
+        json_response(false, [], 'Access denied.');
     }
     json_response(true, ['data' => $stmt->fetchAll()]);
 }
@@ -91,7 +94,7 @@ if ($action === 'upload') {
 
 if ($action === 'delete') {
     csrf_verify_or_die();
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     $id = (int)($_POST['id'] ?? 0);
     $stmt = $db->prepare("SELECT * FROM medical_records WHERE id=?");
@@ -107,7 +110,7 @@ if ($action === 'delete') {
 }
 
 if ($action === 'consultations') {
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $studentId = (int)($_GET['student_id'] ?? 0);
     if ($studentId <= 0) json_response(false, [], 'Invalid student.');
 
@@ -117,7 +120,7 @@ if ($action === 'consultations') {
 }
 
 if ($action === 'detail') {
-    if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $visitId = (int)($_GET['visit_id'] ?? 0);
     if ($visitId <= 0) json_response(false, [], 'Invalid visit.');
 

@@ -380,6 +380,12 @@ function medicine_status($quantity, $reorderLevel, $expirationDate) {
  * Notify all nurses and admins about a medicine alert.
  */
 function notify_staff_medicine_alert($db, $medicine, $status) {
+    if (is_numeric($medicine)) {
+        $stmt = $db->prepare("SELECT id, medicine_name, quantity, expiration_date FROM medicines WHERE id = ?");
+        $stmt->execute([(int)$medicine]);
+        $medicine = $stmt->fetch() ?: [];
+    }
+    if (!is_array($medicine) || empty($medicine)) return;
     $mname = $medicine['medicine_name'] ?? 'Medicine';
     $titles = [
         'Low Stock'       => 'Low Stock: ' . $mname,
@@ -400,6 +406,7 @@ function notify_staff_medicine_alert($db, $medicine, $status) {
     $priority = in_array($status, ['Expired', 'Out of Stock'], true) ? 'high' : 'medium';
     $title  = $titles[$status];
     $msg    = $msgs[$status];
+    $relId  = !empty($medicine['id']) ? (int)$medicine['id'] : null;
     // Nurses
     $nurseStmt = $db->query("SELECT user_id FROM nurses");
     $nurseLink = APP_URL . '/pages/nurse/inventory.php?search=' . urlencode($mname);
@@ -871,19 +878,21 @@ function resolve_patient_qr($db, $payload) {
     $studentRes = verify_student_qr($db, $payload);
     if ($studentRes['valid']) {
         return [
-            'valid'       => true,
+            'valid'        => true,
             'patient_type' => 'student',
-            'id'          => (int)$studentRes['student_id'],
-            'record'      => $studentRes['student'],
+            'id'           => (int)$studentRes['student_id'],
+            'record'       => $studentRes['student'],
+            'student'      => $studentRes['student'],
         ];
     }
     $teacherRes = verify_teacher_qr($db, $payload);
     if ($teacherRes['valid']) {
         return [
-            'valid'       => true,
+            'valid'        => true,
             'patient_type' => 'teacher',
-            'id'          => (int)$teacherRes['teacher_id'],
-            'record'      => $teacherRes['teacher'],
+            'id'           => (int)$teacherRes['teacher_id'],
+            'record'       => $teacherRes['teacher'],
+            'teacher'      => $teacherRes['teacher'],
         ];
     }
     return ['valid' => false, 'patient_type' => null, 'id' => null, 'record' => null, 'reason' => $studentRes['reason'] ?? 'invalid_token'];
