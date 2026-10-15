@@ -105,7 +105,7 @@ if (!function_exists('dbg_stat')) {
               </span>
             <?php endif; ?>
           </div>
-          <div class="dbg-stat__value"><?php
+          <div class="dbg-stat__value"<?= !empty($o['id']) ? ' id="' . e($o['id']) . '"' : '' ?>><?php
             if ($count && is_numeric($value)) {
                 echo '<span class="counter-animate" data-count="' . (int)$value . '">0</span>';
             } else {
@@ -129,14 +129,19 @@ if (!function_exists('dbg_panel_open')) {
         <section class="<?= $classes ?>">
           <?php if (!empty($o['title']) || !empty($o['action'])): ?>
             <div class="dbg-panel__head">
-              <?php if (!empty($o['title'])): ?>
-                <h3 class="dbg-panel__title">
-                  <i class="bi bi-<?= e($o['icon'] ?? 'list-ul') ?>"></i>
-                  <span class="dbg-clamp-1"><?= e($o['title']) ?><?= !empty($o['subtitle']) ? '<small>' . e($o['subtitle']) . '</small>' : '' ?></span>
-                </h3>
-              <?php endif; ?>
+              <div class="dbg-panel__head-text">
+                <?php if (!empty($o['title'])): ?>
+                  <h3 class="dbg-panel__title">
+                    <?php if (!empty($o['icon'])): ?><i class="bi bi-<?= e($o['icon']) ?>"></i><?php endif; ?>
+                    <span><?= e($o['title']) ?></span>
+                  </h3>
+                <?php endif; ?>
+                <?php if (!empty($o['subtitle'])): ?>
+                  <p class="dbg-panel__sub"><?= e($o['subtitle']) ?></p>
+                <?php endif; ?>
+              </div>
               <?php if (!empty($o['action'])): ?>
-                <div class="dbg-btn-row"><?= $o['action'] ?></div>
+                <div class="dbg-btn-row dbg-panel__actions"><?= $o['action'] ?></div>
               <?php endif; ?>
             </div>
           <?php endif; ?>

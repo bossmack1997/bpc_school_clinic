@@ -643,7 +643,20 @@ textarea:focus-visible,
   text-overflow: ellipsis;
 }
 
-.topbar .welcome-text { display: none; }
+.topbar .welcome-text {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-meta);
+  line-height: 1.35;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar .welcome-text .current-date {
+  color: var(--text-muted);
+}
 
 .topbar-right {
   display: flex;

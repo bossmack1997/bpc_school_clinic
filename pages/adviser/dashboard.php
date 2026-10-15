@@ -143,11 +143,6 @@ $pageDescription = 'Monitor your assigned students and clinic access';
           'title' => dbg_greeting() . ', ' . $teacherFirstName . ' ',
           'desc'  => 'Monitor your assigned students and access clinic services.',
           'tone'  => 'slate',
-          'chips' => [
-              ['label' => 'Assigned sections', 'value' => (string) $sectionCount],
-              ['label' => 'Students', 'value' => (string) $studentCount],
-              ['label' => 'Clinic alerts', 'value' => (string) $alertTotal, 'dot' => $alertTotal > 0 ? 'warn' : ''],
-          ],
           'badge_icon'  => 'mortarboard-fill',
           'badge_label' => 'Faculty',
       ]);

@@ -10,8 +10,8 @@
 $u = current_user();
 // Role directory used for absolute links (works on every page, including
 // the consolidated pages/ai_assistant.php at the pages/ root).
-$validRoleDirs = ['admin', 'nurse', 'student', 'adviser'];
-$navRoleDir = in_array($u['role'] ?? '', $validRoleDirs, true) ? $u['role'] : 'student';
+$uRole = $u['role'] ?? 'student';
+$navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_array($uRole, ['admin', 'nurse', 'student'], true) ? $uRole : 'student');
 ?>
 <!-- Page Loader Overlay -->
 <div class="page-loader">
@@ -21,10 +21,10 @@ $navRoleDir = in_array($u['role'] ?? '', $validRoleDirs, true) ? $u['role'] : 's
 <div class="topbar">
   <div class="topbar-left">
     <!-- Mobile Toggle -->
-    <button id="sidebarToggle" class="btn btn-secondary btn-icon d-xl-none">
+    <button id="sidebarToggle" class="btn btn-secondary btn-icon d-xl-none" aria-label="Toggle sidebar" title="Toggle sidebar">
       <i class="bi bi-list"></i>
     </button>
-    <div>
+    <div class="topbar-headings">
       <div class="page-title"><?= e($pageTitle ?? 'Dashboard') ?></div>
       <div class="welcome-text">Welcome back, <?= e($u['first_name']) ?>! <span class="current-date">· <?= date('l, F j, Y') ?></span></div>
     </div>

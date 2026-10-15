@@ -1971,6 +1971,8 @@ function escapeHtml(text) {
 
     if (open) {
       C.dom.micaWidget.classList.add('open');
+      var sosBanner = document.getElementById('studentActiveSosBanner');
+      if (sosBanner) sosBanner.classList.add('mica-open-dock');
       var fabIcon = C.dom.micaFab.querySelector('.mica-fab-icon');
       if (fabIcon) fabIcon.innerHTML = '<i class="bi bi-x-lg"></i>';
       var fabText = C.dom.micaFab.querySelector('.mica-fab-text');
@@ -1989,6 +1991,8 @@ function escapeHtml(text) {
       // The user must explicitly press the microphone button.
     } else {
       C.dom.micaWidget.classList.remove('open');
+      var sosBanner2 = document.getElementById('studentActiveSosBanner');
+      if (sosBanner2) sosBanner2.classList.remove('mica-open-dock');
       var fabIcon2 = C.dom.micaFab.querySelector('.mica-fab-icon');
       if (fabIcon2) fabIcon2.innerHTML = '<i class="bi bi-robot"></i>';
       var fabText2 = C.dom.micaFab.querySelector('.mica-fab-text');

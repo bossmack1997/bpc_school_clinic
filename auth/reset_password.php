@@ -136,6 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'auth'
                     );
 
+                    reset_rate_limit_clear($_SERVER['REMOTE_ADDR'] ?? 'unknown');
                     csrf_regenerate();
 
                     $done = true;
@@ -167,10 +168,13 @@ $pageTitle = 'Reset Password';
 
 <div class="auth-wrapper">
 
-    <div
-        class="auth-card"
-        style="max-width:520px; grid-template-columns:1fr;"
-    >
+    <div class="auth-card" data-aos="fade-up" data-aos-duration="800">
+
+        <div class="auth-side">
+            <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo"></div>
+            <h2 class="mb-2">Recover your secure clinic access</h2>
+            <p class="mb-0">Create a new password to regain access to your school clinic dashboard, health records, and account services.</p>
+        </div>
 
         <div class="auth-form-side">
 
@@ -178,26 +182,18 @@ $pageTitle = 'Reset Password';
 
                 <div class="text-center">
 
-                    <div
-                        class="auth-icon d-inline-flex mb-3"
-                        style="font-size:2rem;color:var(--primary)"
-                    >
+                    <div class="auth-icon d-inline-flex mb-3" style="font-size:2rem;color:var(--primary)">
                         <i class="bi bi-check-circle-fill"></i>
                     </div>
 
-                    <h4 class="mb-2">
-                        Password Reset Successful
-                    </h4>
+                    <h4 class="mb-2">Password Reset Successful</h4>
 
                     <p class="text-muted mb-4">
                         Your password has been successfully updated.
                         You can now log in using your new password.
                     </p>
 
-                    <a
-                        href="login.php"
-                        class="btn btn-primary w-100 py-2 fw-semibold"
-                    >
+                    <a href="login.php" class="btn btn-primary w-100 py-2 fw-semibold">
                         <i class="bi bi-box-arrow-in-right me-1"></i>
                         Go to Login
                     </a>
@@ -208,16 +204,11 @@ $pageTitle = 'Reset Password';
 
                 <div class="text-center">
 
-                    <div
-                        class="auth-icon d-inline-flex mb-3"
-                        style="font-size:2rem;color:#dc3545"
-                    >
+                    <div class="auth-icon d-inline-flex mb-3" style="font-size:2rem;color:#dc3545">
                         <i class="bi bi-link-45deg"></i>
                     </div>
 
-                    <h4 class="mb-2">
-                        Invalid or Expired Link
-                    </h4>
+                    <h4 class="mb-2">Invalid or Expired Link</h4>
 
                     <p class="text-muted mb-4">
                         This password reset link is invalid or has expired.
@@ -225,148 +216,59 @@ $pageTitle = 'Reset Password';
                     </p>
 
                     <?php if ($errors): ?>
-
                         <div class="alert alert-danger py-2 small text-start">
-
                             <i class="bi bi-exclamation-triangle-fill me-1"></i>
-
-                            <?= implode(
-                                '<br>',
-                                array_map('e', $errors)
-                            ) ?>
-
+                            <?= implode('<br>', array_map('e', $errors)) ?>
                         </div>
-
                     <?php endif; ?>
 
-                    <a
-                        href="forgot_password.php"
-                        class="btn btn-primary w-100 py-2 fw-semibold"
-                    >
+                    <a href="forgot_password.php" class="btn btn-primary w-100 py-2 fw-semibold">
                         <i class="bi bi-envelope me-1"></i>
                         Request New Reset Link
                     </a>
 
-                    <a
-                        href="login.php"
-                        class="btn btn-link w-100 text-decoration-none mt-2"
-                    >
-                        Back to Login
-                    </a>
+                    <a href="login.php" class="btn btn-link w-100 text-decoration-none mt-2">Back to Login</a>
 
                 </div>
 
             <?php else: ?>
 
                 <div class="text-center mb-4">
-
-                    <div
-                        class="auth-icon d-inline-flex mb-3"
-                        style="font-size:2rem;color:var(--primary)"
-                    >
+                    <div class="auth-icon d-inline-flex mb-3" style="font-size:2rem;color:var(--primary)">
                         <i class="bi bi-shield-lock-fill"></i>
                     </div>
-
-                    <h4 class="mb-1">
-                        Create New Password
-                    </h4>
-
-                    <p class="text-muted mb-0">
-                        Enter a strong password for your account.
-                    </p>
-
+                    <h4 class="mb-1">Create New Password</h4>
+                    <p class="text-muted mb-0">Enter a strong password for your account.</p>
                 </div>
 
                 <?php if ($errors): ?>
-
                     <div class="alert alert-danger py-2 small">
-
                         <i class="bi bi-exclamation-triangle-fill me-1"></i>
-
-                        <?= implode(
-                            '<br>',
-                            array_map('e', $errors)
-                        ) ?>
-
+                        <?= implode('<br>', array_map('e', $errors)) ?>
                     </div>
-
                 <?php endif; ?>
 
                 <form method="POST" id="resetForm">
-
                     <?= csrf_field() ?>
-
-                    <input
-                        type="hidden"
-                        name="token"
-                        value="<?= e($token) ?>"
-                    >
+                    <input type="hidden" name="token" value="<?= e($token) ?>">
 
                     <div class="mb-3">
-
-                        <label
-                            class="form-label fw-semibold"
-                            for="newPw"
-                        >
-                            New Password
-                        </label>
-
-                        <input
-                            type="password"
-                            name="password"
-                            id="newPw"
-                            class="form-control"
-                            required
-                            minlength="8"
-                            autocomplete="new-password"
-                            placeholder="Enter your new password"
-                        >
-
-                        <div class="form-text">
-                            Minimum 8 characters with uppercase,
-                            lowercase, number, and special character.
-                        </div>
-
+                        <label class="form-label fw-semibold" for="newPw">New Password</label>
+                        <input type="password" name="password" id="newPw" class="form-control" required minlength="8" autocomplete="new-password" placeholder="Enter your new password">
+                        <div class="form-text">Minimum 8 characters with uppercase, lowercase, number, and special character.</div>
                     </div>
 
                     <div class="mb-4">
-
-                        <label
-                            class="form-label fw-semibold"
-                            for="confirmPw"
-                        >
-                            Confirm New Password
-                        </label>
-
-                        <input
-                            type="password"
-                            name="confirm_password"
-                            id="confirmPw"
-                            class="form-control"
-                            required
-                            minlength="8"
-                            autocomplete="new-password"
-                            placeholder="Re-enter your new password"
-                        >
-
+                        <label class="form-label fw-semibold" for="confirmPw">Confirm New Password</label>
+                        <input type="password" name="confirm_password" id="confirmPw" class="form-control" required minlength="8" autocomplete="new-password" placeholder="Re-enter your new password">
                     </div>
 
-                    <button
-                        type="submit"
-                        class="btn btn-primary w-100 py-2 fw-semibold"
-                        id="resetBtn"
-                    >
+                    <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold" id="resetBtn">
                         <i class="bi bi-check2-circle me-1"></i>
                         Reset Password
                     </button>
 
-                    <a
-                        href="login.php"
-                        class="btn btn-link w-100 text-decoration-none mt-2"
-                    >
-                        Back to Login
-                    </a>
-
+                    <a href="login.php" class="btn btn-link w-100 text-decoration-none mt-2">Back to Login</a>
                 </form>
 
             <?php endif; ?>

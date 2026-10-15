@@ -170,10 +170,6 @@ $pageDescription = 'Your clinic information, services, and queue';
                 <b><?= e($sectionLabel) ?></b>
               </div>
               <div class="dbg-profile__fact">
-                <span>Clinic visits</span>
-                <b><?= $totalVisits ?> recorded</b>
-              </div>
-              <div class="dbg-profile__fact">
                 <span>Certificates</span>
                 <b><?= $certCount ?> on file</b>
               </div>
@@ -288,27 +284,55 @@ $pageDescription = 'Your clinic information, services, and queue';
                   'action'=> '<a class="dbg-btn dbg-btn--primary dbg-btn--sm" href="' . APP_URL . '/pages/student/queue.php"><i class="bi bi-ticket-perforated"></i> Book a clinic visit</a>',
               ]); ?>
             <?php else: ?>
-              <div class="dbg-stats dbg-stats--3 dbg-stats--tight">
+              <div class="dbg-stats dbg-stats--3 dbg-stats--tight mb-3">
                 <?php
-                dbg_stat(['tone' => 'green', 'icon' => 'clipboard-data', 'value' => $totalVisits, 'count' => true, 'label' => 'Total Visits']);
-                dbg_stat(['tone' => 'teal',  'icon' => 'speedometer2',  'value' => $latestVitals && $latestVitals['bmi'] !== null ? e(number_format((float)$latestVitals['bmi'], 1)) : '—', 'label' => 'Latest BMI']);
-                dbg_stat(['tone' => 'blue',  'icon' => 'calendar-check', 'value' => $lastVisit ? e(format_date($lastVisit['consultation_date'])) : '—', 'label' => 'Last Visit']);
+                dbg_stat([
+                    'tone'  => 'green',
+                    'icon'  => 'clipboard-data',
+                    'value' => $totalVisits,
+                    'count' => true,
+                    'label' => 'Total Visits',
+                    'note'  => '<span class="text-muted small">Recorded clinic visits</span>'
+                ]);
+                $bmiVal = $latestVitals && $latestVitals['bmi'] !== null ? number_format((float)$latestVitals['bmi'], 1) : '—';
+                $bmiNote = '';
+                if ($latestVitals && !empty($latestVitals['bmi_status'])) {
+                    $bmiStatus = ucfirst((string)$latestVitals['bmi_status']);
+                    $tone = in_array(strtolower($bmiStatus), ['normal', 'healthy'], true) ? 'teal' : 'orange';
+                    $bmiNote = '<span class="dbg-badge dbg-badge--' . $tone . '" style="font-size:0.68rem;">' . e($bmiStatus) . '</span>';
+                }
+                dbg_stat([
+                    'tone'  => 'teal',
+                    'icon'  => 'speedometer2',
+                    'value' => $bmiVal,
+                    'label' => 'Latest BMI',
+                    'note'  => $bmiNote ?: '<span class="text-muted small">Body Mass Index</span>'
+                ]);
+                dbg_stat([
+                    'tone'  => 'blue',
+                    'icon'  => 'calendar-check',
+                    'value' => $lastVisit ? e(format_date($lastVisit['consultation_date'])) : '—',
+                    'label' => 'Last Visit',
+                    'note'  => $lastVisit && !empty($lastVisit['chief_complaint']) ? '<span class="dbg-clamp-1 text-muted small">' . e($lastVisit['chief_complaint']) . '</span>' : '<span class="text-muted small">Clinic checkup</span>'
+                ]);
                 ?>
               </div>
-              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                <div class="d-flex align-items-center gap-2">
-                  <span class="dbg-avatar"><i class="bi bi-heart-pulse"></i></span>
-                  <span>
-                    <span class="d-block" style="font-weight:600;font-size:0.88rem;">
-                      <?= $latestVitals && !empty($latestVitals['blood_pressure']) ? 'Last recorded: ' . e($latestVitals['blood_pressure']) : 'No recent vitals recorded' ?>
-                      <?php if ($latestVitals && !empty($latestVitals['heart_rate'])): ?>
-                        <span class="dbg-muted" style="font-weight:400;">&middot; <?= (int)$latestVitals['heart_rate'] ?> bpm</span>
-                      <?php endif; ?>
-                    </span>
-                    <span class="dbg-muted" style="font-size:0.75rem;">
-                      <?= !empty($latestVitals['recorded_at']) ? format_datetime($latestVitals['recorded_at']) : 'Visit the clinic to update' ?>
-                    </span>
+              <div class="p-3 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-3">
+                  <span class="dbg-avatar bg-primary-light text-primary" style="width:42px;height:42px;font-size:1.2rem;">
+                    <i class="bi bi-heart-pulse"></i>
                   </span>
+                  <div>
+                    <div style="font-weight:600;font-size:0.92rem;color:var(--text-primary);">
+                      <?= $latestVitals && !empty($latestVitals['blood_pressure']) ? 'BP: <strong>' . e($latestVitals['blood_pressure']) . '</strong>' : 'No vitals recorded yet' ?>
+                      <?php if ($latestVitals && !empty($latestVitals['heart_rate'])): ?>
+                        <span class="ms-2 text-secondary fw-normal">&middot; Pulse: <strong><?= (int)$latestVitals['heart_rate'] ?></strong> bpm</span>
+                      <?php endif; ?>
+                    </div>
+                    <div class="text-muted" style="font-size:0.75rem;">
+                      <i class="bi bi-clock me-1"></i><?= !empty($latestVitals['recorded_at']) ? 'Updated ' . format_datetime($latestVitals['recorded_at']) : 'Visit clinic for health assessment' ?>
+                    </div>
+                  </div>
                 </div>
                 <a class="dbg-btn dbg-btn--ghost dbg-btn--sm" href="<?= APP_URL ?>/pages/student/health_monitoring.php">
                   <i class="bi bi-activity"></i> Check my vitals

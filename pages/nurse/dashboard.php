@@ -161,7 +161,6 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
           'chips' => [
               ['label' => 'Clinic', 'value' => $clinicOpen ? 'Open' : 'No activity yet', 'dot' => $clinicOpen ? '' : 'warn'],
               ['label' => 'Queue', 'value' => $waitingCount > 0 ? 'Active' : 'Idle', 'dot' => $waitingCount > 0 ? '' : 'warn'],
-              ['label' => 'Patients today', 'value' => (string) $patientsToday],
               ['label' => 'Emergencies', 'value' => (string) $activeEmergencyCount, 'dot' => $activeEmergencyCount > 0 ? 'danger' : ''],
           ],
           'badge_icon'  => 'heart-pulse-fill',
@@ -188,6 +187,7 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
             'icon'   => 'hourglass-split',
             'value'  => $waitingCount,
             'count'  => true,
+            'id'     => 'dashStatWaiting',
             'label'  => 'Waiting',
             'note'   => '<span>' . ($waitingCount > 0 ? 'Line is building up' : 'No one in line') . '</span>',
         ]);
@@ -196,6 +196,7 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
             'icon'   => 'stethoscope',
             'value'  => $servingCount,
             'count'  => true,
+            'id'     => 'dashStatServing',
             'label'  => 'In Consultation',
             'note'   => '<span>' . ($servingCount > 0 ? 'Station(s) occupied' : 'Stations free') . '</span>',
         ]);
@@ -204,6 +205,7 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
             'icon'   => 'check2-circle',
             'value'  => $completedCount,
             'count'  => true,
+            'id'     => 'dashStatCompleted',
             'label'  => 'Completed',
             'note'   => '<span>' . $cancelledCount . ' cancelled / no-show</span>',
         ]);
@@ -219,7 +221,6 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
             <div class="dbg-queue__head">
               <span class="dbg-pulse"></span>
               Live Clinic Queue
-              <span class="dbg-badge" style="margin-left:auto;text-transform:none;letter-spacing:0;"><?= $completedCount ?> served today</span>
             </div>
 
             <!-- Now serving -->
@@ -278,11 +279,6 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
             <?php endif; ?>
 
             <div class="dbg-queue__foot">
-              <div class="dbg-queue__tally">
-                <div><b id="dashWaitingCount"><?= $waitingCount ?></b><span>Waiting</span></div>
-                <div><b id="dashServingCount"><?= $servingCount ?></b><span>In consultation</span></div>
-                <div><b id="dashCompletedCount"><?= $completedCount ?></b><span>Completed</span></div>
-              </div>
               <div class="dbg-btn-row">
                 <a class="dbg-btn dbg-btn--primary dbg-btn--sm" href="<?= APP_URL ?>/pages/nurse/queue.php">
                   <i class="bi bi-broadcast"></i> Open Queue
@@ -540,11 +536,11 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
         var waiting = parseInt(d.total_waiting, 10) || 0;
         var done = parseInt(d.total_completed, 10) || 0;
 
-        var w1 = document.getElementById('dashWaitingCount');
-        if (w1) w1.textContent = waiting;
+        var w1 = document.getElementById('dashStatWaiting');
+        if (w1) w1.textContent = waiting.toLocaleString();
 
-        var doneEl = document.getElementById('dashCompletedCount');
-        if (doneEl) doneEl.textContent = done;
+        var doneEl = document.getElementById('dashStatCompleted');
+        if (doneEl) doneEl.textContent = done.toLocaleString();
 
         // If the line clears out, keep the panel meaningful instead of stale
         var host = document.getElementById('dashQueueLiveRegion');
@@ -564,7 +560,9 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
     });
   }
 
-  refreshQueue();
+  // First refresh is delayed so the animated counters can finish
+  // their 1s intro before the live values replace them.
+  setTimeout(refreshQueue, 1200);
   setInterval(refreshQueue, 15000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshQueue(); });
 })();

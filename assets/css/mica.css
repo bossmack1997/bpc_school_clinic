@@ -37,25 +37,25 @@
 /* ------------------------------------------------------------------ */
 .mica-fab {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: 20px;
+  right: 20px;
   /* Below the modal backdrop (1050) so an open modal dims the
      launcher instead of the launcher floating above the dialog. */
-  z-index: 1045;
+  z-index: 1040;
   height: 48px;
   border-radius: 50px;
   border: none;
   background: linear-gradient(135deg, var(--mica-primary) 0%, var(--mica-accent) 100%);
   color: #fff;
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(11, 107, 58, 0.35);
+  box-shadow: 0 4px 18px rgba(11, 107, 58, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 0 16px;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   animation: micaFabAppear 0.5s ease-out;
   overflow: hidden;
 }
@@ -213,17 +213,14 @@
 /* ------------------------------------------------------------------ */
 .mica-widget {
   position: fixed;
-  bottom: 96px;
-  right: 24px;
-  /* Must sit below the modal backdrop (1050) and modal (1055).
-     The previous value (2147482990) forced the assistant panel
-     above every dialog, so modals appeared to open "behind" MICA. */
-  z-index: 1045 !important;
-  width: 450px;
+  bottom: 76px;
+  right: 20px;
+  z-index: 1046 !important;
+  width: 420px;
   max-width: calc(100vw - 32px);
-  height: 640px;
-  max-height: calc(100vh - 115px);
-  max-height: calc(100dvh - 115px);
+  height: 590px;
+  max-height: calc(100vh - 96px);
+  max-height: calc(100dvh - 96px);
   background: var(--mica-bg);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -1219,18 +1216,18 @@
 /* ------------------------------------------------------------------ */
 .sos-floating-widget {
   position: fixed;
-  bottom: 84px;
-  right: 24px;
-  z-index: 1050;
+  bottom: 76px;
+  right: 20px;
+  z-index: 1045;
   max-width: 360px;
-  min-width: 290px;
+  min-width: 280px;
   background: #ffffff;
   border: 1px solid #fecaca;
   border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(220, 53, 69, 0.18), 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 6px 20px rgba(220, 53, 69, 0.18), 0 2px 8px rgba(0, 0, 0, 0.06);
   animation: slideUpSosWidget 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
-  transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+  transition: bottom 0.3s ease, top 0.3s ease, transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
 [data-theme="dark"] .sos-floating-widget {
@@ -1242,6 +1239,17 @@
 
 .sos-floating-widget:hover {
   box-shadow: 0 10px 28px rgba(220, 53, 69, 0.25), 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* When MICA Assistant is open, smoothly dock the active SOS banner at top-right */
+body:has(.mica-widget.open) .sos-floating-widget,
+.mica-widget.open ~ .sos-floating-widget,
+.sos-floating-widget.mica-open-dock {
+  bottom: auto !important;
+  top: 74px !important;
+  right: 20px !important;
+  z-index: 1048 !important;
+  box-shadow: 0 8px 24px rgba(220, 53, 69, 0.3);
 }
 
 /* Header bar */
@@ -1403,12 +1411,30 @@
 
 /* Mobile Responsiveness */
 @media (max-width: 576px) {
+  .mica-widget {
+    bottom: 68px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+    max-width: calc(100vw - 20px);
+    height: calc(100dvh - 84px);
+    max-height: calc(100dvh - 84px);
+    border-radius: 16px;
+  }
   .sos-floating-widget {
-    bottom: 74px;
-    right: 16px;
-    left: auto;
-    max-width: calc(100vw - 32px);
-    min-width: 260px;
+    bottom: 68px;
+    right: 12px;
+    left: 12px;
+    max-width: calc(100vw - 24px);
+    min-width: 0;
+  }
+  body:has(.mica-widget.open) .sos-floating-widget,
+  .mica-widget.open ~ .sos-floating-widget,
+  .sos-floating-widget.mica-open-dock {
+    top: 66px !important;
+    right: 12px !important;
+    left: 12px !important;
+    max-width: calc(100vw - 24px) !important;
   }
   .sos-widget-title strong {
     font-size: 0.78rem;

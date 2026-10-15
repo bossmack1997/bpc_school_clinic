@@ -4,11 +4,43 @@
  */
 
 function current_user() {
-    return $_SESSION['user'] ?? null;
+    $user = $_SESSION['user'] ?? null;
+    if (!is_array($user) || empty($user['id'])) {
+        return null;
+    }
+
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT id, role, status, admin_type FROM users WHERE id = ? LIMIT 1");
+        $stmt->execute([(int)$user['id']]);
+        $dbUser = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$dbUser || ($dbUser['status'] ?? '') !== 'active' || !is_supported_role($dbUser['role'] ?? '')) {
+            return null;
+        }
+
+        $_SESSION['user'] = [
+            'id' => (int)$dbUser['id'],
+            'role' => canonical_role($dbUser['role']),
+            'admin_type' => $dbUser['admin_type'] ?? null,
+            'username' => $dbUser['username'] ?? ($user['username'] ?? null),
+            'email' => $dbUser['email'] ?? ($user['email'] ?? null),
+            'first_name' => $dbUser['first_name'] ?? ($user['first_name'] ?? null),
+            'last_name' => $dbUser['last_name'] ?? ($user['last_name'] ?? null),
+            'phone' => $dbUser['phone'] ?? ($user['phone'] ?? ''),
+            'profile_picture' => $dbUser['profile_picture'] ?? ($user['profile_picture'] ?? null),
+        ];
+
+        return $_SESSION['user'];
+    } catch (Throwable $e) {
+        error_log('current_user verification failed: ' . $e->getMessage());
+        return $_SESSION['user'] ?? null;
+    }
 }
 
 function is_logged_in() {
-    return isset($_SESSION['user']);
+    $user = current_user();
+    return is_array($user) && !empty($user['id']);
 }
 
 function require_login() {
@@ -37,11 +69,19 @@ function check_session_timeout() {
 
 function require_role($roles) {
     require_login();
+
+    $currentUser = current_user();
+    if (!$currentUser) {
+        logout_user();
+        redirect(APP_URL . '/auth/login.php?timeout=1');
+        exit;
+    }
+
     $roles = is_array($roles) ? $roles : [$roles];
-    // `adviser` is a legacy database value.  The application deliberately
+    // `adviser` is a legacy database value. The application deliberately
     // exposes it as Teacher while the data migration is being applied.
     $roles = array_map('canonical_role', $roles);
-    $userRole = canonical_role(current_user()['role'] ?? '');
+    $userRole = canonical_role($currentUser['role'] ?? '');
     if (!in_array($userRole, $roles, true)) {
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
             http_response_code(403);
@@ -210,6 +250,7 @@ function attempt_remember_me_login() {
     $user = $stmt->fetch();
 
     if (!$user || empty($user['remember_token'])) return false;
+    if (!is_supported_role($user['role'] ?? '')) return false;
 
     [$storedSelector, $storedHash] = array_pad(explode(':', $user['remember_token']), 2, '');
     if (!hash_equals($storedSelector, $selector)) return false;

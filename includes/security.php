@@ -396,6 +396,28 @@ function validate_session(): bool {
         return false;
     }
 
+    $uId = (int)($_SESSION['user']['id'] ?? 0);
+    if ($uId <= 0) {
+        return false;
+    }
+
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT id, role, status, admin_type FROM users WHERE id = ? LIMIT 1");
+        $stmt->execute([$uId]);
+        $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$userRow || ($userRow['status'] ?? '') !== 'active' || !is_supported_role($userRow['role'] ?? '')) {
+            return false;
+        }
+
+        $_SESSION['user']['role'] = canonical_role($userRow['role']);
+        $_SESSION['user']['admin_type'] = $userRow['admin_type'] ?? null;
+    } catch (Throwable $e) {
+        error_log('validate_session user verification failed: ' . $e->getMessage());
+        return false;
+    }
+
     $timeout = 3600; // 1 hour
     if (time() - $_SESSION['last_activity'] > $timeout) {
         return false;
@@ -406,7 +428,6 @@ function validate_session(): bool {
     // Throttled database activity timestamp update (at most once every 30 seconds per session)
     if (!isset($_SESSION['last_db_activity_update']) || (time() - (int)$_SESSION['last_db_activity_update']) > 30) {
         $_SESSION['last_db_activity_update'] = time();
-        $uId = (int)($_SESSION['user']['id'] ?? 0);
         if ($uId > 0) {
             try {
                 $db = getDB();
