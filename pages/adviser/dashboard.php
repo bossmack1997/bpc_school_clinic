@@ -265,7 +265,7 @@ $pageDescription = 'Monitor your assigned students and clinic access';
                     <span class="dbg-timeline__node dbg-timeline__node--red"><i class="bi bi-heart-pulse-fill"></i></span>
                     <span class="dbg-staff__meta">
                       <span class="mi-title"><?= e($emg['student_name'] ?: 'Student') ?></span>
-                      <span class="mi-sub"><?= e($emg['emergency_type'] ?: 'Emergency') ?> &middot; <?= e($emg['student_number'] ?: '—') ?> &middot; <?= format_datetime($emg['created_at'], 'M d g:i A') ?></span>
+                      <span class="mi-sub"><?= e($emg['emergency_type'] ?: 'Emergency') ?> &middot; <?= e($emg['student_number'] ?: '—') ?> &middot; <?= format_datetime($emg['created_at']) ?><?php $relativeTime = format_relative_datetime($emg['created_at']); ?><?= $relativeTime !== '' ? ' &middot; ' . e($relativeTime) : '' ?></span>
                     </span>
                   </li>
                 <?php endforeach; ?>
@@ -322,7 +322,7 @@ $pageDescription = 'Monitor your assigned students and clinic access';
             <?php else: ?>
               <div class="dbg-search">
                 <i class="bi bi-search"></i>
-                <input type="search" id="myStudentsSearch" placeholder="Search student by name or student no." aria-label="Search my students">
+                <input type="search" id="myStudentsSearch" placeholder="Search name or ID" aria-label="Search my students">
               </div>
               <div class="dbg-roster" id="myStudentsRoster">
                 <?php foreach (array_slice($students, 0, 40) as $s): ?>
@@ -332,9 +332,9 @@ $pageDescription = 'Monitor your assigned students and clinic access';
                   ?>
                   <a class="dbg-roster__row" href="<?= APP_URL ?>/pages/adviser/student_detail.php?id=<?= (int)$s['id'] ?>"
                      data-student="<?= e($haystack) ?>">
-                    <span class="dbg-avatar">
+                    <span class="avatar dbg-avatar">
                       <?php if (!empty($s['profile_picture'])): ?>
-                        <img src="<?= e(app_url($s['profile_picture'])) ?>" alt="<?= e($s['first_name'] ?? '') ?>" onerror="this.remove()">
+                        <img class="avatar" src="<?= e(app_url($s['profile_picture'])) ?>" alt="<?= e($s['first_name'] ?? '') ?>" onerror="this.onerror=null;this.src='<?= e(asset_url('images/default-avatar.svg')) ?>'">
                       <?php else: ?>
                         <?= e($initials ?: '—') ?>
                       <?php endif; ?>

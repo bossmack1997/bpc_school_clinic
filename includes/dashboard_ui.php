@@ -25,7 +25,7 @@
 if (!function_exists('dbg_greeting')) {
     function dbg_greeting(): string
     {
-        $hour = (int)date('G');
+        $hour = (int)(new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('G');
         if ($hour >= 5 && $hour < 12) return 'Good morning';
         if ($hour >= 12 && $hour < 18) return 'Good afternoon';
         return 'Good evening';
@@ -53,7 +53,7 @@ if (!function_exists('dbg_hero')) {
                   <i class="bi bi-shield-check"></i><?= e($role) ?>
                 </span>
               <?php endif; ?>
-              <h1 class="dbg-hero__title"><?= $o['title'] ?? '' ?></h1>
+              <h2 class="dbg-hero__title"><?= $o['title'] ?? '' ?></h2>
               <?php if (!empty($o['desc'])): ?>
                 <p class="dbg-hero__desc"><?= $o['desc'] ?></p>
               <?php endif; ?>

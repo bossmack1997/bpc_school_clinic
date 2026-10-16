@@ -1,0 +1,253 @@
+/* Shared dashboard finishing layer. Loads last; business logic stays in each view. */
+:root {
+  --dashboard-page-gutter: clamp(12px, 2vw, 28px);
+  --dashboard-card-radius: var(--radius-lg, 16px);
+  --dashboard-card-shadow: var(--shadow-sm, 0 2px 10px rgb(15 23 42 / 6%));
+}
+
+.content-area.dbg-canvas,
+.content-area:has(.adm-greet) {
+  width: 100%;
+  min-width: 0;
+  padding: 20px var(--dashboard-page-gutter) calc(90px + env(safe-area-inset-bottom, 0px));
+  overflow-x: clip;
+}
+
+.topbar-clock-date { font-weight: 400; opacity: .7; }
+
+.dbg-hero,
+.adm-greet {
+  min-width: 0;
+  margin-bottom: 16px;
+  border-radius: var(--dashboard-card-radius);
+  box-shadow: var(--dashboard-card-shadow);
+}
+
+.dbg-stats,
+.adm-grid {
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dbg-stat,
+.adm-stat {
+  min-width: 0;
+  min-height: 132px;
+  height: 100%;
+  border-radius: var(--dashboard-card-radius);
+  box-shadow: var(--dashboard-card-shadow);
+}
+
+.dbg-stat__icon,
+.adm-stat__ico {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+}
+
+.dbg-panel,
+.dbg-profile,
+.dbg-qr,
+.dbg-queue,
+.adm-card {
+  min-width: 0;
+  height: 100%;
+  border-radius: var(--dashboard-card-radius);
+  box-shadow: var(--dashboard-card-shadow);
+}
+
+.dbg-panel__head,
+.adm-card__head {
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.dbg-panel__body,
+.adm-card__body {
+  min-width: 0;
+  padding: 16px 18px;
+}
+
+.dbg-canvas .row,
+.adm-split {
+  min-width: 0;
+  align-items: stretch;
+}
+
+.sidebar-toggle-collapse { right: 10px; left: auto; transform: none; }
+.sidebar.collapsed .sidebar-toggle-collapse { right: 10px; left: auto; transform: rotate(180deg); }
+
+.dbg-search {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.dbg-search > .bi-search {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 14px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.dbg-search input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding-left: 42px;
+  font-size: 16px;
+}
+
+.dbg-roster__row { min-width: 0; }
+.dbg-roster__info { flex: 1 1 auto; min-width: 0; }
+.dbg-roster__name,
+.dbg-roster__id { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Shared avatar contract for navbar, dashboard identities, roster rows and lists. */
+.avatar,
+.app-avatar,
+.dbg-avatar,
+.app-avatar-sm,
+.staff-avatar,
+.messenger-avatar,
+.messenger-avatar-placeholder,
+.staff-avatar-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  flex: 0 0 40px;
+  overflow: hidden;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.avatar img,
+.app-avatar img,
+.dbg-avatar img,
+.staff-avatar img,
+.messenger-avatar img,
+.avatar > img,
+.app-avatar > img,
+.dbg-avatar > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  flex: 0 0 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.dbg-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 12px;
+}
+
+.dbg-actions > *,
+.dbg-action {
+  min-width: 0;
+  min-height: 132px;
+  height: 100%;
+}
+
+.dbg-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 16px;
+  white-space: normal;
+}
+
+.dbg-action__icon { width: 40px; height: 40px; flex: 0 0 40px; }
+.dbg-action__title { margin-top: 10px; line-height: 1.35; overflow-wrap: anywhere; }
+.dbg-action__desc { line-height: 1.45; overflow-wrap: anywhere; }
+
+.adm-stat__label,
+.adm-stat__value,
+.adm-stat__note { min-width: 0; overflow-wrap: anywhere; }
+
+@media (min-width: 992px) {
+  .dbg-canvas .row > .col-xl-7 { flex: 0 0 58.333333%; max-width: 58.333333%; }
+  .dbg-canvas .row > .col-xl-5 { flex: 0 0 41.666667%; max-width: 41.666667%; }
+  .dbg-canvas .row > .col-xl-6 { flex: 0 0 50%; max-width: 50%; }
+  .dbg-canvas .row > .col-xl-4 { flex: 0 0 33.333333%; max-width: 33.333333%; }
+  .dbg-canvas .row > .col-xl-3 { flex: 0 0 25%; max-width: 25%; }
+}
+
+@media (min-width: 1200px) {
+  .dbg-actions { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+@media (max-width: 991.98px) {
+  .dbg-actions.dbg-actions--auto,
+  .dbg-actions.dbg-actions--4,
+  .dbg-actions.dbg-actions--5,
+  .dbg-actions.dbg-actions--6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dbg-stat, .adm-stat { min-height: 120px; }
+}
+
+@media (max-width: 575.98px) {
+  .content-area.dbg-canvas,
+  .content-area:has(.adm-greet) {
+    padding: 12px 12px calc(90px + env(safe-area-inset-bottom, 0px));
+  }
+  .dbg-stats.dbg-stats--2,
+  .dbg-stats.dbg-stats--3,
+  .dbg-stats.dbg-stats--4,
+  .dbg-stats.dbg-stats--5,
+  .dbg-stats.dbg-stats--6,
+  .adm-grid.adm-grid--2,
+  .adm-grid.adm-grid--3,
+  .adm-grid.adm-grid--4,
+  .adm-grid.adm-grid--5,
+  .adm-grid.adm-grid--6 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .dbg-stat,
+  .adm-stat { min-height: 116px; padding: 12px; }
+  .dbg-stat__icon,
+  .adm-stat__ico { width: 36px; height: 36px; flex-basis: 36px; }
+  .dbg-panel__head,
+  .adm-card__head { padding: 14px; }
+  .dbg-panel__body,
+  .adm-card__body { padding: 14px; }
+  .dbg-canvas .dbg-btn,
+  .content-area:has(.adm-greet) .adm-btn { min-height: 44px; }
+  .dbg-actions.dbg-actions--auto,
+  .dbg-actions.dbg-actions--4,
+  .dbg-actions.dbg-actions--5,
+  .dbg-actions.dbg-actions--6 { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .dbg-action { min-height: 96px; }
+  .avatar,
+  .app-avatar,
+  .dbg-avatar,
+  .app-avatar-sm,
+  .staff-avatar,
+  .messenger-avatar,
+  .messenger-avatar-placeholder,
+  .staff-avatar-placeholder {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    flex-basis: 36px;
+  }
+  .dbg-roster__row { gap: 10px; }
+  .mica-fab { width: 48px; min-width: 48px; height: 48px; padding: 0; border-radius: 50%; }
+  .mica-fab .mica-fab-text { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dbg-stat, .adm-stat, .dbg-action { transition: none !important; }
+}

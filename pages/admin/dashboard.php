@@ -234,7 +234,7 @@ $pageDescription = 'Clinic overview and system activity';
         </div>
         <div class="adm-greet__aside">
           <span class="adm-datechip">
-            <?= bpc_icon('calendar') ?> <?= date('l, F j, Y') ?>
+            <?= bpc_icon('calendar') ?> <?= format_datetime('now', 'l, F j, Y') ?>
           </span>
           <span class="adm-badge adm-badge--<?= e($statusTone === 'warning' ? 'warning' : $statusTone) ?>">
             <span class="adm-dot adm-dot--sm adm-dot--<?= $statusTone === 'success' ? 'ok' : ($statusTone === 'warning' ? 'warn' : e($statusTone)) ?>"></span>

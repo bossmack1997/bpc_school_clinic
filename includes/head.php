@@ -69,6 +69,7 @@ window.FIREBASE_CONFIG = {
 
 <!-- MICA Voice AI Assistant styles -->
 <link rel="stylesheet" href="<?= asset_url('css/mica.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/dashboard-unified.css') ?>">
 
 <script>const APP_URL = "<?= APP_URL ?>";</script>
 <!-- Moment.js for real-time clock -->

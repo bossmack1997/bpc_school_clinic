@@ -149,7 +149,7 @@ $pageDescription = 'Your clinic information, services, and queue';
               <span class="dbg-profile__avatar">
                 <?php $pic = trim((string)($u['profile_picture'] ?? '')); ?>
                 <?php if ($pic !== ''): ?>
-                  <img src="<?= e(app_url($pic)) ?>" alt="<?= e($fullName) ?>" onerror="this.remove()">
+                  <img class="avatar" src="<?= e(app_url($pic)) ?>" alt="<?= e($fullName) ?>" onerror="this.onerror=null;this.src='<?= e(asset_url('images/default-avatar.svg')) ?>'">
                 <?php else: ?>
                   <?= e($initial ?: 'S') ?>
                 <?php endif; ?>
@@ -474,7 +474,7 @@ $pageDescription = 'Your clinic information, services, and queue';
   function staffRow(n) {
     var dot = n.presence_status === 'online' ? '' : (n.presence_status === 'away' ? ' dbg-live-dot--away' : ' dbg-live-dot--offline');
     return '<div class="dbg-staff__row">'
-      + '<span class="dbg-avatar"><img src="' + (n.avatar || '') + '" alt="" onerror="this.style.display=\'none\'"></span>'
+      + '<span class="avatar dbg-avatar"><img class="avatar" src="' + (n.avatar || '<?= asset_url('images/default-avatar.svg') ?>') + '" alt="" onerror="this.onerror=null;this.src=\'<?= asset_url('images/default-avatar.svg') ?>\'"></span>'
       + '<span class="dbg-staff__meta">'
       + '<span class="dbg-staff__name">' + (n.name || 'Clinic Nurse') + '</span>'
       + '<span class="dbg-staff__status"><span class="dbg-live-dot' + dot + '"></span>' + (n.availability_label || 'Offline') + '</span>'

@@ -468,9 +468,35 @@ function format_date($date, $fmt = 'M d, Y') {
     return date($fmt, strtotime($date));
 }
 
-function format_datetime($date, $fmt = 'M d, Y g:i A') {
+function format_datetime($date, $fmt = 'M d, Y · g:i A') {
     if (!$date) return '—';
-    return date($fmt, strtotime($date));
+    try {
+        $manila = new DateTimeZone('Asia/Manila');
+        $value = $date instanceof DateTimeInterface
+            ? DateTimeImmutable::createFromInterface($date)
+            : new DateTimeImmutable((string)$date, $manila);
+        return $value->setTimezone($manila)->format($fmt);
+    } catch (Throwable $e) {
+        return '—';
+    }
+}
+
+function format_relative_datetime($date): string {
+    if (!$date) return '';
+    try {
+        $manila = new DateTimeZone('Asia/Manila');
+        $value = $date instanceof DateTimeInterface
+            ? DateTimeImmutable::createFromInterface($date)->setTimezone($manila)
+            : (new DateTimeImmutable((string)$date, $manila))->setTimezone($manila);
+        $seconds = max(0, (new DateTimeImmutable('now', $manila))->getTimestamp() - $value->getTimestamp());
+        if ($seconds < 60) return 'Just now';
+        if ($seconds < 3600) return (int)floor($seconds / 60) . ' min ago';
+        if ($seconds < 86400) return (int)floor($seconds / 3600) . ' hrs ago';
+        if ($seconds < 604800) return (int)floor($seconds / 86400) . ' days ago';
+        return '';
+    } catch (Throwable $e) {
+        return '';
+    }
 }
 
 function e($value) {

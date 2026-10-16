@@ -25,8 +25,8 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
       <i class="bi bi-list"></i>
     </button>
     <div class="topbar-headings">
-      <div class="page-title"><?= e($pageTitle ?? 'Dashboard') ?></div>
-      <div class="welcome-text">Welcome back, <?= e($u['first_name']) ?>! <span class="current-date">· <?= date('l, F j, Y') ?></span></div>
+      <h1 class="page-title"><?= e($pageTitle ?? 'Dashboard') ?></h1>
+      <div class="welcome-text">Welcome back, <?= e($u['first_name']) ?>! <span class="current-date">· <?= format_datetime('now', 'l, F j, Y') ?></span></div>
     </div>
   </div>
   <div class="topbar-right">
@@ -34,7 +34,7 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
     <div class="topbar-clock" title="Current Date & Time">
       <i class="bi bi-clock"></i>
       <span class="topbar-clock-time">--:--:--</span>
-      <span class="topbar-clock-date ms-1" style="font-weight:400;opacity:0.7;"><?= date('M d, Y') ?></span>
+      <span class="topbar-clock-date ms-1"><?= format_datetime('now', 'M d, Y') ?></span>
     </div>
 
     <!-- MICA Status Indicator (opens the SINGLE consolidated AI assistant page) -->
@@ -44,7 +44,7 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
     </a>
 
     <!-- Dark Mode Toggle -->
-    <button class="topbar-btn dark-toggle" id="darkModeToggle" title="Toggle Dark Mode">
+    <button class="topbar-btn dark-toggle" id="darkModeToggle" title="Toggle Dark Mode" aria-label="Toggle dark mode">
       <i class="bi bi-moon-stars"></i>
     </button>
 
@@ -54,7 +54,7 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
         <i class="bi bi-bell"></i>
         <span id="notifBadge" class="notif-badge d-none">0</span>
       </button>
-      <ul class="dropdown-menu dropdown-menu-end shadow" style="width:340px; max-height:420px; overflow-y:auto;" id="notifList">
+      <ul class="dropdown-menu dropdown-menu-end shadow topbar-notification-menu" id="notifList">
         <li class="dropdown-item text-muted small">Loading...</li>
       </ul>
       <script>window.NOTIFICATION_PAGE_URL = "<?= APP_URL ?>/pages/<?= $navRoleDir ?>/notifications.php";</script>
@@ -64,7 +64,7 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
     <div class="dropdown">
       <button class="profile-trigger" data-bs-toggle="dropdown">
         <?php $profileImage = trim((string)($u['profile_picture'] ?? '')); ?>
-        <img src="<?= e($profileImage !== '' ? app_url($profileImage) : asset_url('images/default-avatar.svg')) ?>" onerror="this.src='https://via.placeholder.com/32/0B6B3A/ffffff?text=U'" class="avatar" alt="Profile">
+        <img src="<?= e($profileImage !== '' ? app_url($profileImage) : asset_url('images/default-avatar.svg')) ?>" onerror="this.onerror=null;this.src='<?= e(asset_url('images/default-avatar.svg')) ?>'" class="avatar" alt="Profile">
         <span class="name d-none d-md-inline"><?= e($u['first_name'] . ' ' . $u['last_name']) ?></span>
         <span class="role-badge bg-primary-light text-primary d-none d-lg-inline"><?= e(get_role_display_name($u['role'])) ?></span>
       </button>
