@@ -310,7 +310,7 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
                     <span class="dbg-timeline__node dbg-timeline__node--red"><i class="bi bi-exclamation-octagon-fill"></i></span>
                     <span class="dbg-staff__meta">
                       <span class="mi-title"><?= e($emg['emergency_type'] ?: 'Emergency') ?></span>
-                      <span class="mi-sub"><?= e($emg['student_name'] ?: 'Unknown student') ?> &middot; <?= e($emg['student_number'] ?: '—') ?><?= !empty($emg['location']) ? ' &middot; ' . e($emg['location']) : '' ?> &middot; <?= format_datetime($emg['created_at'], 'g:i A') ?></span>
+                      <span class="mi-sub"><?= e($emg['student_name'] ?: 'Unknown student') ?> &middot; <?= e($emg['student_number'] ?: '—') ?><?= !empty($emg['location']) ? ' &middot; ' . e($emg['location']) : '' ?> &middot; <?= format_datetime($emg['created_at']) . (($relativeTime = format_relative_datetime($emg['created_at'])) !== '' ? ' &middot; ' . e($relativeTime) : '') ?></span>
                     </span>
                   </li>
                 <?php endforeach; ?>
