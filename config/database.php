@@ -5,11 +5,17 @@
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  */
 
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'bpc_clinic_system');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_CHARSET', 'utf8mb4');
+$dbHost = getenv('DB_HOST');
+$dbName = getenv('DB_NAME');
+$dbUser = getenv('DB_USER');
+$dbPass = getenv('DB_PASS');
+$dbCharset = getenv('DB_CHARSET');
+
+define('DB_HOST', $dbHost !== false && $dbHost !== '' ? $dbHost : 'localhost');
+define('DB_NAME', $dbName !== false && $dbName !== '' ? $dbName : 'bpc_clinic_system');
+define('DB_USER', $dbUser !== false && $dbUser !== '' ? $dbUser : 'root');
+define('DB_PASS', $dbPass !== false ? $dbPass : '');
+define('DB_CHARSET', $dbCharset !== false && $dbCharset !== '' ? $dbCharset : 'utf8mb4');
 
 function getDB() {
     static $pdo = null;
