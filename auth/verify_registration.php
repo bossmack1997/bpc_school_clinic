@@ -160,11 +160,11 @@ $pageTitle = 'Verify Email Ownership';
 <?php include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
-<div class="auth-wrapper" style="min-height:100vh;">
-  <div class="auth-card" style="max-width:540px; grid-template-columns:1fr;" data-aos="fade-up" data-aos-duration="800">
+<div class="auth-wrapper">
+  <div class="auth-card auth-card--compact" data-aos="fade-up" data-aos-duration="800">
     <div class="auth-form-side p-4 p-md-5">
       <div class="text-center mb-4">
-        <div class="auth-icon d-inline-flex mb-3" style="font-size:2.2rem;color:var(--primary);"><i class="bi bi-shield-check"></i></div>
+        <div class="auth-icon auth-icon--compact d-inline-flex mb-3"><i class="bi bi-shield-check"></i></div>
         <h4 class="mb-1 fw-bold">Verify Institutional Email</h4>
         <p class="text-muted small mb-0">We sent a 6-digit One-Time Password (OTP) to:</p>
         <p class="fw-bold text-dark mt-1 mb-0"><i class="bi bi-envelope-check text-success me-1"></i><?= e($maskedEmail) ?></p>

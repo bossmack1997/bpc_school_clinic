@@ -29,7 +29,7 @@ $pageDescription = 'Respond to active SOS emergency alerts';
         <div class="dbg-hero__inner">
           <div class="dbg-hero__text">
             <span class="dbg-hero__role"><i class="bi bi-shield-fill-exclamation"></i>Clinic Nurse</span>
-            <h1 class="dbg-hero__title">Emergency Center</h1>
+            <h2 class="dbg-hero__title">Emergency Center</h2>
             <p class="dbg-hero__desc">Acknowledge, respond to, and resolve SOS alerts raised across campus.</p>
             <div class="dbg-hero__meta">
               <span class="dbg-hero__chip" id="emgHeroActive"><span class="dbg-dot"></span>Active alerts <b>—</b></span>

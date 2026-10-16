@@ -215,7 +215,7 @@ if ($action === 'list_conversations') {
         $stmt = $db->prepare("
             SELECT c.id, c.conversation_type, c.title, c.created_by, c.status, c.created_at, c.updated_at,
                    (
-                       SELECT m.message_body 
+                       SELECT COALESCE(NULLIF(m.message_body, ''), CONCAT('[Attachment] ', COALESCE(m.attachment_name, '')))
                        FROM messages m 
                        WHERE m.conversation_id = c.id 
                        ORDER BY m.created_at DESC LIMIT 1
@@ -251,7 +251,7 @@ if ($action === 'list_conversations') {
         $stmt = $db->prepare("
             SELECT c.id, c.conversation_type, c.title, c.created_by, c.status, c.created_at, c.updated_at,
                    (
-                       SELECT m.message_body 
+                       SELECT COALESCE(NULLIF(m.message_body, ''), CONCAT('[Attachment] ', COALESCE(m.attachment_name, '')))
                        FROM messages m 
                        WHERE m.conversation_id = c.id 
                        ORDER BY m.created_at DESC LIMIT 1
@@ -455,7 +455,7 @@ if ($action === 'get_messages') {
     // Fetch messages (if after_id is given, only fetch newer messages)
     $afterCond = ($afterId > 0) ? "AND m.id > {$afterId}" : "";
     $mStmt = $db->prepare("
-        SELECT m.id, m.conversation_id, m.sender_id, m.message_body, m.message_type, m.read_at, m.created_at,
+        SELECT m.id, m.conversation_id, m.sender_id, m.message_body, m.message_type, m.attachment_path, m.attachment_name, m.attachment_mime, m.attachment_size, m.read_at, m.created_at,
                u.first_name, u.last_name, u.role, u.profile_picture
         FROM messages m
         JOIN users u ON u.id = m.sender_id
@@ -470,6 +470,8 @@ if ($action === 'get_messages') {
         $msg['sender_id'] = (int)$msg['sender_id'];
         $msg['is_outgoing'] = ($msg['sender_id'] === $userId);
         $msg['avatar'] = !empty($msg['profile_picture']) ? app_url($msg['profile_picture']) : asset_url('images/default-avatar.svg');
+        $msg['attachment_url'] = !empty($msg['attachment_path']) ? APP_URL . '/api/messages.php?action=download_attachment&id=' . (int)$msg['id'] : null;
+        unset($msg['attachment_path']);
     }
     unset($msg);
 
@@ -486,19 +488,51 @@ if ($action === 'send_message') {
     csrf_verify_or_die();
     $convId = (int)($_POST['conversation_id'] ?? 0);
     $messageBody = trim($_POST['message_body'] ?? '');
+    $upload = $_FILES['attachment'] ?? null;
 
     if ($convId <= 0) {
         json_response(false, [], 'Invalid conversation ID.');
     }
-    if (empty($messageBody)) {
-        json_response(false, [], 'Message cannot be empty.');
-    }
+    $hasUpload = is_array($upload) && ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+    if ($messageBody === '' && !$hasUpload) json_response(false, [], 'Write a message or attach a file.');
     if (mb_strlen($messageBody) > 3000) {
         json_response(false, [], 'Message exceeds 3,000 character limit.');
     }
-
     if (!is_authorized_in_conversation($db, $convId, $userId, $userRole)) {
         json_response(false, [], 'Access denied: You are not authorized to send messages in this conversation.');
+    }
+    $activeConversation = $db->prepare("SELECT COUNT(*) FROM conversations WHERE id = ? AND status = 'active'");
+    $activeConversation->execute([$convId]);
+    if (!(int)$activeConversation->fetchColumn()) json_response(false, [], 'This conversation is no longer available.');
+
+    $storedPath = null;
+    $originalName = null;
+    $mimeType = null;
+    $fileSize = null;
+    if ($hasUpload) {
+        if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) json_response(false, [], 'The attachment could not be uploaded. Try a smaller file.');
+        if ((int)$upload['size'] > 10 * 1024 * 1024) json_response(false, [], 'Attachments must be 10 MB or smaller.');
+        $extension = strtolower(pathinfo($upload['name'] ?? '', PATHINFO_EXTENSION));
+        $allowed = [
+            'pdf' => ['application/pdf'],
+            'jpg' => ['image/jpeg'], 'jpeg' => ['image/jpeg'],
+            'png' => ['image/png'], 'webp' => ['image/webp'],
+            'doc' => ['application/msword', 'application/CDFV2', 'application/octet-stream'],
+            'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip', 'application/octet-stream'],
+        ];
+        if (!isset($allowed[$extension])) json_response(false, [], 'Allowed attachments: PDF, JPG, PNG, WEBP, DOC, DOCX.');
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $detectedMime = $finfo->file($upload['tmp_name']);
+        if (!in_array($detectedMime, $allowed[$extension], true)) json_response(false, [], 'The file content does not match its file type.');
+        $originalName = mb_substr(basename($upload['name']), 0, 255);
+        $mimeType = $detectedMime;
+        $fileSize = (int)$upload['size'];
+        $relativeDir = 'uploads/messages';
+        $absoluteDir = BASE_PATH . '/' . $relativeDir;
+        if (!is_dir($absoluteDir) && !mkdir($absoluteDir, 0750, true) && !is_dir($absoluteDir)) json_response(false, [], 'Attachment storage is unavailable.');
+        $filename = bin2hex(random_bytes(24)) . '.' . $extension;
+        $storedPath = $relativeDir . '/' . $filename;
+        if (!move_uploaded_file($upload['tmp_name'], BASE_PATH . '/' . $storedPath)) json_response(false, [], 'Failed to save the attachment.');
     }
 
     // If nurse is replying but not yet listed as participant, add nurse to participants
@@ -513,10 +547,15 @@ if ($action === 'send_message') {
 
     // Insert message
     $stmt = $db->prepare("
-        INSERT INTO messages (conversation_id, sender_id, message_body, message_type, created_at)
-        VALUES (?, ?, ?, 'text', NOW())
+        INSERT INTO messages (conversation_id, sender_id, message_body, message_type, attachment_path, attachment_name, attachment_mime, attachment_size, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ");
-    $stmt->execute([$convId, $userId, $messageBody]);
+    try {
+        $stmt->execute([$convId, $userId, $messageBody, $hasUpload ? 'file' : 'text', $storedPath, $originalName, $mimeType, $fileSize]);
+    } catch (Throwable $e) {
+        if ($storedPath && is_file(BASE_PATH . '/' . $storedPath)) unlink(BASE_PATH . '/' . $storedPath);
+        throw $e;
+    }
     $messageId = (int)$db->lastInsertId();
 
     // Update conversation timestamp
@@ -531,7 +570,7 @@ if ($action === 'send_message') {
 
         $senderName = trim("{$user['first_name']} {$user['last_name']}");
         $roleLabel = ($userRole === 'nurse') ? 'Nurse' : (($userRole === 'teacher') ? 'Teacher' : 'Student');
-        $snippet = mb_substr($messageBody, 0, 80);
+        $snippet = $messageBody !== '' ? mb_substr($messageBody, 0, 80) : ('Attached a file: ' . ($originalName ?: 'attachment'));
 
         foreach ($recipients as $recipId) {
             $targetRoleStmt = $db->prepare("SELECT role FROM users WHERE id = ?");
@@ -558,6 +597,33 @@ if ($action === 'send_message') {
         'message_id' => $messageId,
         'created_at' => date('Y-m-d H:i:s')
     ], 'Message sent successfully.');
+}
+
+// Private attachment download: require conversation access for every request.
+if ($action === 'download_attachment') {
+    $messageId = (int)($_GET['id'] ?? 0);
+    $stmt = $db->prepare('SELECT conversation_id, attachment_path, attachment_name, attachment_mime FROM messages WHERE id = ? AND attachment_path IS NOT NULL LIMIT 1');
+    $stmt->execute([$messageId]);
+    $attachment = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$attachment || !is_authorized_in_conversation($db, (int)$attachment['conversation_id'], $userId, $userRole)) {
+        http_response_code(404);
+        exit('Attachment not found.');
+    }
+    $baseDir = realpath(BASE_PATH . '/uploads/messages');
+    $filePath = realpath(BASE_PATH . '/' . $attachment['attachment_path']);
+    if (!$baseDir || !$filePath || strpos($filePath, $baseDir . DIRECTORY_SEPARATOR) !== 0 || !is_file($filePath)) {
+        http_response_code(404);
+        exit('Attachment not found.');
+    }
+    $safeName = str_replace(["\r", "\n", '"'], ['', '', "'"], basename($attachment['attachment_name'] ?: 'attachment'));
+    header_remove('Content-Type');
+    header('Content-Type: ' . ($attachment['attachment_mime'] ?: 'application/octet-stream'));
+    header('Cache-Control: private, no-store, max-age=0');
+    header('Content-Length: ' . filesize($filePath));
+    header('Content-Disposition: attachment; filename="' . $safeName . '"; filename*=UTF-8\'\'' . rawurlencode($safeName));
+    header('X-Content-Type-Options: nosniff');
+    readfile($filePath);
+    exit;
 }
 
 // ------------------------------------------------------------------

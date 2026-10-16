@@ -1,0 +1,319 @@
+/* =====================================================================
+   BPC School Clinic / MICA — UI OVERRIDES  (assets/css/ui-overrides.css)
+   ---------------------------------------------------------------------
+   LOAD THIS FILE LAST, after mica.css and registration.css.
+
+   Fixes, in order:
+     1. One locked set of brand tokens (the stack defined 3 different greens)
+     2. Global spacing bug (.me-* / .ms-* were adding margin on BOTH sides)
+     3. Sticky topbar that never stuck (overflow-x:hidden on parents)
+     4. Sidebar collapse button clipped in half, SOS entry made obvious
+     5. Floating-element collisions (MICA, SOS, PWA banner, toasts)
+     6. Topbar crowding on laptop widths
+     7. Registration layout (green panel now fills the whole left column)
+   ===================================================================== */
+
+/* ------------------------------------------------------------------
+   1. TOKENS
+   ------------------------------------------------------------------ */
+:root {
+  --primary: #15803d;
+  --primary-dark: #14532d;
+  --primary-darker: #052e16;
+  --primary-light: #dcfce7;
+  --primary-lighter: #f0fdf4;
+  --primary-border: #86efac;
+  --brand-accent: #16a34a;
+  --success: #15803d;
+
+  --mica-primary: #14532d;
+  --mica-primary-dark: #052e16;
+  --mica-accent: #16a34a;
+
+  --sidebar-width: 256px;
+  --sidebar-collapsed-width: 72px;
+  --header-height: 64px;
+
+  /* Floating-element dock (see section 5) */
+  --dock-edge: 20px;
+  --dock-gap: 12px;
+  --fab-h: 48px;
+  --dock-left: calc(var(--sidebar-width) + var(--dock-edge));
+
+  /* ONE layering scale */
+  --layer-topbar: 1020;
+  --layer-scrim: 1029;
+  --layer-sidebar: 1030;
+  --layer-pwa: 1038;
+  --layer-fab: 1040;
+  --layer-mica: 1042;
+  --layer-sos: 1044;
+  /* Bootstrap modal backdrop 1050, modal 1055, toast + SweetAlert 1060 */
+}
+
+body:has(.sidebar.collapsed) { --dock-left: calc(var(--sidebar-collapsed-width) + var(--dock-edge)); }
+@media (min-width: 1200px) and (max-width: 1359.98px) {
+  :root { --dock-left: calc(var(--sidebar-collapsed-width) + var(--dock-edge)); }
+}
+@media (max-width: 1199.98px) {
+  :root, body:has(.sidebar.collapsed) { --dock-left: var(--dock-edge); }
+}
+
+/* ------------------------------------------------------------------
+   2. SPACING BUG
+   design-system.css set `.me-1,.ms-1 { margin-right:4px; margin-left:4px }`
+   so every icon/button using me-* got a stray LEFT margin and every ms-*
+   a stray RIGHT margin. Bootstrap's own !important utilities still win
+   where they apply, so zeroing the opposite side restores intent.
+   ------------------------------------------------------------------ */
+.me-1, .me-2 { margin-left: 0; }
+.ms-1, .ms-2 { margin-right: 0; }
+
+/* ------------------------------------------------------------------
+   3. STICKY TOPBAR
+   `overflow-x:hidden` turns the parent into a scroll container, so
+   `position:sticky` had nothing to stick to. `clip` clips without that.
+   ------------------------------------------------------------------ */
+.main-content,
+.content-area { overflow-x: clip; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-topbar);
+  min-height: var(--header-height);
+  gap: 16px;
+  background: var(--surface, #fff);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.topbar-left { flex: 1 1 0; min-width: 0; }
+.topbar-right { flex: 0 0 auto; }
+
+/* Main column follows the collapsed sidebar instead of leaving a gap */
+@media (min-width: 1360px) {
+  body:has(.sidebar.collapsed) .main-content {
+    margin-left: var(--sidebar-collapsed-width);
+    width: calc(100% - var(--sidebar-collapsed-width));
+  }
+}
+
+/* ------------------------------------------------------------------
+   4. SIDEBAR
+   ------------------------------------------------------------------ */
+/* The round collapse button sits half outside the sidebar, and
+   `overflow:hidden` was cutting it in half. The nav list scrolls by
+   itself, so the sidebar does not need to clip. */
+.sidebar { overflow: visible; z-index: var(--layer-sidebar); }
+.sidebar-nav { overscroll-behavior: contain; }
+.sidebar-toggle-collapse { bottom: 24px; right: -13px; z-index: 2; }
+.app-scrim { z-index: var(--layer-scrim); }
+
+/* Emergency entry must be impossible to miss */
+.sidebar-nav .nav-link[data-action="open-sos"] {
+  margin: 10px 0 6px;
+  background: #b91c1c;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(185, 28, 28, .35);
+}
+.sidebar-nav .nav-link[data-action="open-sos"] .bpc-icon { color: #fff; }
+.sidebar-nav .nav-link[data-action="open-sos"]:hover,
+.sidebar-nav .nav-link[data-action="open-sos"]:focus-visible { background: #991b1b; color: #fff; }
+
+/* On short screens the contact block squeezed the menu; the menu wins */
+@media (max-height: 760px) { .sidebar-footer { display: none; } }
+
+/* ------------------------------------------------------------------
+   5. FLOATING ELEMENTS — one dock, no collisions
+   Bottom-right : MICA button, MICA panel above it
+   Bottom-left  : SOS banner (hides the PWA install banner)
+   Top-right    : toasts, under the topbar
+   ------------------------------------------------------------------ */
+.mica-fab {
+  bottom: var(--dock-edge);
+  right: var(--dock-edge);
+  z-index: var(--layer-fab);
+}
+.mica-widget {
+  bottom: calc(var(--dock-edge) + var(--fab-h) + var(--dock-gap));
+  right: var(--dock-edge);
+  z-index: var(--layer-mica) !important;
+}
+
+.sos-floating-widget,
+body:has(.mica-widget.open) .sos-floating-widget,
+.mica-widget.open ~ .sos-floating-widget,
+.sos-floating-widget.mica-open-dock {
+  top: auto !important;
+  right: auto !important;
+  left: var(--dock-left) !important;
+  bottom: var(--dock-edge) !important;
+  z-index: var(--layer-sos) !important;
+  width: min(380px, calc(100vw - var(--dock-left) - var(--dock-edge)));
+  max-width: 380px;
+}
+
+.pwa-install-banner {
+  right: auto;
+  left: var(--dock-left);
+  bottom: var(--dock-edge);
+  z-index: var(--layer-pwa);
+}
+body:has(.sos-floating-widget) .pwa-install-banner { display: none; }
+
+.app-toast-stack {
+  top: calc(var(--header-height) + 12px);
+  bottom: auto;
+  right: var(--dock-edge);
+  align-items: flex-end;
+}
+
+@media (max-width: 767.98px) {
+  /* --sos-h is measured by ui-enhance.js (0px when no SOS is active) */
+  :root {
+    --dock-edge: 12px;
+    --fab-h: 44px;
+    --top-reserve: calc(var(--header-height) + 8px);
+  }
+  body:has(.sos-floating-widget) {
+    --top-reserve: calc(var(--header-height) + 16px + var(--sos-h, 0px));
+  }
+
+  .mica-fab {
+    bottom: calc(var(--dock-edge) + env(safe-area-inset-bottom, 0px));
+  }
+  .mica-widget {
+    left: var(--dock-edge) !important;
+    right: var(--dock-edge) !important;
+    bottom: calc(var(--dock-edge) + var(--fab-h) + var(--dock-gap) + env(safe-area-inset-bottom, 0px)) !important;
+    width: auto !important;
+    max-width: none !important;
+    height: calc(100dvh - var(--dock-edge) - var(--fab-h) - var(--dock-gap) - var(--top-reserve) - env(safe-area-inset-bottom, 0px)) !important;
+    max-height: none !important;
+  }
+
+  /* SOS moves under the topbar; the MICA panel shrinks to leave room */
+  .sos-floating-widget,
+  body:has(.mica-widget.open) .sos-floating-widget,
+  .mica-widget.open ~ .sos-floating-widget,
+  .sos-floating-widget.mica-open-dock {
+    top: calc(var(--header-height) + 8px) !important;
+    bottom: auto !important;
+    left: var(--dock-edge) !important;
+    right: var(--dock-edge) !important;
+    width: auto;
+    max-width: none !important;
+    min-width: 0;
+  }
+
+  .pwa-install-banner {
+    left: var(--dock-edge);
+    right: var(--dock-edge);
+    width: auto;
+    max-width: none;
+    bottom: calc(var(--dock-edge) + var(--fab-h) + var(--dock-gap));
+  }
+
+  .app-toast-stack {
+    left: var(--dock-edge);
+    right: var(--dock-edge);
+    width: auto;
+    align-items: stretch;
+  }
+  /* with an SOS banner on screen, toasts stack underneath it */
+  body:has(.sos-floating-widget) .app-toast-stack { top: var(--top-reserve); }
+}
+
+/* keep the last table row / button clear of the floating button */
+.content-area { padding-bottom: 104px; }
+
+@media print {
+  .mica-fab, .mica-widget, .sos-floating-widget, .pwa-install-banner, .app-toast-stack { display: none !important; }
+}
+
+/* ------------------------------------------------------------------
+   6. TOPBAR DENSITY — drop the optional items before things collide
+   ------------------------------------------------------------------ */
+@media (max-width: 1599.98px) {
+  .topbar-clock-date { display: none; }
+  .profile-trigger .role-badge { display: none !important; }
+}
+@media (max-width: 1439.98px) {
+  .topbar .welcome-text .current-date { display: none; }
+  /* MICA status becomes just the pulsing dot */
+  .mica-status-indicator {
+    width: 36px; height: 36px; padding: 0;
+    justify-content: center;
+    font-size: 0; gap: 0;
+  }
+  .mica-status-indicator .mica-dot { width: 9px; height: 9px; }
+}
+@media (max-width: 1279.98px) {
+  .topbar-clock { display: none; }
+}
+
+/* ------------------------------------------------------------------
+   7. REGISTRATION
+   Old rules fought each other (fixed-height card in one file, natural
+   flow in another), so the green panel stopped short of the card's
+   bottom edge. Now the green column is painted on the card itself and
+   the panel content sticks while the form scrolls the page.
+   ------------------------------------------------------------------ */
+.auth-wrapper--register {
+  height: auto;
+  min-height: 100vh;
+  padding: 24px;
+  overflow: clip;
+  align-items: flex-start;
+  justify-content: center;
+}
+.auth-wrapper--register::before,
+.auth-wrapper--register::after { content: none; }
+
+.auth-card--register {
+  --reg-side: 300px;
+  width: min(100%, 1180px);
+  max-width: 1180px;
+  height: auto;
+  min-height: 0;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: var(--reg-side) minmax(0, 1fr);
+  overflow: clip;               /* rounds corners without breaking sticky */
+  border-radius: 20px;
+  background:
+    linear-gradient(165deg, #15803d 0%, #14532d 55%, #052e16 100%) left top / var(--reg-side) 100% no-repeat,
+    var(--surface, #fff);
+}
+.auth-card--register .auth-side {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: auto;
+  max-height: 100vh;
+  overflow-y: auto;
+  background: transparent;
+  justify-content: flex-start;
+  padding: 32px 28px;
+}
+.auth-card--register .auth-side::before,
+.auth-card--register .auth-side::after { content: none; }
+
+.auth-card--register .auth-form-side {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 36px clamp(24px, 4vw, 56px) 44px;
+}
+
+@media (max-width: 991.98px) {
+  .auth-wrapper--register { padding: 16px 12px 32px; }
+  .auth-card--register {
+    --reg-side: 0px;
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--surface, #fff);
+    max-width: 760px;
+  }
+  .auth-card--register .auth-side { display: none; }
+}

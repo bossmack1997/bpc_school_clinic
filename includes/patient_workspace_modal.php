@@ -320,6 +320,16 @@
 
 <!-- Available Medicines Cache for In-Line Dispensing -->
 <script>
+// Use the current page's host/protocol with the configured app subdirectory.
+// This keeps QR lookups working when XAMPP is opened via localhost, 127.0.0.1,
+// a LAN address, or HTTPS, where an absolute APP_URL can point to another host.
+const patientServicePath = <?= json_encode(rtrim((string)parse_url(APP_URL, PHP_URL_PATH), '/') . '/api/patients.php') ?>;
+function patientServiceUrl(params = {}) {
+  const url = new URL(patientServicePath, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  return url.toString();
+}
+
 window.PW_MEDICINES_CACHE = [];
 (async function() {
   try {
@@ -344,17 +354,20 @@ async function openPatientWorkspace(identifier, type = 'student_id') {
   document.getElementById('pwWorkspaceContent').style.display = 'none';
   document.getElementById('pwConsultationFormContainer').style.display = 'none';
 
-  let url = '<?= APP_URL ?>/api/patients.php?action=get_workspace&';
+  const params = { action: 'get_workspace' };
   if (type === 'qr_token') {
-    url += 'qr_token=' + encodeURIComponent(identifier);
+    params.qr_token = identifier;
   } else if (type === 'ticket_id') {
-    url += 'ticket_id=' + encodeURIComponent(identifier);
+    params.ticket_id = identifier;
   } else {
-    url += 'student_id=' + encodeURIComponent(identifier);
+    params.student_id = identifier;
   }
 
   try {
-    const res = await fetch(url);
+    const res = await fetch(patientServiceUrl(params), {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' }
+    });
     const raw = await res.text();
     let json = null;
     try {
@@ -365,8 +378,10 @@ async function openPatientWorkspace(identifier, type = 'student_id') {
 
     document.getElementById('pwLoadingSpinner').style.display = 'none';
 
-    if (!json || !json.success) {
-      const errMsg = (json && json.message) ? json.message : 'Patient record not found.';
+    if (!res.ok || !json || !json.success) {
+      const errMsg = (json && json.message) ? json.message : (!res.ok
+        ? `Patient service returned HTTP ${res.status}. Please try scanning again.`
+        : 'Patient record not found.');
       if (typeof showToast === 'function') showToast(errMsg, 'danger');
       else alert(errMsg);
       modal.hide();
@@ -389,9 +404,17 @@ async function openPatientWorkspace(identifier, type = 'student_id') {
   } catch(err) {
     console.error('Error loading patient workspace:', err);
     document.getElementById('pwLoadingSpinner').style.display = 'none';
-    alert('Failed to connect to patient service.');
+    const message = 'Could not reach the patient service. Check the clinic connection and try scanning again.';
+    if (typeof showToast === 'function') showToast(message, 'danger');
+    else alert(message);
     modal.hide();
   }
+}
+
+function pwSetText(id, value) {
+  const el = document.getElementById(id);
+  if (!el) { console.warn('Missing element:', id); return; }
+  el.textContent = value;
 }
 
 function renderPatientWorkspaceData(data) {
@@ -410,7 +433,7 @@ function renderPatientWorkspaceData(data) {
   const academicLine = [p.course, p.year_level, p.section].filter(Boolean).join(' ') || '—';
 
   // Demographics
-  document.getElementById('pwPatientName').textContent = p.name || '—';
+document.getElementById('centralPatientWorkspaceModalTitle').textContent = p.name || '—';
   document.getElementById('pwPatientSubtitle').textContent = `Patient ID: ${patientIdNum} · Course: ${academicLine}`;
   document.getElementById('pwHeaderName').textContent = p.name || '—';
   document.getElementById('pwHeaderAcademic').textContent = `${patientIdNum} · ${academicLine}`;
@@ -513,7 +536,7 @@ async function pwStartClinicVisit() {
     fd.append('student_id', studentId);
     fd.append('csrf_token', csrf);
 
-    const res = await fetch('<?= APP_URL ?>/api/patients.php', { method: 'POST', body: fd });
+    const res = await fetch(patientServiceUrl(), { method: 'POST', body: fd, credentials: 'same-origin' });
     const json = await res.json();
     if (json.success) {
       if (typeof showToast === 'function') showToast(json.message, 'success');

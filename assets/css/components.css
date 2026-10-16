@@ -420,7 +420,6 @@
 .dbg-stat--blue   { --accent: var(--info);         --accent-soft: var(--info-bg); }
 .dbg-stat--orange { --accent: var(--warning);      --accent-soft: var(--warning-bg); }
 .dbg-stat--red    { --accent: var(--danger);       --accent-soft: var(--danger-bg); }
-.dbg-stat--purple { --accent: #7C3AED;              --accent-soft: #F3EEFE; }
 
 /* Emphasised variant for the single most important metric on a screen */
 .dbg-stat--solid {
@@ -2287,7 +2286,7 @@
 }
 .swal2-confirm:focus,
 .swal2-cancel:focus {
-  box-shadow: 0 0 0 3px var(--shadow-focus) !important;
+  box-shadow: var(--shadow-focus) !important;
 }
 
 /* ==================================================================
@@ -2965,5 +2964,13 @@
 
 /* ---------- SWEETALERT WRAPPER ---------- */
 .app-swal { z-index: var(--z-modal); }
+
+/* Keep the shared notification dropdown inside narrow mobile viewports. */
+.topbar-notification-menu {
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(420px, calc(100vh - 88px));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
 
 

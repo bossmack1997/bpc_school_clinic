@@ -80,8 +80,8 @@ $pageTitle = 'Login';
 <div class="auth-wrapper">
   <div class="auth-card" data-aos="fade-up" data-aos-duration="800">
     <div class="auth-side">
-      <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo" style="width:70px;height:70px;object-fit:contain;"></div>
-      <h2 class="mb-2">AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</h2>
+      <div class="auth-icon"><img class="auth-logo" src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo"></div>
+      <h1 class="mb-2">AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</h1>
       <p class="mb-0">Secure digital health records, clinic services, emergency response, and health monitoring for Bulacan Polytechnic College.</p>
     </div>
     <div class="auth-form-side">

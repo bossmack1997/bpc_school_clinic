@@ -1,0 +1,99 @@
+/* Registration layout: fixed viewport card on desktop, natural page scroll on small screens. */
+.auth-wrapper--register {
+  height: 100vh;
+  min-height: 0;
+  padding: 24px;
+  overflow: hidden;
+  align-items: center;
+}
+.auth-wrapper--register::before,
+.auth-wrapper--register::after { content: none; }
+.auth-card--register {
+  width: min(100%, 1180px);
+  max-width: 1180px;
+  height: min(900px, calc(100vh - 48px));
+  min-height: 0;
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  align-self: center;
+  overflow: hidden;
+  border-radius: 20px;
+}
+.auth-card--register .auth-side {
+  position: sticky;
+  top: 0;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  padding: 32px 28px;
+  justify-content: flex-start;
+  overflow-y: auto;
+}
+.auth-card--register .auth-form-side {
+  min-width: 0;
+  height: 100%;
+  max-height: none;
+  padding: 30px clamp(26px, 3.4vw, 48px) 38px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.auth-card--register .auth-side .auth-icon { justify-content: flex-start; margin-bottom: 14px !important; }
+.auth-card--register .auth-side .auth-logo { width: 64px; height: 64px; }
+.auth-card--register .auth-side__features { display: grid; gap: 10px; margin: 4px 0 22px !important; }
+.auth-card--register .auth-side__features > div { align-items: flex-start !important; margin: 0 !important; line-height: 1.45; }
+.auth-card--register .auth-side__features i { flex: 0 0 18px; margin-top: 2px; }
+.auth-card--register .auth-form-side > .d-flex.align-items-center.justify-content-between { padding-bottom: 18px; margin-bottom: 22px !important; border-bottom: 1px solid #e6ece8; }
+.auth-card--register #formHeaderTitle { font-size: clamp(1.25rem, 2vw, 1.55rem); letter-spacing: -.025em; }
+.auth-card--register .reg-role-selector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 10px 0 26px; }
+.auth-card--register .reg-role-btn { box-sizing: border-box; width: 100%; height: 88px; min-height: 88px; white-space: nowrap; border-width: 1.5px; transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease; }
+.auth-card--register .reg-role-btn__icon { box-sizing: border-box; flex: 0 0 38px; }
+.auth-card--register .reg-role-btn.is-active { box-shadow: inset 0 0 0 1px rgba(14,122,62,.18); }
+.auth-card--register .reg-role-btn:focus-visible { outline: 3px solid rgba(14,122,62,.28); outline-offset: 2px; }
+.auth-card--register .reg-section, .auth-card--register .role-section { margin-top: 26px; }
+.auth-card--register .reg-section-header { flex-wrap: wrap; row-gap: 6px; margin-top: 0; margin-bottom: 16px; padding-bottom: 10px; }
+.auth-card--register .reg-section-header__sub { margin-left: auto; }
+.auth-card--register .row[class~="g-2.5"] { --bs-gutter-x: 18px; --bs-gutter-y: 18px; margin-bottom: 0; }
+.auth-card--register .row[class~="g-2.5"] > [class*="col-"] { min-width: 0; }
+.auth-card--register [class~="gap-2.5"] { gap: 10px; }
+.auth-card--register [class~="gap-1.5"] { gap: 6px; }
+.auth-card--register [class~="mb-2.5"] { margin-bottom: 10px; }
+.auth-card--register [class~="pb-2.5"] { padding-bottom: 10px; }
+.auth-card--register [class~="p-2.5"] { padding: 10px; }
+.auth-card--register [class~="py-1.5"] { padding-top: 6px; padding-bottom: 6px; }
+.auth-card--register [class~="px-2.5"] { padding-right: 10px; padding-left: 10px; }
+.auth-card--register .form-label { display: block; line-height: 1.35; }
+.auth-card--register .form-text, .auth-card--register .pw-hint-text { line-height: 1.45; overflow-wrap: anywhere; }
+.auth-card--register .form-control:not([type="file"]), .auth-card--register .form-select,
+.auth-card--register .input-group:not(.reg-file-box .input-group) > .input-group-text,
+.auth-card--register .input-group:not(.reg-file-box .input-group) > .form-control,
+.auth-card--register .input-group:not(.reg-file-box .input-group) > .form-select,
+.auth-card--register .input-group > .btn { height: 44px; min-height: 44px; box-sizing: border-box; }
+.auth-card--register .input-group > .form-control, .auth-card--register .input-group > .form-select { min-width: 0; }
+.auth-card--register .form-control:focus, .auth-card--register .form-select:focus { box-shadow: 0 0 0 3px rgba(22,163,74,.16); }
+.auth-card--register .reg-certify-box { margin-top: 28px; }
+.auth-card--register [aria-invalid="true"] { border-color: #b91c1c !important; }
+.auth-card--register .field-error { display: block; margin-top: 5px; color: #b91c1c; font-size: .8rem; }
+.auth-card--register .pw-strength { height: 5px; overflow: hidden; border-radius: 999px; background: #e5e7eb; }
+.auth-card--register .pw-strength > span { display: block; width: 0; height: 100%; border-radius: inherit; transition: width 160ms ease, background-color 160ms ease; }
+.auth-card--register .reg-progress { height: 4px; margin: 18px 0 22px; overflow: hidden; border-radius: 999px; background: #e8eee9; }
+.auth-card--register .reg-progress > span { display: block; width: 25%; height: 100%; border-radius: inherit; background: #16a34a; transition: width 180ms ease; }
+@media (max-width: 991.98px) {
+  .auth-wrapper--register { height: auto; min-height: 100vh; padding: 20px 16px; overflow-x: hidden; overflow-y: auto; align-items: flex-start; }
+  .auth-card--register { width: min(100%, 760px); height: auto; max-width: 760px; grid-template-columns: minmax(0,1fr); align-self: flex-start; }
+  .auth-card--register .auth-side { display: none; }
+  .auth-card--register .auth-form-side { height: auto; max-height: none; overflow: visible; padding: 30px clamp(20px,5vw,40px) 40px; scrollbar-gutter: auto; }
+}
+@media (max-width: 575.98px) {
+  .auth-wrapper--register { padding: 10px 8px 24px; }
+  .auth-card--register { border-radius: 14px; }
+  .auth-card--register .auth-form-side { padding: 20px 16px 28px; }
+  .auth-card--register .reg-role-selector { gap: 8px; }
+  .auth-card--register .reg-role-btn { height: 78px; min-height: 78px; padding: 8px 5px; font-size: .76rem; }
+  .auth-card--register .reg-section-header__sub { flex-basis: 100%; margin-left: 38px; }
+  .auth-card--register .row[class~="g-2.5"] { --bs-gutter-x: 14px; --bs-gutter-y: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-card--register *, .auth-card--register *::before, .auth-card--register *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}

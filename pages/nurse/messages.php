@@ -18,23 +18,55 @@ $currentClinicStatus = $user['clinic_status'] ?? 'available';
   <?php include __DIR__ . '/../../includes/head.php'; ?>
   <style>
     .nurse-status-selector {
-      background: #ffffff;
+      min-width: 0;
+      max-width: 68%;
+      height: 38px;
+      background: var(--surface, #ffffff);
       border: 1px solid var(--border, #E2E8F0);
-      border-radius: 20px;
-      padding: 4px 10px;
+      border-radius: 12px;
+      padding: 0 9px;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      font-size: 0.82rem;
+      gap: 8px;
+      color: var(--text-primary, #1E293B);
+      transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+    }
+    .nurse-status-selector:focus-within {
+      border-color: var(--primary, #15803d);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #15803d) 15%, transparent);
+    }
+    .nurse-status-selector > .presence-dot {
+      position: static;
+      flex: 0 0 10px;
+      width: 10px;
+      height: 10px;
+      border: 0;
     }
     .nurse-status-selector select {
+      width: 142px;
+      min-width: 0;
+      height: 34px;
+      min-height: 0;
       border: none;
       background: transparent;
       font-weight: 600;
-      font-size: 0.82rem;
-      color: var(--text, #1E293B);
+      font-size: 0.78rem;
+      line-height: 1.2;
+      color: var(--text-primary, #1E293B);
       cursor: pointer;
       outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      padding: 0;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .nurse-status-selector > .bi-chevron-down { flex: 0 0 auto; color: var(--text-muted, #64748b); font-size: .68rem; pointer-events: none; }
+    .nurse-status-selector select:disabled { cursor: wait; opacity: .65; }
+    @media (max-width: 420px) {
+      .nurse-status-label { max-width: 40%; line-height: 1.2; }
+      .nurse-status-selector { max-width: 60%; }
+      .nurse-status-selector select { width: 118px; font-size: .74rem; }
     }
     .quick-replies-bar {
       display: flex;
@@ -78,22 +110,27 @@ $currentClinicStatus = $user['clinic_status'] ?? 'available';
           <!-- Top Header with Status Selector -->
           <div class="p-3 border-bottom bg-white">
             <div class="d-flex align-items-center justify-content-between mb-2">
-              <h5 class="fw-bold mb-0 text-dark d-flex align-items-center gap-2">
-                <i class="bi bi-chat-heart-fill text-success"></i> Clinic Inbox
-              </h5>
-              <span class="badge bg-success-subtle text-success rounded-pill px-2" id="unreadBadgeCounter" style="display:none;">0 New</span>
+              <h1 class="fw-bold mb-0 text-dark">Messages</h1>
+              <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-success-subtle text-success rounded-pill px-2" id="unreadBadgeCounter" style="display:none;">0 New</span>
+                <div class="dropdown">
+                  <button class="btn btn-light rounded-circle messenger-icon-action" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More message options" title="More options"><i class="bi bi-three-dots" aria-hidden="true"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" type="button" onclick="loadConversations(false)"><i class="bi bi-arrow-clockwise me-2"></i>Refresh conversations</button></li></ul>
+                </div>
+              </div>
             </div>
             
             <!-- Quick Status Switcher for Nurse Availability -->
-            <div class="d-flex align-items-center justify-content-between pt-1">
-              <span class="text-muted small">My Clinic Status:</span>
+            <div class="d-flex align-items-center justify-content-between gap-2 pt-1">
+              <span class="text-muted small nurse-status-label">My Clinic Status:</span>
               <div class="nurse-status-selector">
                 <span class="presence-dot <?= $currentClinicStatus === 'available' ? 'status-online' : ($currentClinicStatus === 'busy' ? 'status-away' : 'status-offline') ?>" id="myStatusDot"></span>
-                <select id="myClinicStatusSelect" onchange="updateMyClinicStatus(this.value)">
+                <select id="myClinicStatusSelect" data-saved-status="<?= e($currentClinicStatus) ?>" aria-label="Set your clinic availability" title="Set your clinic availability" onchange="updateMyClinicStatus(this.value)">
                   <option value="available" <?= $currentClinicStatus === 'available' ? 'selected' : '' ?>>Available</option>
                   <option value="busy" <?= $currentClinicStatus === 'busy' ? 'selected' : '' ?>>Busy / In Consult</option>
                   <option value="away" <?= $currentClinicStatus === 'away' ? 'selected' : '' ?>>Away from Desk</option>
                 </select>
+                <i class="bi bi-chevron-down" aria-hidden="true"></i>
               </div>
             </div>
           </div>
@@ -102,7 +139,7 @@ $currentClinicStatus = $user['clinic_status'] ?? 'available';
           <div class="messenger-search-bar">
             <div class="input-group input-group-sm">
               <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-              <input type="text" class="form-control border-start-0 ps-0 bg-white" id="convSearchInput" placeholder="Search patient name, ID, or course..." oninput="filterConversations()">
+              <input type="search" class="form-control border-start-0 ps-0 bg-white" id="convSearchInput" placeholder="Search messages or people" aria-label="Search messages or people" oninput="filterConversations()">
             </div>
           </div>
 
@@ -116,9 +153,9 @@ $currentClinicStatus = $user['clinic_status'] ?? 'available';
 
           <!-- Conversation Threads List -->
           <div class="messenger-thread-list" id="convList">
-            <div class="text-center text-muted p-4">
-              <div class="spinner-border spinner-border-sm text-success me-2"></div>Loading triage threads...
-            </div>
+            <div class="messenger-skeleton-row" aria-hidden="true"><span class="messenger-skeleton-avatar"></span><span class="messenger-skeleton-copy"><span class="messenger-skeleton-line"></span><span class="messenger-skeleton-line"></span></span></div>
+            <div class="messenger-skeleton-row" aria-hidden="true"><span class="messenger-skeleton-avatar"></span><span class="messenger-skeleton-copy"><span class="messenger-skeleton-line"></span><span class="messenger-skeleton-line"></span></span></div>
+            <div class="messenger-skeleton-row" aria-hidden="true"><span class="messenger-skeleton-avatar"></span><span class="messenger-skeleton-copy"><span class="messenger-skeleton-line"></span><span class="messenger-skeleton-line"></span></span></div>
           </div>
         </div>
 
@@ -202,7 +239,10 @@ $currentClinicStatus = $user['clinic_status'] ?? 'available';
 
           <!-- Input Composer -->
           <form class="messenger-composer-area" id="chatForm" onsubmit="handleSendMessage(event)" style="display:none;">
-            <input type="text" class="form-control messenger-input" id="messageInput" placeholder="Type clinical response or instructions..." required maxlength="3000" autocomplete="off" oninput="toggleSendButton()">
+            <input type="file" id="messageAttachment" class="visually-hidden" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" aria-label="Choose an attachment">
+            <button type="button" class="messenger-attach-btn" aria-label="Attach a file" title="Attach PDF, image, or document (max 10 MB)" onclick="$('#messageAttachment').trigger('click')"><i class="bi bi-paperclip" aria-hidden="true"></i></button>
+            <span class="messenger-attachment-name" id="attachmentName" aria-live="polite"></span>
+            <input type="text" class="form-control messenger-input" id="messageInput" placeholder="Type clinical response or instructions..." maxlength="3000" autocomplete="off" oninput="toggleSendButton()">
             <button type="submit" class="messenger-send-btn shadow-sm" id="sendBtn" title="Send Response (Enter)">
               <i class="bi bi-send-fill"></i>
             </button>
@@ -258,21 +298,41 @@ $(document).ready(function() {
 
 // Update Nurse Clinic Status (Available / Busy / Away)
 function updateMyClinicStatus(status) {
+  const select = $('#myClinicStatusSelect');
+  const previousStatus = select.data('saved-status') || select.val();
+  if (!['available', 'busy', 'away'].includes(status)) return;
+
   const dot = $('#myStatusDot');
   dot.removeClass('status-online status-away status-offline');
   if (status === 'available') dot.addClass('status-online');
   else if (status === 'busy') dot.addClass('status-away');
   else dot.addClass('status-offline');
+  select.prop('disabled', true);
 
   $.post(APP_URL + '/api/messages.php', {
     action: 'presence_ping',
     clinic_status: status,
     csrf_token: csrfToken
   }, function(res) {
-    if (typeof showToast === 'function') {
-      showToast('Clinic status updated to ' + status, 'info');
+    if (res && res.success) {
+      select.data('saved-status', status);
+      if (typeof showToast === 'function') showToast('Clinic status updated to ' + status.replace('_', ' '), 'success');
+    } else {
+      select.val(previousStatus);
+      applyClinicStatusDot(previousStatus);
+      if (typeof toastError === 'function') toastError(res?.message || 'Unable to update clinic status.');
     }
-  });
+  }, 'json').fail(function() {
+    select.val(previousStatus);
+    applyClinicStatusDot(previousStatus);
+    if (typeof toastError === 'function') toastError('Unable to update clinic status. Check your connection and try again.');
+  }).always(function() { select.prop('disabled', false); });
+}
+
+function applyClinicStatusDot(status) {
+  const dot = $('#myStatusDot');
+  dot.removeClass('status-online status-away status-offline');
+  dot.addClass(status === 'available' ? 'status-online' : (status === 'busy' ? 'status-away' : 'status-offline'));
 }
 
 function pingPresence() {
@@ -302,6 +362,8 @@ function loadConversations(showLoading = false) {
       updateTotalUnreadBadge(rawConversations);
       renderConversationList();
     }
+  }).fail(function() {
+    $('#convList').html('<div class="empty-state-card p-4 m-3 text-center" role="alert"><p class="mb-2">Could not load messages.</p><button class="btn btn-outline-primary btn-sm" type="button" onclick="loadConversations(true)">Retry</button></div>');
   });
 }
 
@@ -331,7 +393,10 @@ function renderConversationList(query = '') {
   } else if (currentFilter === 'teacher_nurse') {
     filtered = filtered.filter(c => c.conversation_type === 'teacher_nurse');
   } else if (currentFilter === 'unread') {
-    filtered = filtered.filter(c => parseInt(c.unread_count || 0) > 0);
+    // Keep the open thread visible after it is marked read. Otherwise, when
+    // the Unread filter is active, selecting a conversation removes it from
+    // the sidebar while the nurse is still viewing that conversation.
+    filtered = filtered.filter(c => parseInt(c.unread_count || 0) > 0 || c.id == currentConversationId);
   }
 
   // Apply Search Query
@@ -348,7 +413,7 @@ function renderConversationList(query = '') {
   if (filtered.length === 0) {
     $('#convList').html(`
       <div class="empty-state-card py-4 my-2">
-        <div class="text-muted small">${query ? 'No matching conversations found.' : 'No active triage threads.'}</div>
+        <div class="text-muted small"><i class="bi bi-chat-square-text d-block fs-3 mb-2" aria-hidden="true"></i>${query ? 'No matching conversations found.' : 'No messages yet'}</div>
       </div>
     `);
     return;
@@ -365,12 +430,15 @@ function renderConversationList(query = '') {
     const subtext = cp.subtext || (c.conversation_type === 'teacher_nurse' ? 'Teacher' : 'Student');
     const presenceClass = cp.presence_badge || 'status-offline';
     const isTeacher = (c.conversation_type === 'teacher_nurse');
+    const lastMessage = c.last_message || 'No messages yet';
+    const senderLabel = Number(c.last_sender_id) === currentUserId ? 'You: ' : `${name.split(' ')[0]}: `;
+    const preview = /^\[Attachment\]/i.test(lastMessage) ? `${senderLabel}sent an attachment` : `${senderLabel}${lastMessage}`;
     const roleBadge = isTeacher 
       ? '<span class="badge bg-primary-subtle text-primary ms-1" style="font-size:0.65rem;">Teacher</span>'
       : '<span class="badge bg-success-subtle text-success ms-1" style="font-size:0.65rem;">Student</span>';
 
     html += `
-      <div class="messenger-thread-item ${isActive} ${isUnread ? 'unread' : ''}" onclick="selectConversation(${c.id})">
+      <div class="messenger-thread-item ${isActive} ${isUnread ? 'unread' : ''}" role="button" tabindex="0" aria-label="Open conversation with ${escapeHtml(name)}" data-name="${escapeHtml(name).toLowerCase()}" data-unread="${isUnread ? '1' : '0'}" data-role="${isTeacher ? 'teacher' : 'student'}" onclick="selectConversation(${c.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectConversation(${c.id})}">
         <div class="messenger-avatar-wrap">
           <img src="${avatar}" class="messenger-avatar" alt="${escapeHtml(name)}" onerror="this.src='${APP_URL}/assets/images/default-avatar.svg'">
           <span class="presence-dot ${presenceClass}"></span>
@@ -382,7 +450,7 @@ function renderConversationList(query = '') {
           </div>
           <div class="text-muted" style="font-size:0.72rem; margin-top:-2px; margin-bottom:2px;">${escapeHtml(subtext)}</div>
           <div class="messenger-thread-bottom">
-            <div class="messenger-thread-snippet">${escapeHtml(c.last_message || 'No messages yet')}</div>
+            <div class="messenger-thread-snippet">${escapeHtml(preview)}</div>
             ${isUnread ? `<span class="badge bg-danger rounded-pill px-2" style="font-size:0.68rem;">${c.unread_count}</span>` : ''}
           </div>
         </div>
@@ -508,7 +576,7 @@ function fetchDeltaMessages(initialLoad = false) {
         let appendHtml = '';
         let lastDateBadge = $('.messenger-date-badge').last().text() || '';
 
-        messages.forEach(m => {
+        messages.forEach((m, index) => {
           const mId = parseInt(m.id);
           if (mId > highestMessageId) {
             highestMessageId = mId;
@@ -524,11 +592,16 @@ function fetchDeltaMessages(initialLoad = false) {
           const isOutgoing = (parseInt(m.sender_id) === currentUserId);
           const time = formatMessageTime(msgDate);
           const senderName = isOutgoing ? 'You (Nurse)' : (m.first_name + ' ' + m.last_name);
+          const previous = messages[index - 1];
+          const next = messages[index + 1];
+          const samePrevious = previous && Number(previous.sender_id) === Number(m.sender_id);
+          const sameNext = next && Number(next.sender_id) === Number(m.sender_id);
+          const avatar = escapeHtml(m.avatar || (APP_URL + '/assets/images/default-avatar.svg'));
 
           appendHtml += `
-            <div class="message-bubble-row ${isOutgoing ? 'outgoing' : 'incoming'}" id="msg-${m.id}">
-              ${!isOutgoing ? `<div class="message-sender-name">${escapeHtml(senderName)}</div>` : ''}
-              <div class="message-bubble-content">${escapeHtml(m.message_body)}</div>
+            <div class="message-bubble-row ${isOutgoing ? 'outgoing' : 'incoming'}${samePrevious ? ' is-continuation' : ''}${!sameNext ? ' is-group-last' : ''}" id="msg-${m.id}" data-sender-id="${Number(m.sender_id)}">
+              ${!isOutgoing && !samePrevious ? `<div class="message-sender-name">${escapeHtml(senderName)}</div>` : ''}
+              <div class="message-bubble-line">${!isOutgoing ? `<img class="message-avatar" src="${avatar}" alt="${escapeHtml(senderName)}" loading="lazy">` : ''}<div class="message-bubble-content">${m.message_body ? escapeHtml(m.message_body) : ''}${renderAttachment(m)}</div></div>
               <div class="message-time-meta">${time}</div>
             </div>
           `;
@@ -546,28 +619,31 @@ function fetchDeltaMessages(initialLoad = false) {
 function handleSendMessage(e) {
   e.preventDefault();
   const text = $('#messageInput').val().trim();
-  if (!text || !currentConversationId) return;
+  const file = $('#messageAttachment')[0].files[0];
+  if ((!text && !file) || !currentConversationId) return;
 
   $('#sendBtn').prop('disabled', true);
 
-  $.post(APP_URL + '/api/messages.php', {
-    action: 'send_message',
-    conversation_id: currentConversationId,
-    message_body: text,
-    csrf_token: csrfToken
-  }, function(res) {
+  const formData = new FormData();
+  formData.append('action', 'send_message');
+  formData.append('conversation_id', currentConversationId);
+  formData.append('message_body', text);
+  formData.append('csrf_token', csrfToken);
+  if (file) formData.append('attachment', file);
+  $.ajax({ url: APP_URL + '/api/messages.php', method: 'POST', data: formData, processData: false, contentType: false }).done(function(res) {
     $('#sendBtn').prop('disabled', false);
     if (res.success) {
       $('#messageInput').val('');
+      $('#messageAttachment').val('').trigger('change');
       toggleSendButton();
       fetchDeltaMessages(false);
       loadConversations(false);
     } else {
       Swal.fire('Error', res.message || 'Failed to send message.', 'error');
     }
-  }).fail(function() {
+  }).fail(function(xhr) {
     $('#sendBtn').prop('disabled', false);
-    Swal.fire('Error', 'Network error. Failed to send message.', 'error');
+    Swal.fire('Error', xhr.responseJSON?.message || 'Network error. Failed to send message.', 'error');
   });
 }
 
@@ -577,9 +653,24 @@ function insertQuickReply(text) {
 }
 
 function toggleSendButton() {
-  const hasText = ($('#messageInput').val() || '').trim().length > 0;
-  $('#sendBtn').css('opacity', hasText ? '1' : '0.6');
+  const hasText = ($('#messageInput').val() || '').trim().length > 0 || !!$('#messageAttachment')[0].files.length;
+  $('#sendBtn').prop('disabled', !hasText).css('opacity', hasText ? '1' : '0.6');
 }
+
+function renderAttachment(message) {
+  if (!message.attachment_url || !message.attachment_name) return '';
+  const size = Number(message.attachment_size || 0);
+  const sizeLabel = size ? (size < 1048576 ? `${Math.max(1, Math.round(size / 1024))} KB` : `${(size / 1048576).toFixed(1)} MB`) : 'Attachment';
+  return `<a class="message-attachment" href="${escapeHtml(message.attachment_url)}" target="_blank" rel="noopener"><i class="bi bi-paperclip" aria-hidden="true"></i><span>${escapeHtml(message.attachment_name)}<small>${sizeLabel}</small></span><i class="bi bi-download" aria-hidden="true"></i></a>`;
+}
+
+$('#messageAttachment').on('change', function() {
+  const file = this.files[0];
+  $('#attachmentName').text(file ? file.name : '');
+  $(this).closest('form').toggleClass('has-attachment', !!file);
+  $(this).attr('title', file ? `Attached: ${file.name}` : 'Choose a file');
+  toggleSendButton();
+});
 
 function refreshActiveConversation() {
   if (currentConversationId) {
@@ -658,11 +749,18 @@ function formatMessageTime(d) {
 }
 
 function formatRelativeTime(dateStr) {
-  if (typeof moment !== 'undefined') {
-    return moment(dateStr).fromNow();
-  }
-  const d = new Date(dateStr);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const input = String(dateStr || '');
+  const parsed = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(input) ? input : input.replace(' ', 'T') + '+08:00');
+  if (Number.isNaN(parsed.getTime())) return '';
+  const minutes = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 60000));
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const dayKey = date => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  if (dayKey(parsed) === dayKey(new Date())) return `${hours}h`;
+  if (dayKey(parsed) === dayKey(new Date(Date.now() - 86400000))) return 'Yesterday';
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' }).format(parsed);
 }
 
 function escapeHtml(str) {

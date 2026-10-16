@@ -39,9 +39,6 @@ $pageTitle = 'Clinic Queue Management';
           <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#newWalkinModal">
             <i class="bi bi-person-plus-fill me-1"></i> Add Walk-in
           </button>
-          <a href="<?= APP_URL ?>/pages/queue_display.php" target="_blank" class="btn btn-success">
-            <i class="bi bi-tv me-1"></i> Open Live TV Display
-          </a>
         </div>
       </div>
 

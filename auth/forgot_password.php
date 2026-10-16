@@ -96,7 +96,7 @@ $pageTitle = 'Forgot Password';
   <div class="auth-card" data-aos="fade-up" data-aos-duration="800">
     <div class="auth-side">
       <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo"></div>
-      <h2 class="mb-2">Secure access recovery for your clinic account</h2>
+      <h1 class="mb-2">Secure access recovery for your clinic account</h1>
       <p class="mb-0">We’ll send a protected reset link to the email address on file so you can regain access to your school clinic portal safely.</p>
     </div>
 

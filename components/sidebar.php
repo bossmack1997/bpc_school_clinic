@@ -62,7 +62,7 @@ $sbNav = [
                 ['dashboard', 'Dashboard', 'dashboard.php'],
             ],
             'Clinic Operations' => [
-                ['list', 'Live Queue', 'queue.php'],
+                ['list', 'Clinic Queue', 'queue.php'],
                 ['stethoscope', 'Consultation Desk', 'walkin.php'],
                 ['clipboard-list', 'Student Records', 'medical_records.php'],
                 ['shield-alert', 'Emergency Center', 'emergencies.php'],

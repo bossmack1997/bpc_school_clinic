@@ -12,7 +12,7 @@ $visitTypes = ['walk-in' => 'Walk-in', 'appointment' => 'Appointment', 'emergenc
 $qrScanLocation = 'Clinic Entrance';
 if (function_exists('get_qr_setting')) {
     try {
-        $qrScanLocation = get_qr_setting(getDB(), 'scan_location_default', 'Clinic Entrance');
+        $qrScanLocation = get_qr_setting(getDB(), 'scan_location_default', 'Clinic Entrance'); 
     } catch (Exception $e) {
         error_log('QR setting fetch failed: ' . $e->getMessage());
     }

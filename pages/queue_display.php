@@ -40,7 +40,7 @@ $db = getDB();
       --blue: #3B82F6;
     }
 
-    body {
+    body.queue-display {
       font-family: var(--font-sans);
     }
 
@@ -50,7 +50,7 @@ $db = getDB();
       padding: 0;
     }
 
-    body {
+    body.queue-display {
       font-family: var(--font-sans);
       background: linear-gradient(135deg, #091E14 0%, #0F172A 100%);
       color: var(--text-main);
@@ -542,8 +542,9 @@ $db = getDB();
       }
     }
   </style>
+  <link rel="stylesheet" href="<?= asset_url('css/theme.css') ?>">
 </head>
-<body>
+<body class="queue-display">
 
   <!-- Audio Unlock Overlay -->
   <div id="audioPromptOverlay">
@@ -568,7 +569,7 @@ $db = getDB();
         <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Logo">
       </div>
       <div>
-        <div class="brand-title">BPC School Clinic — Now Serving</div>
+        <h1 class="brand-title">BPC School Clinic — Now Serving</h1>
         <div class="brand-subtitle">AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</div>
       </div>
     </div>

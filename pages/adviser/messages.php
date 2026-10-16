@@ -45,21 +45,29 @@ $user = current_user();
         <div class="messenger-sidebar" id="convSidebar">
           
           <!-- Top Header & New Coordination Action -->
-          <div class="d-flex align-items-center justify-content-between p-3 border-bottom bg-white">
-            <h5 class="fw-bold mb-0 text-dark d-flex align-items-center gap-2">
-              <i class="bi bi-chat-heart-fill text-success"></i> Coordination
-            </h5>
-            <button class="btn btn-success btn-sm rounded-pill px-3 fw-semibold shadow-sm" onclick="openNewCoordinationModal()">
-              <i class="bi bi-plus-lg me-1"></i> New Chat
-            </button>
+          <div class="messenger-list-header d-flex align-items-center justify-content-between p-3 border-bottom bg-white">
+            <h1 class="fw-bold mb-0 text-dark">Messages</h1>
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-success btn-sm rounded-circle messenger-icon-action" aria-label="New message" title="New message" onclick="openNewCoordinationModal()"><i class="bi bi-pencil-square" aria-hidden="true"></i></button>
+              <div class="dropdown">
+                <button class="btn btn-light rounded-circle messenger-icon-action" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More message options" title="More options"><i class="bi bi-three-dots" aria-hidden="true"></i></button>
+                <ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" type="button" onclick="loadConversations(false)"><i class="bi bi-arrow-clockwise me-2"></i>Refresh conversations</button></li></ul>
+              </div>
+            </div>
           </div>
 
           <!-- Search Input -->
           <div class="messenger-search-bar">
             <div class="input-group input-group-sm">
               <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-              <input type="text" class="form-control border-start-0 ps-0 bg-white" id="convSearchInput" placeholder="Search nurse or thread..." oninput="filterConversations()">
+              <input type="search" class="form-control border-start-0 ps-0 bg-white" id="convSearchInput" placeholder="Search messages or people" aria-label="Search messages or people" oninput="filterConversations()">
             </div>
+          </div>
+
+          <div class="messenger-filter-pills" role="group" aria-label="Filter conversations">
+            <button class="messenger-filter-btn active" type="button" data-filter="all" onclick="setMessageFilter('all', this)">All</button>
+            <button class="messenger-filter-btn" type="button" data-filter="unread" onclick="setMessageFilter('unread', this)">Unread</button>
+            <button class="messenger-filter-btn" type="button" data-filter="staff" onclick="setMessageFilter('staff', this)">Staff</button>
           </div>
 
           <!-- Available Clinic Staff Section -->
@@ -143,7 +151,10 @@ $user = current_user();
 
           <!-- Input Composer -->
           <form class="messenger-composer-area" id="chatForm" onsubmit="handleSendMessage(event)" style="display:none;">
-            <input type="text" class="form-control messenger-input" id="messageInput" placeholder="Type coordination message to the clinic nurse..." required maxlength="3000" autocomplete="off" oninput="toggleSendButton()">
+            <input type="file" id="messageAttachment" class="visually-hidden" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" aria-label="Choose an attachment">
+            <button type="button" class="messenger-attach-btn" aria-label="Attach a file" title="Attach PDF, image, or document (max 10 MB)" onclick="$('#messageAttachment').trigger('click')"><i class="bi bi-paperclip" aria-hidden="true"></i></button>
+            <span class="messenger-attachment-name" id="attachmentName" aria-live="polite"></span>
+            <input type="text" class="form-control messenger-input" id="messageInput" placeholder="Type coordination message to the clinic nurse..." maxlength="3000" autocomplete="off" oninput="toggleSendButton()">
             <button type="submit" class="messenger-send-btn shadow-sm" id="sendBtn" title="Send Message (Enter)">
               <i class="bi bi-send-fill"></i>
             </button>
@@ -191,6 +202,7 @@ let currentConversationId = <?= (int)($_GET['id'] ?? 0) ?>;
 let activeRecipientId = 0;
 let availableStaff = [];
 let conversationList = [];
+let messageListFilter = 'all';
 let lastMessageId = 0;
 let messagePollInterval = null;
 let presenceInterval = null;
@@ -345,6 +357,8 @@ function loadConversations(showSpinner = true) {
     } else if (!currentConversationId && conversationList.length > 0 && showSpinner && $(window).width() >= 992) {
       openConversation(conversationList[0].id, true);
     }
+  }).fail(function() {
+    $('#convList').html('<div class="empty-state-card p-4 m-3 text-center" role="alert"><p class="mb-2">Could not load messages.</p><button class="btn btn-outline-primary btn-sm" type="button" onclick="loadConversations()">Retry</button></div>');
   });
 }
 
@@ -353,7 +367,7 @@ function renderConversationList(convs) {
   if (convs.length === 0) {
     container.html(`
       <div class="empty-state-card py-4 my-2 text-center">
-        <div class="text-muted small mb-2">No coordination threads yet.</div>
+        <div class="text-muted small mb-2"><i class="bi bi-chat-square-text d-block fs-3 mb-2" aria-hidden="true"></i>No messages yet</div>
         <button class="btn btn-outline-success btn-sm rounded-pill" onclick="openNewCoordinationModal()">
           <i class="bi bi-chat-plus me-1"></i> Coordinate with Clinic
         </button>
@@ -367,11 +381,14 @@ function renderConversationList(convs) {
     const other = c.counterpart || {};
     const isActive = (c.id == currentConversationId) ? 'active' : '';
     const isUnread = parseInt(c.unread_count) > 0;
-    const time = c.last_message_time ? moment(c.last_message_time).fromNow() : '';
+    const time = c.last_message_time ? formatMessageListTime(c.last_message_time) : '';
     const unreadClass = isUnread ? 'unread' : '';
+    const lastMessage = c.last_message || 'Start coordination...';
+    const senderLabel = Number(c.last_sender_id) === currentUserId ? 'You: ' : (other.name ? `${other.name.split(' ')[0]}: ` : '');
+    const preview = /^\[Attachment\]/i.test(lastMessage) ? `${senderLabel}sent an attachment` : `${senderLabel}${lastMessage}`;
 
     html += `
-      <div class="messenger-thread-item ${isActive} ${unreadClass}" data-name="${escapeHtml(other.name || c.title || '').toLowerCase()}" onclick="openConversation(${c.id}, true)">
+      <div class="messenger-thread-item ${isActive} ${unreadClass}" role="button" tabindex="0" aria-label="Open conversation with ${escapeHtml(other.name || c.title || 'Clinic Nurse')}" data-name="${escapeHtml(other.name || c.title || '').toLowerCase()}" data-unread="${isUnread ? '1' : '0'}" data-role="staff" onclick="openConversation(${c.id}, true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openConversation(${c.id},true)}">
         <div class="messenger-avatar-wrap">
           <img src="${other.avatar || '<?= asset_url('images/default-avatar.svg') ?>'}" class="messenger-avatar" alt="${escapeHtml(other.name)}">
           <span class="presence-dot ${other.presence_badge || 'status-offline'}"></span>
@@ -382,7 +399,7 @@ function renderConversationList(convs) {
             <div class="messenger-thread-time">${time}</div>
           </div>
           <div class="messenger-thread-bottom">
-            <div class="messenger-thread-snippet">${escapeHtml(c.last_message || 'Start coordination...')}</div>
+            <div class="messenger-thread-snippet">${escapeHtml(preview)}</div>
             <div>
               ${isUnread ? `<span class="badge bg-danger rounded-pill">${c.unread_count}</span>` : ''}
             </div>
@@ -392,14 +409,25 @@ function renderConversationList(convs) {
     `;
   });
   container.html(html);
+  filterConversations();
 }
 
 function filterConversations() {
-  const query = $('#convSearchInput').val().toLowerCase().trim();
+  const query = ($('#convSearchInput').val() || '').toLowerCase().trim();
   $('.messenger-thread-item').each(function() {
     const name = $(this).data('name') || '';
-    $(this).toggle(name.indexOf(query) > -1);
+    const preview = ($(this).find('.messenger-thread-snippet').text() || '').toLowerCase();
+    const unreadMatch = messageListFilter !== 'unread' || $(this).data('unread') === 1;
+    const roleMatch = messageListFilter === 'all' || messageListFilter === 'unread' || $(this).data('role') === messageListFilter;
+    $(this).toggle(unreadMatch && roleMatch && (name.indexOf(query) > -1 || preview.indexOf(query) > -1));
   });
+}
+
+function setMessageFilter(filter, button) {
+  messageListFilter = filter;
+  $('.messenger-filter-btn').removeClass('active');
+  $(button).addClass('active');
+  filterConversations();
 }
 
 // -------------------------------------------------------------
@@ -460,7 +488,7 @@ function renderMessageHistory(messages) {
 
   let html = '';
   let lastDateStr = '';
-  messages.forEach(m => {
+  messages.forEach((m, index) => {
     const msgDate = new Date(m.created_at);
     const dateStr = msgDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
     if (dateStr !== lastDateStr) {
@@ -468,14 +496,19 @@ function renderMessageHistory(messages) {
       lastDateStr = dateStr;
     }
 
-    const isOutgoing = (m.sender_id === currentUserId);
+    const isOutgoing = (Number(m.sender_id) === Number(currentUserId));
     const time = msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const senderName = isOutgoing ? 'You' : (m.first_name + ' ' + m.last_name + ' (Nurse)');
+    const previous = messages[index - 1];
+    const next = messages[index + 1];
+    const samePrevious = previous && Number(previous.sender_id) === Number(m.sender_id);
+    const sameNext = next && Number(next.sender_id) === Number(m.sender_id);
+    const avatar = escapeHtml(m.avatar || (APP_URL + '/assets/images/default-avatar.svg'));
 
     html += `
-      <div class="message-bubble-row ${isOutgoing ? 'outgoing' : 'incoming'}" id="msg-${m.id}">
-        ${!isOutgoing ? `<div class="message-sender-name">${escapeHtml(senderName)}</div>` : ''}
-        <div class="message-bubble-content">${escapeHtml(m.message_body)}</div>
+      <div class="message-bubble-row ${isOutgoing ? 'outgoing' : 'incoming'}${samePrevious ? ' is-continuation' : ''}${!sameNext ? ' is-group-last' : ''}" id="msg-${m.id}" data-sender-id="${Number(m.sender_id)}">
+        ${!isOutgoing && !samePrevious ? `<div class="message-sender-name">${escapeHtml(senderName)}</div>` : ''}
+        <div class="message-bubble-line">${!isOutgoing ? `<img class="message-avatar" src="${avatar}" alt="${escapeHtml(senderName)}" loading="lazy">` : ''}<div class="message-bubble-content">${m.message_body ? escapeHtml(m.message_body) : ''}${renderAttachment(m)}</div></div>
         <div class="message-time-meta">${time}</div>
       </div>
     `;
@@ -502,14 +535,18 @@ function pollActiveMessages() {
       if ($(`#msg-${m.id}`).length > 0) return;
 
       const msgDate = new Date(m.created_at);
-      const isOutgoing = (m.sender_id === currentUserId);
+      const isOutgoing = (Number(m.sender_id) === Number(currentUserId));
       const time = msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const senderName = isOutgoing ? 'You' : (m.first_name + ' ' + m.last_name + ' (Nurse)');
+      const previousRow = container.children('.message-bubble-row').last();
+      const samePrevious = previousRow.length && Number(previousRow.data('sender-id')) === Number(m.sender_id);
+      const avatar = escapeHtml(m.avatar || (APP_URL + '/assets/images/default-avatar.svg'));
+      if (samePrevious) previousRow.removeClass('is-group-last');
 
       const msgHtml = `
-        <div class="message-bubble-row ${isOutgoing ? 'outgoing' : 'incoming'}" id="msg-${m.id}">
-          ${!isOutgoing ? `<div class="message-sender-name">${escapeHtml(senderName)}</div>` : ''}
-          <div class="message-bubble-content">${escapeHtml(m.message_body)}</div>
+        <div class="message-bubble-row ${isOutgoing ? 'outgoing' : 'incoming'}${samePrevious ? ' is-continuation' : ''} is-group-last" id="msg-${m.id}" data-sender-id="${Number(m.sender_id)}">
+          ${!isOutgoing && !samePrevious ? `<div class="message-sender-name">${escapeHtml(senderName)}</div>` : ''}
+          <div class="message-bubble-line">${!isOutgoing ? `<img class="message-avatar" src="${avatar}" alt="${escapeHtml(senderName)}" loading="lazy">` : ''}<div class="message-bubble-content">${m.message_body ? escapeHtml(m.message_body) : ''}${renderAttachment(m)}</div></div>
           <div class="message-time-meta">${time}</div>
         </div>
       `;
@@ -521,6 +558,13 @@ function pollActiveMessages() {
   });
 }
 
+function renderAttachment(message) {
+  if (!message.attachment_url || !message.attachment_name) return '';
+  const size = Number(message.attachment_size || 0);
+  const sizeLabel = size ? (size < 1048576 ? `${Math.max(1, Math.round(size / 1024))} KB` : `${(size / 1048576).toFixed(1)} MB`) : 'Attachment';
+  return `<a class="message-attachment" href="${escapeHtml(message.attachment_url)}" target="_blank" rel="noopener"><i class="bi bi-paperclip" aria-hidden="true"></i><span>${escapeHtml(message.attachment_name)}<small>${sizeLabel}</small></span><i class="bi bi-download" aria-hidden="true"></i></a>`;
+}
+
 // -------------------------------------------------------------
 // 6. Message Sending
 // -------------------------------------------------------------
@@ -528,36 +572,47 @@ function handleSendMessage(e) {
   e.preventDefault();
   const input = $('#messageInput');
   const text = input.val().trim();
-  if (!text || !currentConversationId) return;
+  const file = $('#messageAttachment')[0].files[0];
+  if ((!text && !file) || !currentConversationId) return;
 
   const btn = $('#sendBtn');
   btn.prop('disabled', true);
 
-  $.post(APP_URL + '/api/messages.php', {
-    action: 'send_message',
-    conversation_id: currentConversationId,
-    message_body: text,
-    csrf_token: csrfToken
-  }, function(res) {
+  const formData = new FormData();
+  formData.append('action', 'send_message');
+  formData.append('conversation_id', currentConversationId);
+  formData.append('message_body', text);
+  formData.append('csrf_token', csrfToken);
+  if (file) formData.append('attachment', file);
+  $.ajax({ url: APP_URL + '/api/messages.php', method: 'POST', data: formData, processData: false, contentType: false }).done(function(res) {
     btn.prop('disabled', false);
     if (res.success) {
       input.val('');
+      $('#messageAttachment').val('').trigger('change');
       toggleSendButton();
       pollActiveMessages();
       loadConversations(false);
     } else {
       toastError(res.message || 'Failed to send message.');
     }
-  }).fail(function() {
+  }).fail(function(xhr) {
     btn.prop('disabled', false);
-    toastError('Network error while sending message.');
+    toastError(xhr.responseJSON?.message || 'Network error while sending message.');
   });
 }
 
 function toggleSendButton() {
   const text = $('#messageInput').val().trim();
-  $('#sendBtn').prop('disabled', text.length === 0);
+  $('#sendBtn').prop('disabled', text.length === 0 && !$('#messageAttachment')[0].files.length);
 }
+
+$('#messageAttachment').on('change', function() {
+  const file = this.files[0];
+  $('#attachmentName').text(file ? file.name : '');
+  $(this).closest('form').toggleClass('has-attachment', !!file);
+  $(this).attr('title', file ? `Attached: ${file.name}` : 'Choose a file');
+  toggleSendButton();
+});
 
 function refreshActiveConversation() {
   if (currentConversationId) {
@@ -575,6 +630,21 @@ function scrollToBottom() {
   if (el) {
     el.scrollTop = el.scrollHeight;
   }
+}
+
+function formatMessageListTime(value) {
+  const input = String(value || '');
+  const parsed = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(input) ? input : input.replace(' ', 'T') + '+08:00');
+  if (Number.isNaN(parsed.getTime())) return '';
+  const minutes = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 60000));
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const dayKey = date => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  if (dayKey(parsed) === dayKey(new Date())) return `${hours}h`;
+  if (dayKey(parsed) === dayKey(new Date(Date.now() - 86400000))) return 'Yesterday';
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' }).format(parsed);
 }
 
 function escapeHtml(str) {

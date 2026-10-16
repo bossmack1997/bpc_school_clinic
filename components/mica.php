@@ -265,6 +265,7 @@ $(document).on('shown.bs.modal', '#sosModal', function () {
 
 // Start Continuous Real-Time Tracking for active SOS
 window.startSosLocationTracking = function (emergencyId, initialLat, initialLng, initialAcc) {
+  document.body.classList.add('has-active-sos-banner');
   window.__ACTIVE_SOS_ID__ = emergencyId;
   window.__SOS_LAST_UPDATE_TIME__ = Date.now();
   window.__SOS_LAST_LAT__ = initialLat;
@@ -333,6 +334,7 @@ window.startSosLocationTracking = function (emergencyId, initialLat, initialLng,
 
 // Stop Continuous Real-Time Tracking
 window.stopSosLocationTracking = function (title, msg) {
+  document.body.classList.remove('has-active-sos-banner');
   if (window.__SOS_WATCH_ID__ !== null) {
     navigator.geolocation.clearWatch(window.__SOS_WATCH_ID__);
     window.__SOS_WATCH_ID__ = null;

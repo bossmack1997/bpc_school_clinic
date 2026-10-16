@@ -24,53 +24,53 @@
    1. DESIGN TOKENS
    ================================================================== */
 :root {
-  /* -- Brand --------------------------------------------------- */
+  /* -- Brand / Primary Healthcare Palette ---------------------- */
   --primary: #0E7A3E;
-  --primary-dark: #095C2E;
-  --primary-darker: #073F1F;
-  --primary-light: #EAF6EF;
-  --primary-lighter: #F3FAF6;
-  --primary-border: #C9E5D6;
+  --primary-dark: #08522C;
+  --primary-darker: #064020;
+  --primary-light: #EAF7EF;
+  --primary-lighter: #F0FBF4;
+  --primary-border: #BBF7D0;
 
-  /* Deep brand surface used by the application shell.
-     The clinic chrome keeps its original deep-green identity. */
-  --brand-deep: #0A4D28;
-  --brand-accent: #22C55E;
+  /* Deep institutional surface used by the application shell */
+  --brand-deep: #0F172A;
+  --brand-accent: #0E7A3E;
+  --brand-bpc: #0E7A3E;
 
-  /* -- Neutral ------------------------------------------------- */
-  --background: #F6F8F7;
+  /* -- Neutral (Slate Palette) --------------------------------- */
+  --background: #F8FAFC;
   --surface: #FFFFFF;
-  --surface-alt: #FAFBFA;
-  --surface-sunken: #F2F4F3;
+  --surface-alt: #F1F5F9;
+  --surface-sunken: #E2E8F0;
 
-  --text-primary: #17211B;
-  --text-secondary: #667085;
-  --text-muted: #98A2B3;
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --text-muted: #94A3B8;
   --text-inverse: #FFFFFF;
 
-  --border: #E4E7EC;
-  --border-subtle: #EEF1F0;
-  --border-strong: #D5DADF;
+  --border: #E2E8F0;
+  --border-subtle: #F1F5F9;
+  --border-strong: #CBD5E1;
 
-  /* -- Semantic (status only — never a role theme) ------------- */
-  --success: #16A34A;
-  --success-bg: #E9F7EE;
-  --success-text: #14833D;
+  /* -- Semantic (Status only — accessible contrast) ----------- */
+  --success: #15803D;
+  --success-bg: #DCFCE7;
+  --success-text: #15803D;
 
-  --warning: #D97706;
-  --warning-bg: #FEF4E6;
+  --warning: #B45309;
+  --warning-bg: #FEF3C7;
   --warning-text: #B45309;
 
-  --danger: #DC2626;
-  --danger-bg: #FDECEC;
-  --danger-text: #B42318;
+  --danger: #B91C1C;
+  --danger-bg: #FEE2E2;
+  --danger-text: #B91C1C;
 
-  --info: #2563EB;
-  --info-bg: #EAF1FE;
-  --info-text: #1D4FD7;
+  --info: #0E7A3E;
+  --info-bg: #EAF7EF;
+  --info-text: #08522C;
 
-  --neutral-bg: #F2F4F3;
-  --neutral-text: #667085;
+  --neutral-bg: #F1F5F9;
+  --neutral-text: #64748B;
 
   /* -- Typography --------------------------------------------- */
   --font-sans: 'Inter', 'Segoe UI', Roboto, Arial, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -122,7 +122,7 @@
   --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06);
   --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.07);
   --shadow-lg: 0 10px 30px rgba(16, 24, 40, 0.10);
-  --shadow-focus: 0 0 0 3px rgba(14, 122, 62, 0.16);
+  --shadow-focus: 0 0 0 3px rgba(14, 122, 62, 0.20);
 
   /* -- Motion (150–250ms, calm) ------------------------------- */
   --motion-fast: 150ms;
@@ -161,6 +161,14 @@
   /* Historical names used by page-local blocks */
   --bpc-primary: var(--primary);
   --bpc-primary-dark: var(--primary-dark);
+  --bg: var(--background);
+  --bg-alt: var(--surface-alt);
+  --card: var(--surface);
+  --border-light: var(--border-subtle);
+  --text: var(--text-primary);
+  --accent: #22C55E;
+  --accent-light: var(--primary-light);
+  --secondary: var(--success);
   --primary-50: var(--primary-lighter);
   --primary-100: var(--primary-light);
   --border-color: var(--border);
@@ -276,10 +284,12 @@ textarea:focus-visible,
   margin-left: var(--sidebar-width);
   width: calc(100% - var(--sidebar-width));
   min-height: 100vh;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   transition: margin-left var(--motion-base) var(--ease), width var(--motion-base) var(--ease);
   max-width: 100%;
+  overflow-x: hidden;
 }
 
 .content-area {
@@ -288,6 +298,7 @@ textarea:focus-visible,
   padding-bottom: 96px;
   position: relative;
   min-width: 0;
+  overflow-x: hidden;
 }
 
 .content-area > * {
@@ -613,6 +624,7 @@ textarea:focus-visible,
   padding: 0 var(--sp-6);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
 }
 
 .topbar-left {
@@ -626,11 +638,15 @@ textarea:focus-visible,
 
 .topbar .page-title {
   margin: 0;
+  max-width: 100%;
   font-size: 1.15rem;
   font-weight: var(--fw-semibold);
   letter-spacing: -0.02em;
   line-height: 1.25;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar .page-subtitle {
@@ -644,7 +660,10 @@ textarea:focus-visible,
 }
 
 .topbar .welcome-text {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
   margin-top: 2px;
   font-size: var(--fs-meta);
   line-height: 1.35;
@@ -844,11 +863,7 @@ textarea:focus-visible,
   width: 1em; height: 1em; vertical-align: -0.125em;
 }
 
-/* Normalise legacy per-icon spacing to one value so the gap between an
-   icon and its label is the same on every page. Bootstrap ships
-   0.25rem for .me-1 and 0.5rem for .me-2, which made rhythm drift. */
-.me-1, .ms-1 { margin-right: 4px; margin-left: 4px; }
-.me-2, .ms-2 { margin-right: 4px; margin-left: 4px; }
+/* Let Bootstrap retain its one-sided, direction-aware .me-* and .ms-* utilities. */
 
 /* ==================================================================
    7. BUTTON SYSTEM (normalised across every page)

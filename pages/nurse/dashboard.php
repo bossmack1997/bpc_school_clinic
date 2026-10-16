@@ -157,7 +157,6 @@ $pageDescription = 'Today’s clinic activity, queue, and patient care';
           'role'  => 'Clinic Nurse',
           'title' => dbg_greeting() . ', Nurse ' . $nurseFirstName . ' ',
           'desc'  => "Here's today's clinic activity.",
-          'tone'  => $activeEmergencyCount > 0 ? 'danger' : '',
           'chips' => [
               ['label' => 'Clinic', 'value' => $clinicOpen ? 'Open' : 'No activity yet', 'dot' => $clinicOpen ? '' : 'warn'],
               ['label' => 'Queue', 'value' => $waitingCount > 0 ? 'Active' : 'Idle', 'dot' => $waitingCount > 0 ? '' : 'warn'],

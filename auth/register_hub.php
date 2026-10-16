@@ -32,7 +32,7 @@ $pageTitle = 'Create an Account';
   <div class="auth-card" style="max-width:1040px;" data-aos="fade-up" data-aos-duration="700">
     <div class="auth-side">
       <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo"></div>
-      <h2 class="mb-2">AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</h2>
+      <h1 class="mb-2">AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement</h1>
       <p class="mb-3">Choose the account type that applies to you. Each role has a dedicated medical workflow, registration form, and clinic dashboard.</p>
       <ul class="list-unstyled small mb-0" style="opacity:.85;">
         <li class="mb-2"><i class="bi bi-check-circle-fill me-2"></i><strong>Students:</strong> Access personal health records, consult via messaging &amp; use QR clinic check-in.</li>

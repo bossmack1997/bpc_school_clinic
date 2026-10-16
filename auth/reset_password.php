@@ -172,7 +172,7 @@ $pageTitle = 'Reset Password';
 
         <div class="auth-side">
             <div class="auth-icon"><img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo"></div>
-            <h2 class="mb-2">Recover your secure clinic access</h2>
+            <h1 class="mb-2">Recover your secure clinic access</h1>
             <p class="mb-0">Create a new password to regain access to your school clinic dashboard, health records, and account services.</p>
         </div>
 
@@ -182,7 +182,7 @@ $pageTitle = 'Reset Password';
 
                 <div class="text-center">
 
-                    <div class="auth-icon d-inline-flex mb-3" style="font-size:2rem;color:var(--primary)">
+                    <div class="auth-icon auth-icon--compact d-inline-flex mb-3">
                         <i class="bi bi-check-circle-fill"></i>
                     </div>
 
@@ -204,7 +204,7 @@ $pageTitle = 'Reset Password';
 
                 <div class="text-center">
 
-                    <div class="auth-icon d-inline-flex mb-3" style="font-size:2rem;color:#dc3545">
+                    <div class="auth-icon auth-icon--compact d-inline-flex mb-3" style="color:#dc3545;">
                         <i class="bi bi-link-45deg"></i>
                     </div>
 
@@ -234,7 +234,7 @@ $pageTitle = 'Reset Password';
             <?php else: ?>
 
                 <div class="text-center mb-4">
-                    <div class="auth-icon d-inline-flex mb-3" style="font-size:2rem;color:var(--primary)">
+                    <div class="auth-icon auth-icon--compact d-inline-flex mb-3">
                         <i class="bi bi-shield-lock-fill"></i>
                     </div>
                     <h4 class="mb-1">Create New Password</h4>

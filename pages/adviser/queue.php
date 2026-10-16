@@ -40,9 +40,6 @@ $pageTitle = 'Faculty Clinic Queue';
           <a href="my_qr.php" class="btn btn-outline-success">
             <i class="bi bi-qr-code-scan me-1"></i> My Staff QR Pass
           </a>
-          <a href="<?= APP_URL ?>/pages/queue_display.php" target="_blank" class="btn btn-outline-secondary">
-            <i class="bi bi-tv me-1"></i> Public Screen
-          </a>
         </div>
       </div>
 

@@ -69,6 +69,11 @@ window.FIREBASE_CONFIG = {
 
 <!-- MICA Voice AI Assistant styles -->
 <link rel="stylesheet" href="<?= asset_url('css/mica.css') ?>">
+<?php if (!empty($loadRegistrationStyles)): ?>
+<link rel="stylesheet" href="<?= asset_url('css/registration.css') ?>">
+<?php endif; ?>
+<link rel="stylesheet" href="<?= asset_url('css/theme.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/ui-overrides.css') ?>">
 <link rel="stylesheet" href="<?= asset_url('css/dashboard-unified.css') ?>">
 
 <script>const APP_URL = "<?= APP_URL ?>";</script>
