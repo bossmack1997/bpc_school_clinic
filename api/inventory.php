@@ -442,7 +442,7 @@ if ($action === 'bulk_category') {
 // ================================================================
 if ($action === 'import_preview') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
 
     // Accept BOTH: a file upload (CSV via fgetcsv) OR a JSON rows array
     // (sent from the client-side SheetJS/CSV parser).
@@ -601,7 +601,7 @@ if ($action === 'import_preview') {
 // ================================================================
 if ($action === 'import_commit') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse', 'doctor', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $items = $_POST['items'] ?? [];
     if (!is_array($items) || !$items) json_response(false, [], 'No valid items to import.');
 

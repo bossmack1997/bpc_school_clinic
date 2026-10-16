@@ -9,8 +9,6 @@ require_once __DIR__ . '/../../config/config.php';
 
 header('Content-Type: application/json');
 
-error_log('[FCM AUTH] session_status=' . session_status() . ' session_exists=' . (session_id() !== '' ? 'yes' : 'no') . ' user_in_session=' . (isset($_SESSION['user']) ? 'yes' : 'no') . ' cookie_sent=' . (isset($_COOKIE[session_name()]) ? 'yes' : 'no') . ' uri=' . ($_SERVER['REQUEST_URI'] ?? 'unknown'));
-
 if (!is_logged_in()) {
     http_response_code(401);
     echo json_encode(['success' => false, 'message' => 'Authentication required.']);
