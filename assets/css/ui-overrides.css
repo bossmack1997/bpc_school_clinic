@@ -306,4 +306,77 @@ body:has(.sos-floating-widget) .pwa-install-banner { display: none; }
   .topbar .welcome-text { display: none; }
 }
 
+/* ------------------------------------------------------------------
+   7. SYSTEM-WIDE RESILIENCE — shared across every authenticated role
+   ------------------------------------------------------------------ */
+html, body { max-width: 100%; overflow-x: clip; }
+.app-wrapper, .main-content, .content-area, main, section,
+.row > [class*="col-"] { min-width: 0; }
+img, video, canvas, svg { max-width: 100%; }
+.card, .app-card, .adm-card, .modal-content, .alert,
+.page-title, .card-title { overflow-wrap: anywhere; }
+
+/* Prevent the browser's second, native reveal icon from duplicating ours. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear { display: none; }
+
+.bpc-password-field {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+.bpc-password-field > .form-control { padding-right: 3rem; }
+.bpc-password-field > .bpc-password-toggle {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 0;
+  width: 2.75rem;
+  height: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0 var(--bs-border-radius, .375rem) var(--bs-border-radius, .375rem) 0;
+  color: var(--bs-secondary-color, #64748b);
+  background: transparent;
+}
+.bpc-password-toggle:hover { color: var(--bs-success, #198754); }
+.bpc-password-toggle:focus-visible {
+  outline: 3px solid rgba(25, 135, 84, .28);
+  outline-offset: -3px;
+}
+
+.table-responsive {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+.table th, .table td { vertical-align: middle; }
+.table td { overflow-wrap: anywhere; }
+.table .btn-group, .table .dropdown { white-space: nowrap; }
+
+.modal-dialog { margin-inline: auto; padding-inline: 12px; }
+.modal-content { max-height: calc(100dvh - 24px); }
+.modal-body { min-height: 0; overflow-y: auto; }
+.dropdown-menu {
+  max-width: min(24rem, calc(100vw - 24px));
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767.98px) {
+  .form-control, .form-select, .input-group > .btn,
+  .bpc-password-toggle { min-height: 44px; }
+  .modal-dialog { width: 100%; margin-block: 12px; }
+  .modal-footer { flex-wrap: wrap; }
+  .modal-footer > .btn { flex: 1 1 10rem; }
+  .card-body, .app-card, .adm-card { min-width: 0; }
+  .dataTables_wrapper .row { row-gap: .75rem; }
+  .dataTables_wrapper .dataTables_filter,
+  .dataTables_wrapper .dataTables_length { text-align: left; }
+}
+
+@supports not (overflow-x: clip) {
+  html, body { overflow-x: hidden; }
+}
+
 

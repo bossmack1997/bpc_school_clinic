@@ -73,9 +73,10 @@ window.FIREBASE_CONFIG = {
 <link rel="stylesheet" href="<?= asset_url('css/registration.css') ?>">
 <?php endif; ?>
 <link rel="stylesheet" href="<?= asset_url('css/theme.css') ?>">
-<link rel="stylesheet" href="<?= asset_url('css/ui-overrides.css') ?>">
 <link rel="stylesheet" href="<?= asset_url('css/dashboard-unified.css') ?>">
 <link rel="stylesheet" href="<?= asset_url('css/notifications-header.css') ?>">
+<!-- Deliberately last: cross-role accessibility and responsive safeguards. -->
+<link rel="stylesheet" href="<?= asset_url('css/ui-overrides.css') . '?v=' . filemtime(__DIR__ . '/../assets/css/ui-overrides.css') ?>">
 
 <script>const APP_URL = "<?= APP_URL ?>";</script>
 <!-- Moment.js for real-time clock -->

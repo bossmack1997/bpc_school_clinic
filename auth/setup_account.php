@@ -90,7 +90,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
       <form method="post" id="setupAccountForm" novalidate>
         <?= csrf_field() ?><input type="hidden" name="token" value="<?= e($token) ?>">
         <label class="form-label fw-semibold" for="password">Password</label>
-        <div class="input-group"><input class="form-control" id="password" name="password" type="password" autocomplete="new-password" required aria-describedby="passwordRules passwordError"><button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button></div>
+        <div class="input-group"><input class="form-control" id="password" name="password" type="password" autocomplete="new-password" required aria-describedby="passwordRules passwordError"><button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Show password" aria-controls="password" aria-pressed="false"><i class="bi bi-eye" aria-hidden="true"></i></button></div>
         <div class="password-rules mt-2" id="passwordRules"><span data-rule="length">At least 8 characters</span><span data-rule="upper">One uppercase letter</span><span data-rule="lower">One lowercase letter</span><span data-rule="number">One number</span><span data-rule="special">One special character</span></div>
         <label class="form-label fw-semibold mt-3" for="confirm_password">Confirm password</label>
         <input class="form-control" id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required aria-describedby="passwordError">
@@ -107,8 +107,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
   const tests={length:v=>v.length>=8,upper:v=>/[A-Z]/.test(v),lower:v=>/[a-z]/.test(v),number:v=>/[0-9]/.test(v),special:v=>/[^A-Za-z0-9]/.test(v)};
   function validate(){const value=pw.value;Object.entries(tests).forEach(([name,test])=>document.querySelector(`[data-rule="${name}"]`).classList.toggle('valid',test(value)));const ok=Object.values(tests).every(test=>test(value));error.textContent=confirm.value&&value!==confirm.value?'Passwords do not match.':(!ok&&value?'Password does not yet meet every requirement.':'');return ok&&value===confirm.value;}
   pw.addEventListener('input',validate);confirm.addEventListener('input',validate);
-  toggle.addEventListener('click',()=>{const show=pw.type==='password';pw.type=confirm.type=show?'text':'password';toggle.setAttribute('aria-label',show?'Hide password':'Show password');toggle.querySelector('i').className=show?'bi bi-eye-slash':'bi bi-eye';});
+  toggle.addEventListener('click',()=>{const show=pw.type==='password';pw.type=show?'text':'password';toggle.setAttribute('aria-label',show?'Hide password':'Show password');toggle.setAttribute('aria-pressed',String(show));toggle.querySelector('i').className=show?'bi bi-eye-slash':'bi bi-eye';});
   form.addEventListener('submit',event=>{if(!validate()){event.preventDefault();error.textContent=error.textContent||'Complete all password requirements.';pw.focus();return;}const button=document.getElementById('submitBtn');button.disabled=true;button.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Activating account...';});
 })();
 </script>
+<?php include __DIR__ . '/../components/footer.php'; ?>
 </body></html>

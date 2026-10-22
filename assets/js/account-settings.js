@@ -3,10 +3,6 @@
   const token=document.querySelector('meta[name="csrf-token"]')?.content || '';
   for(const [id,action] of [['accountSettingsForm','save_account_settings'],['passwordForm','change_password']]) {
     const form=document.getElementById(id); if(!form)continue;
-    for(const input of form.querySelectorAll('input[type="password"]')) {
-      const toggle=document.createElement('button');toggle.type='button';toggle.className='btn btn-link btn-sm px-0';toggle.textContent='Show password';toggle.setAttribute('aria-controls',input.id);toggle.setAttribute('aria-pressed','false');
-      toggle.addEventListener('click',()=>{const show=input.type==='password';input.type=show?'text':'password';toggle.textContent=show?'Hide password':'Show password';toggle.setAttribute('aria-pressed',String(show));});input.after(toggle);
-    }
     form.addEventListener('submit',async event=>{
       event.preventDefault();if(form.dataset.saving)return;form.dataset.saving='true';
       const button=form.querySelector('[type="submit"]');button.disabled=true;

@@ -261,6 +261,7 @@ $pageTitle = 'Reset Password';
                     <div class="mb-4">
                         <label class="form-label fw-semibold" for="confirmPw">Confirm New Password</label>
                         <input type="password" name="confirm_password" id="confirmPw" class="form-control" required minlength="8" autocomplete="new-password" placeholder="Re-enter your new password">
+                        <div id="resetPasswordError" class="invalid-feedback d-block" role="alert" aria-live="polite"></div>
                     </div>
 
                     <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold" id="resetBtn">
@@ -290,6 +291,7 @@ $pageTitle = 'Reset Password';
     const pw = document.getElementById('newPw');
     const confirm = document.getElementById('confirmPw');
     const btn = document.getElementById('resetBtn');
+    const error = document.getElementById('resetPasswordError');
 
     function validPassword(value) {
 
@@ -308,11 +310,8 @@ $pageTitle = 'Reset Password';
         if (!validPassword(pw.value)) {
 
             event.preventDefault();
-
-            alert(
-                'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.'
-            );
-
+            error.textContent = 'Use at least 8 characters with uppercase, lowercase, a number, and a special character.';
+            pw.setAttribute('aria-invalid', 'true');
             pw.focus();
 
             return;
@@ -321,19 +320,28 @@ $pageTitle = 'Reset Password';
         if (pw.value !== confirm.value) {
 
             event.preventDefault();
-
-            alert('Passwords do not match.');
-
+            error.textContent = 'Passwords do not match.';
+            confirm.setAttribute('aria-invalid', 'true');
             confirm.focus();
 
             return;
         }
 
+        error.textContent = '';
+        pw.removeAttribute('aria-invalid');
+        confirm.removeAttribute('aria-invalid');
         btn.disabled = true;
 
         btn.innerHTML =
             '<span class="spinner-border spinner-border-sm me-1"></span> Resetting...';
 
+    });
+
+    [pw, confirm].forEach(function (field) {
+        field.addEventListener('input', function () {
+            error.textContent = '';
+            field.removeAttribute('aria-invalid');
+        });
     });
 
 })();

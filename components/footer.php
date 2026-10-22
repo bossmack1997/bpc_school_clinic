@@ -24,7 +24,7 @@
         BPCState being defined. */ ?>
 <?= dbg_state_js() ?>
 <script src="<?= asset_url('js/main.js') . '?v=' . filemtime(__DIR__ . '/../assets/js/main.js') ?>"></script>
-<script src="<?= asset_url('js/ui-enhance.js') ?>"></script>
+<script src="<?= asset_url('js/ui-enhance.js') . '?v=' . filemtime(__DIR__ . '/../assets/js/ui-enhance.js') ?>"></script>
 <script src="<?= asset_url('js/pwa.js') ?>"></script>
 <?php if (getenv('FIREBASE_PROJECT_ID')): ?>
 <script src="<?= asset_url('js/firebase-notifications.js') ?>"></script>
