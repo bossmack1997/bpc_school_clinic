@@ -237,6 +237,7 @@ class MICAContextService
 
     private function getAdviserContextString(): string
     {
+        if(!empty($this->user['self_service_only']))return 'Personal clinic services only; no access to student advisory records.';
         $lines = ["\n=== ADVISER CONTEXT ==="];
         try {
             $stmt = $this->db->prepare("SELECT id, employee_id FROM teachers WHERE user_id = ? LIMIT 1");

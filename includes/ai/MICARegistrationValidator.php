@@ -309,7 +309,7 @@ class MICARegistrationValidator
 
         $trustedIdentity = false;
         // 8. Institutional Roster Verification & Identity-to-Email Ownership Check
-        if ($this->db && $identifier) {
+        if ($this->db && $identifier && !in_array($role,['student','teacher'],true)) {
             $rosterCheck = $this->checkInstitutionalRoster($identifier, $role, $email, $firstName, $lastName, trim($data['license_number']??''));
             if ($rosterCheck['matched']) {
                 $trustedIdentity = true;
@@ -352,9 +352,9 @@ class MICARegistrationValidator
         if ($errors) {
             $decision='rejected';$finalReason=implode(' ',$errors);
         } else {
-            $decision=$role!=='admin' && $trustedIdentity && $riskLevel!=='high'?'approved':'review';
+            $decision=in_array($role,['student','teacher'],true)?'approved':'review';
             $finalReason=implode('; ',array_unique($reasons));
-            $finalReason.=$decision==='approved'?'; Trusted roster identity and role matched; OTP ownership still required.':'; Trusted identity and role eligibility require authorized review.';
+            $finalReason.=$decision==='approved'?'; Basic account: email OTP verification is required; no staff permissions granted.':'; Clinical or administrator access requires authorized provisioning.';
         }
         return [
             'decision'   => $decision,
@@ -436,6 +436,7 @@ class MICARegistrationValidator
         }
 
         if ($user['status']!=='pending') return ['status'=>'blocked','message'=>'Account verification is unavailable for this account state.'];
+        if(($user['registration_status']??'')==='rejected')return ['status'=>'blocked','message'=>'Rejected registrations cannot be activated by OTP.'];
         if ($user['email_verified']) {
             return ['status' => 'already_verified', 'message' => 'Email address is already verified.', 'user' => $user];
         }
@@ -476,7 +477,7 @@ class MICARegistrationValidator
         // Successful verification
         $this->db->prepare("
             UPDATE users 
-            SET email_verified = 1, otp_hash = NULL, otp_expires_at = NULL, otp_attempts = 0
+            SET email_verified = 1, email_verified_at = COALESCE(email_verified_at,NOW()), otp_hash = NULL, otp_expires_at = NULL, otp_attempts = 0
             WHERE id = ?
         ")->execute([$userId]);
 

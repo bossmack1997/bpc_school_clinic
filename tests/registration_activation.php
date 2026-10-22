@@ -8,7 +8,7 @@ require __DIR__.'/../includes/account_monitoring.php';
 require __DIR__.'/../includes/ai/MICARegistrationValidator.php';
 set_exception_handler(function(Throwable $e){fwrite(STDERR,'FAIL '.$e->getMessage().PHP_EOL);exit(1);});
 $db=getDB();
-foreach(['users','students','teachers','nurses','institutional_roster','student_qrs','teacher_qrs','account_security_events','activity_logs'] as $table){
+foreach(['users','students','teachers','nurses','institutional_roster','student_qrs','teacher_qrs','account_security_events','account_security_exceptions','admin_permissions','activity_logs'] as $table){
     $db->exec("CREATE TEMPORARY TABLE activation_test_$table LIKE $table");
     $db->exec("ALTER TABLE activation_test_$table RENAME TO $table");
 }
@@ -35,20 +35,22 @@ $validator=new MICARegistrationValidator($db,function($email,$otp)use(&$delivere
     checkActivation(!$db->inTransaction(),'Email transport runs after commit');
     $delivered[$email]=$otp;return true;
 });
-foreach(['student','teacher','nurse'] as $i=>$role){
-    $id=100+$i;fixture($id,$role);
+foreach(['student','teacher'] as $i=>$role){
+    $id=100+$i;fixture($id,$role,false);
     checkActivation(!account($id)['email_verified']&&account($id)['status']==='pending',"$role begins unverified");
     checkActivation($validator->resendOtp($id)['status']==='sent',"$role OTP delivery accepted by isolated transport");
     $otp=$delivered['activation_'.$id.'@example.invalid'];
     $result=$validator->verifyOtp($id,$otp);
-    checkActivation($result['account_status']==='active' && account($id)['email_verified'],"$role OTP and trusted eligibility activate atomically");
+    checkActivation($result['account_status']==='active' && account($id)['email_verified'],"$role OTP activates without institutional matching");
+    checkActivation(account($id)['self_service_only']==1 && !empty(account($id)['email_verified_at']),"$role activation records timestamp and personal-only scope");
     checkActivation(empty(account($id)['otp_hash'])&&empty(account($id)['otp_expires_at']),"$role challenge consumed");
     login_user(account($id));checkActivation((int)$_SESSION['user']['id']===$id,"$role can receive authenticated session");unset($_SESSION['user']);
     checkActivation($validator->verifyOtp($id,$otp)['status']==='blocked',"$role duplicate OTP cannot activate twice");
 }
 foreach(['student','teacher','nurse','admin'] as $i=>$role){
     $id=200+$i;fixture($id,$role,false);
-    checkActivation($validator->verifyOtp($id,'123456')['account_status']==='pending',"$role without trusted eligibility remains restricted");
+    $expected=in_array($role,['student','teacher'],true)?'active':'pending';
+    checkActivation($validator->verifyOtp($id,'123456')['account_status']===$expected,"$role OTP preserves basic versus privileged activation boundary");
     checkActivation($validator->resendOtp($id)['status']==='blocked','Verified email does not receive another OTP');
 }
 fixture(300);checkActivation($validator->verifyOtp(300,'999999')['status']==='invalid'&&!account(300)['email_verified'],'Incorrect OTP cannot verify or activate');
@@ -74,17 +76,17 @@ checkActivation($validator->verifyOtp(502,'123456')['account_status']==='pending
 fixture(503,'nurse');$db->exec("UPDATE institutional_roster SET license_number='different' WHERE identifier='ACT-503'");
 checkActivation($validator->verifyOtp(503,'123456')['account_status']==='pending','License mismatch cannot grant clinical permissions');
 fixture(504);$db->exec("UPDATE institutional_roster SET status='revoked' WHERE identifier='ACT-504'");
-checkActivation($validator->verifyOtp(504,'123456')['account_status']==='pending','Revoked eligibility cannot activate');
+checkActivation($validator->verifyOtp(504,'123456')['account_status']==='active' && account(504)['self_service_only']==1,'Institutional matching is not a prerequisite for basic student services');
 fixture(505,'student',true,'pending',1);$db->exec("UPDATE users SET registration_status='rejected' WHERE id=505");
 checkActivation($monitor->reconcileForLogin(505)['registration_status']==='rejected'&&account(505)['status']==='pending','Rejected assessment is never erased by automatic evaluation');
 fixture(506,'student',true,'active',0);
 try{login_user(account(506));throw new LogicException('Unverified session created');}catch(RuntimeException $e){checkActivation(true,'Unverified public account cannot receive a session');}
 checkActivation($monitor->reconcileForLogin(506)['status']==='pending','Legacy active unverified public account resumes OTP instead of protected access');
-checkActivation(AccountMonitoringService::statusLabel(account(501))==='Eligibility Verification Required','Verified pending label identifies eligibility');
+checkActivation(AccountMonitoringService::statusLabel(account(501))==='Active','Basic teacher is active without a review requirement');
 checkActivation(AccountMonitoringService::statusLabel(account(301))==='Email Verification Pending','Unverified pending label identifies email');
 $counts=$monitor->counts();checkActivation($counts['total']===$counts['active']+$counts['inactive']+$counts['verification'],'MIS account statistics reconcile');
 checkActivation($monitor->directory(['tab'=>'email_pending'],true)['total']===2,'Email pending filter uses email verification flag');
-checkActivation($monitor->directory(['tab'=>'eligibility_pending'],true)['total']>=1,'Eligibility pending filter uses verified flag');
+checkActivation($monitor->directory(['tab'=>'staff_pending'],true)['total']>=1,'Privileged pending accounts have a separate staff provisioning filter');
 checkActivation($monitor->eligibility(account(201))['code']==='roster_missing','Missing institutional evidence has a precise restricted-state reason');
 checkActivation($monitor->eligibility(account(502))['code']==='role_mismatch','Role mismatch has a precise restricted-state reason');
 checkActivation($monitor->eligibility(account(503))['code']==='license_mismatch','License mismatch has a precise restricted-state reason');
@@ -100,8 +102,15 @@ $db->exec('ALTER TABLE institutional_roster CHANGE institutional_email unavailab
 fixture(508,'student',false);
 checkActivation($validator->verifyOtp(509,'123456')['status']==='blocked','Schema change cannot reopen an already active OTP challenge');
 checkActivation($monitor->eligibility(account(507))['code']==='source_unavailable','Outdated deployment schema is distinguished from identity failure');
-checkActivation($validator->verifyOtp(508,'123456')['account_status']==='pending' && account(508)['email_verified'],'Missing trusted evidence records OTP ownership while keeping access restricted');
+checkActivation($validator->verifyOtp(508,'123456')['account_status']==='active' && account(508)['self_service_only']==1,'Basic activation does not depend on institutional schema');
 $db->exec('ALTER TABLE institutional_roster CHANGE unavailable_institutional_email institutional_email VARCHAR(191)');
+require __DIR__.'/../includes/account_security_exceptions.php';
+fixture(700,'admin',false,'active',1);$db->exec("UPDATE users SET admin_type='primary_admin' WHERE id=700");
+$security=new AccountSecurityExceptionService($db);
+$exception=$security->open(700,202,'Authorized nurse provisioning after professional checks','LOCAL-STAFF-EVIDENCE');
+$security->resolve(700,$exception,'verify','Authorized officer confirmed professional credentials and staff access');
+checkActivation(account(202)['status']==='active' && account(202)['self_service_only']==0 && account(202)['reviewed_by']==700,'Only audited authorized provisioning grants nurse clinical scope');
+login_user(account(202));checkActivation((current_user()['role']??'')==='nurse','Provisioned nurse retains clinical sign-in');unset($_SESSION['user']);
 fixture(600);
 $db->exec('ALTER TABLE account_security_events CHANGE details unavailable_details VARCHAR(255)');
 try{$validator->verifyOtp(600,'123456');throw new LogicException('Missing audit unexpectedly succeeded');}catch(PDOException $e){}

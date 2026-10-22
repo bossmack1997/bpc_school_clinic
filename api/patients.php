@@ -20,6 +20,9 @@ $db = getDB();
 $u = current_user();
 $role = $u['role'] ?? 'student';
 $action = $_REQUEST['action'] ?? '';
+if($role==='teacher' && in_array($action,['get_workspace','lookup'],true)) {
+    http_response_code(403);json_response(false,[],'Patient workspaces are restricted to clinic staff. Use your personal clinic records.');
+}
 
 // ---------------------------------------------------------------------
 // 1. GET WORKSPACE DATA (By Student ID, QR Token, or Queue Ticket ID)
@@ -42,6 +45,7 @@ if ($action === 'get_workspace' || $action === 'lookup') {
         if ($qrRes['valid'] && $qrRes['patient_type'] === 'student') {
             $studentId = (int)$qrRes['id'];
         } elseif ($qrRes['valid'] && $qrRes['patient_type'] === 'teacher') {
+            if(!in_array($role,['nurse','admin'],true)){http_response_code(403);json_response(false,[],'Access denied.');}
             // Teacher patient support
             $teacherId = (int)$qrRes['id'];
             $teacher = $qrRes['record'];

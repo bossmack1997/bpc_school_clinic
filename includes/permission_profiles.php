@@ -8,6 +8,7 @@ function permission_profile(?array $user=null,?PDO $db=null): string {
 }
 function has_permission(string $permission,?array $user=null,?PDO $db=null): bool {
     $user=$user??current_user();$p=permission_profile($user,$db);
+    if(($user['role']??'')==='nurse' && !empty($user['self_service_only']))return false;
     $technical=['system_manage','manage_users','roles_assign','manage_security','view_audit_logs','backups_manage','manage_settings','manage_sections','approve_users'];
     $clinical=['clinic_monitor','clinical_records_read','consultations_manage','inventory_oversight','view_emergencies','view_reports','clinical_messages'];
     if($p==='mis')return in_array($permission,$technical,true);
@@ -24,7 +25,12 @@ function require_permission(string $permission): void {require_login();if(!has_p
 function require_doctor(): void {require_login();if(permission_profile()!=='doctor')admin_access_denied('Verified Doctor profile required.');}
 function enforce_profile_route(): void {
     if(empty($_SESSION['user']['id']))return;
-    $u=current_user();if(!$u||($u['role']??'')!=='admin')return;
+    $u=current_user();if(!$u)return;
+    if(($u['role']??'')==='teacher' && !empty($u['self_service_only'])) {
+        $path=str_replace('\\','/',$_SERVER['SCRIPT_NAME']??'');$file=basename($path);
+        if((str_contains($path,'/api/') && in_array($file,['my_advisory.php','sections.php'],true)) || (str_contains($path,'/pages/adviser/') && in_array($file,['my_advisory.php','students.php'],true)))admin_access_denied('This basic account provides personal clinic services. Advisory access requires separate staff authorization.');
+    }
+    if(($u['role']??'')!=='admin')return;
     // APIs that use only is_logged_in must also reject revoked/expired sessions.
     if(!validate_session()){http_response_code(401);header('Content-Type: application/json');echo json_encode(['success'=>false,'message'=>'Reauthentication required.']);exit;}
     $p=permission_profile($u);$path=str_replace('\\','/',$_SERVER['SCRIPT_NAME']??'');$file=basename($path);

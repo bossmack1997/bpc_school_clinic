@@ -167,7 +167,7 @@ function send_registration_otp_email($toEmail, $otpCode, $recipientName = '', $r
         $mailer->addAddress($toEmail, $recipientName ?: 'Applicant');
 
         $mailer->isHTML(true);
-        $mailer->Subject = 'BPC School Clinic - Identity Verification Code (OTP: ' . $otpCode . ')';
+        $mailer->Subject = 'BPC School Clinic - Email Verification Code';
 
         $greeting = $recipientName ? 'Hello ' . htmlspecialchars($recipientName, ENT_QUOTES, 'UTF-8') . ',' : 'Hello,';
         $roleName = ucfirst($role);
@@ -177,7 +177,7 @@ function send_registration_otp_email($toEmail, $otpCode, $recipientName = '', $r
         <html lang="en">
         <head>
           <meta charset="UTF-8">
-          <title>Institutional Email Verification</title>
+          <title>Email Verification</title>
         </head>
         <body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,Helvetica,sans-serif;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;padding:24px 0;">
@@ -197,7 +197,7 @@ function send_registration_otp_email($toEmail, $otpCode, $recipientName = '', $r
                         You are registering for a <strong>' . htmlspecialchars($roleName, ENT_QUOTES, 'UTF-8') . '</strong> account on the BPC School Clinic Management System.
                       </p>
                       <p style="margin:0 0 20px;color:#333333;font-size:15px;line-height:1.6;">
-                        Please use the following One-Time Password (OTP) to verify ownership of your institutional email address:
+                        Please use the following One-Time Password (OTP) to verify ownership of your email address:
                       </p>
                       <div style="background-color:#f0fdf4;border:2px dashed #0E7A3E;border-radius:8px;padding:20px;text-align:center;margin:0 0 24px;">
                         <span style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0E7A3E;font-family:monospace;">' . htmlspecialchars($otpCode, ENT_QUOTES, 'UTF-8') . '</span>

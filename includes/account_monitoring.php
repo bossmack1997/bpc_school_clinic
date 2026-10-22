@@ -9,7 +9,7 @@ final class AccountMonitoringService
     }
     public static function statusLabel(array $user): string {
         return match($user['status']) {
-            'pending' => !empty($user['email_verified']) ? 'Eligibility Verification Required' : 'Email Verification Pending',
+            'pending' => !empty($user['email_verified']) ? (in_array($user['role']??'', ['student','teacher'],true)?'Activation Pending':'Staff Provisioning Required') : 'Email Verification Pending',
             'active' => 'Active',
             'inactive', 'suspended' => 'Suspended',
             'rejected' => 'Rejected',
@@ -63,13 +63,9 @@ final class AccountMonitoringService
         return (int)$q->fetchColumn()===0?$identity:InstitutionalEligibility::result('identifier_claimed');
     }
     public static function pendingMessage(array $u): string {
-        preg_match('/^\[eligibility:([a-z_]+)\]/',(string)($u['validation_reason']??''),$match);
-        $reason=match($match[1]??'unknown') {
-            'source_unavailable'=>'Institutional verification is temporarily unavailable. Contact clinic support.',
-            'roster_missing'=>'Your identifier could not be matched to trusted enrollment or staff records. Ask the registrar or authorized staff office to check those records.',
-            default=>InstitutionalEligibility::reason($match[1]??'unknown')
-        };
-        return 'Your email is verified. '.$reason.' Access remains limited until this check passes.';
+        return in_array($u['role']??'', ['student','teacher'],true)
+            ? 'Your email is verified. Please sign in to complete basic account activation.'
+            : 'Your email is verified. Clinical staff access requires authorized provisioning; email verification does not grant clinical permissions.';
     }
     public function finishVerification(int $id): string {
         $ownsTransaction=!$this->db->inTransaction();
@@ -79,13 +75,14 @@ final class AccountMonitoringService
             if(!$u||!$u['email_verified'])throw new RuntimeException('Email verification is required.');
             // Never reactivate an existing suspended/rejected account through OTP.
             if($u['status']!=='pending'){if($ownsTransaction)$this->db->commit();return $u['status'];}
-            $assessment=$this->eligibility($u);$eligible=$assessment['eligible'];
+            // Basic sign-in uses email ownership, never institutional roster matching.
+            $eligible=in_array($u['role'],['student','teacher'],true) && $u['registration_status']!=='rejected';
             $status=$eligible?'active':'pending';
-            $reason='[eligibility:'.$assessment['code'].'] '.$assessment['reason'];
+            $reason=$eligible?'Email OTP verified; basic self-service account activated.':'Email verified; authorized staff provisioning is required.';
             // Repeated login checks must not duplicate review events or erase a rejection.
             if($u['registration_status']!=='rejected' && ($eligible || $u['validation_reason']!==$reason)) {
-                $this->db->prepare('UPDATE users SET status=?,registration_status=?,validation_reason=? WHERE id=?')->execute([$status,$eligible?'approved':'review',$reason,$id]);
-                self::event($this->db,$eligible?'identity_verified':'identity_review',(string)$id,$reason,$id);
+                $this->db->prepare('UPDATE users SET status=?,registration_status=?,validation_reason=?,self_service_only=1 WHERE id=?')->execute([$status,$eligible?'approved':'review',$reason,$id]);
+                self::event($this->db,$eligible?'basic_account_activated':'staff_provisioning_required',(string)$id,$reason,$id);
             }
             if($eligible && $u['role']==='student'){
                 $q=$this->db->prepare('SELECT id FROM students WHERE user_id=?');$q->execute([$id]);$student=$q->fetchColumn();
@@ -102,7 +99,8 @@ final class AccountMonitoringService
         $status=$filters['tab']??'all';
         if($status==='pending')$where[]="u.status='pending'";
         if($status==='email_pending')$where[]="u.status='pending' AND u.email_verified=0";
-        if($status==='eligibility_pending')$where[]="u.status='pending' AND u.email_verified=1";
+        if(in_array($status,['eligibility_pending','activation_pending'],true))$where[]="u.status='pending' AND u.email_verified=1 AND u.role IN ('student','teacher')";
+        if($status==='staff_pending')$where[]="u.status='pending' AND u.email_verified=1 AND u.role NOT IN ('student','teacher')";
         if($status==='suspended')$where[]="u.status IN ('inactive','suspended')";
         if($status==='rejected')$where[]="u.status='rejected'";
         if($status==='active')$where[]="u.status='active'";
@@ -115,7 +113,7 @@ final class AccountMonitoringService
         $clause=' WHERE '.implode(' AND ',$where);
         $q=$this->db->prepare('SELECT COUNT(*)'.$joins.$clause);$q->execute($params);$total=(int)$q->fetchColumn();
         $pages=max(1,(int)ceil($total/25));$page=max(1,min($pages,(int)($filters['page']??1)));$offset=($page-1)*25;
-        $select="SELECT u.id,u.first_name,u.last_name,u.username,u.role,u.admin_type,u.email,u.email_verified,u.status,u.registration_status,u.validation_reason,u.created_at,u.last_login,COALESCE(s.student_number,t.employee_id,n.employee_id) AS identifier,
+        $select="SELECT u.id,u.first_name,u.last_name,u.username,u.role,u.admin_type,u.email,u.email_verified,u.email_verified_at,u.self_service_only,u.status,u.registration_status,u.validation_reason,u.created_at,u.last_login,COALESCE(s.student_number,t.employee_id,n.employee_id) AS identifier,
         (EXISTS(SELECT 1 FROM student_qrs sq WHERE sq.student_id=s.id AND sq.status IN ('active','regenerated')) OR EXISTS(SELECT 1 FROM teacher_qrs tq WHERE tq.teacher_id=t.id AND tq.status IN ('active','regenerated'))) AS has_qr";
         $q=$this->db->prepare($select.$joins.$clause." ORDER BY u.created_at DESC,u.id DESC LIMIT 25 OFFSET $offset");$q->execute($params);
         return ['rows'=>$q->fetchAll(),'total'=>$total,'page'=>$page,'pages'=>$pages];

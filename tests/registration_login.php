@@ -36,9 +36,8 @@ register_shutdown_function(function()use($db,$case){
     $html=ob_get_clean();$state=$db->query('SELECT status FROM users WHERE id=701')->fetchColumn();
     $session=(int)($_SESSION['user']['id']??0);$pending=(int)($_SESSION['pending_verification_user_id']??0);
     $ok=match($case){
-        'eligible','otp_dashboard'=>$state==='active'&&$session===701,
+        'eligible','otp_dashboard','untrusted'=>$state==='active'&&$session===701,
         'unverified','unverified_active'=>$state==='pending'&&$session===0&&$pending===701,
-        'untrusted'=>$state==='pending'&&$session===0&&str_contains($html,'Your email is verified.'),
         'suspended'=>$state==='suspended'&&$session===0&&str_contains($html,'Your account is suspended.'),
         'rejected'=>$state==='rejected'&&$session===0&&str_contains($html,'Your registration was rejected.'),
         'bad_password'=>$state==='pending'&&$session===0&&str_contains($html,'Invalid username or password.'),

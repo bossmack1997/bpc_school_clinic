@@ -2,7 +2,7 @@
 /**
  * auth/verify_registration.php
  * ------------------------------------------------------------------
- * Institutional Email Ownership Verification (OTP)
+ * Email Ownership Verification (OTP)
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College
  * Healthcare Service Improvement
  * ------------------------------------------------------------------
@@ -72,11 +72,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (in_array($verifyResult['status'],['verified','already_verified'],true)) {
                 $state=$verifyResult['account_status'];
-                log_activity($userId,'Completed OTP and identity eligibility evaluation','auth','Account state: '.$state);
+                log_activity($userId,'Completed email OTP verification','auth','Account state: '.$state);
                 unset($_SESSION['pending_verification_user_id'],$_SESSION['demo_registration_otp']);
-                $message='Email and trusted identity verified. Your account is active.';
+                $message='Email verified. Your basic account is active.';
+                if($state==='active' && $verifyResult['status']==='verified') {
+                    $q=$db->prepare('SELECT * FROM users WHERE id=?');$q->execute([$userId]);$activeUser=$q->fetch();
+                    login_user($activeUser);
+                    $db->prepare('UPDATE users SET last_login=NOW() WHERE id=?')->execute([$userId]);
+                    log_activity($userId,'Logged in after email verification','auth');
+                    $_SESSION['login_success']=true;
+                    redirect(dashboard_url_for($activeUser['role']));
+                }
                 if($state!=='active') {
-                    $q=$db->prepare('SELECT validation_reason FROM users WHERE id=?');$q->execute([$userId]);
+                    $q=$db->prepare('SELECT role,validation_reason FROM users WHERE id=?');$q->execute([$userId]);
                     $message=AccountMonitoringService::pendingMessage($q->fetch()?:[]);
                 }
                 set_flash($state==='active'?'success':'info',$message);
@@ -109,7 +117,7 @@ $pageTitle = 'Verify Email Ownership';
     <div class="auth-form-side p-4 p-md-5">
       <div class="text-center mb-4">
         <div class="auth-icon auth-icon--compact d-inline-flex mb-3"><i class="bi bi-shield-check"></i></div>
-        <h4 class="mb-1 fw-bold">Verify Institutional Email</h4>
+        <h4 class="mb-1 fw-bold">Verify Your Email</h4>
         <p class="text-muted small mb-0">Enter the email verification code for:</p>
         <p class="fw-bold text-dark mt-1 mb-0"><i class="bi bi-envelope-check text-success me-1"></i><?= e($maskedEmail) ?></p>
       </div>

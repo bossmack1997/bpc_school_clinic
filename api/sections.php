@@ -10,6 +10,7 @@
 
 require_once __DIR__ . '/../config/config.php';
 require_role(['admin', 'teacher']);
+if(current_user()['role']==='teacher' && !empty(current_user()['self_service_only']))admin_access_denied('Section access requires separate staff authorization.');
 if(current_user()['role']==='admin')require_admin_permission('manage_sections');
 
 header('Content-Type: application/json');

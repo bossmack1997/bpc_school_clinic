@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if($passwordValid && (($user['status']==='pending' && $user['email_verified']) || ($user['status']==='active' && !$user['email_verified'] && $user['role']!=='admin'))) {
                 try {$user=(new AccountMonitoringService($db))->reconcileForLogin((int)$user['id']);}
                 catch(Throwable $e) {
-                    error_log('Login eligibility evaluation failed: '.$e->getMessage());
+                    error_log('Basic account activation failed: '.$e->getMessage());
                     $stateCheckFailed=true;
                 }
             }
@@ -57,7 +57,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if($user)login_rate_limit_increment_user((int)$user['id']);
                 $errors[] = 'Invalid username or password.';
             } elseif ($stateCheckFailed) {
-                $errors[] = 'Account eligibility could not be checked. Please try signing in again shortly.';
+                $errors[] = 'Account activation could not be completed. Please try signing in again shortly.';
+            } elseif (($user['registration_status']??'')==='rejected') {
+                $errors[] = 'Your registration was rejected. Contact authorized support if you believe this is an error.';
             } elseif ($user['status'] === 'pending' && !$user['email_verified']) {
                 // Resume only after proving password ownership; never trust a public account ID.
                 session_regenerate_id(true);
@@ -73,6 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 };
             } elseif (!$user['email_verified'] && $user['role']!=='admin') {
                 $errors[] = 'Email verification is required before this account can sign in. Contact clinic support to restore verification.';
+            } elseif ($user['role']==='nurse' && !empty($user['self_service_only'])) {
+                $errors[] = 'Clinical staff access requires authorized provisioning.';
             } elseif (!is_supported_role($user['role'])) {
                 // Never permit retired or un-migrated roles to receive a session.
                 $errors[] = 'This account role is not available. Please contact the system administrator.';

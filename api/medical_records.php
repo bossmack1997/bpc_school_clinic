@@ -7,6 +7,22 @@ $db = getDB();
 $user = current_user();
 if($user['role']==='admin'&&!has_permission('clinical_records_read',$user))admin_access_denied('Clinical records and dispensing are restricted to authorized clinic staff.');
 $action = $_REQUEST['action'] ?? '';
+if($action==='file') {
+    if($_SERVER['REQUEST_METHOD']!=='GET'){http_response_code(405);exit;}
+    $q=$db->prepare('SELECT mr.*,s.user_id AS owner_user_id FROM medical_records mr JOIN students s ON s.id=mr.student_id WHERE mr.id=?');
+    $q->execute([(int)($_GET['id']??0)]);$record=$q->fetch();
+    if(!$record){http_response_code(404);exit;}
+    $own=$user['role']==='student' && (int)$record['owner_user_id']===(int)$user['id'];
+    if(!$own && !in_array($user['role'],['nurse','admin'],true)){http_response_code(403);exit;}
+    $directory=realpath(BASE_PATH.'/uploads/medical_records');
+    $file=realpath(BASE_PATH.'/'.($record['file_path']??''));
+    if(!$directory || !$file || !str_starts_with($file,$directory.DIRECTORY_SEPARATOR) || !is_file($file)){http_response_code(404);exit;}
+    header('Cache-Control: no-store, private');
+    header('Content-Type: application/octet-stream');
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: attachment; filename="medical-record-'.(int)$record['id'].'.'.preg_replace('/[^a-zA-Z0-9]/','',pathinfo($file,PATHINFO_EXTENSION)).'"');
+    readfile($file);exit;
+}
 
 if ($action === 'list') {
     $role = canonical_role($user['role'] ?? '');
@@ -49,7 +65,10 @@ if ($action === 'list') {
     } else {
         json_response(false, [], 'Access denied.');
     }
-    json_response(true, ['data' => $stmt->fetchAll()]);
+    $records=$stmt->fetchAll();
+    foreach($records as &$record)if(!empty($record['file_path']))$record['file_path']='api/medical_records.php?action=file&id='.(int)$record['id'];
+    unset($record);
+    json_response(true, ['data' => $records]);
 }
 
 if ($action === 'upload') {

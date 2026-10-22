@@ -11,7 +11,7 @@ function current_user() {
 
     try {
         $db = getDB();
-        $stmt = $db->prepare("SELECT id, role, status, email_verified, admin_type, credential_version, username, email, first_name, last_name, phone, profile_picture FROM users WHERE id = ? LIMIT 1");
+        $stmt = $db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
         $stmt->execute([(int)$user['id']]);
         $dbUser = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -20,10 +20,13 @@ function current_user() {
             return null;
         }
         if($dbUser['role']!=='admin' && empty($dbUser['email_verified']))return null;
+        if(($dbUser['registration_status']??'')==='rejected')return null;
+        if($dbUser['role']==='nurse' && !empty($dbUser['self_service_only']))return null;
 
         $_SESSION['user'] = [
             'id' => (int)$dbUser['id'],
             'role' => canonical_role($dbUser['role']),
+            'self_service_only' => (int)($dbUser['self_service_only']??0),
             'admin_type' => $dbUser['admin_type'] ?? null,
             'username' => $dbUser['username'] ?? ($user['username'] ?? null),
             'email' => $dbUser['email'] ?? ($user['email'] ?? null),
@@ -221,13 +224,15 @@ function require_inventory_access(bool $manage=false): void {
 }
 
 function login_user(array $userRow) {
-    if(($userRow['status']??'')!=='active' || !is_supported_role($userRow['role']??'') || (($userRow['role']??'')!=='admin' && empty($userRow['email_verified']))) {
+    if(($userRow['status']??'')!=='active' || ($userRow['registration_status']??'')==='rejected' || !is_supported_role($userRow['role']??'') || (($userRow['role']??'')!=='admin' && empty($userRow['email_verified']))) {
         throw new RuntimeException('Only active, verified accounts can sign in.');
     }
+    if(($userRow['role']??'')==='nurse' && !empty($userRow['self_service_only']))throw new RuntimeException('Authorized clinical provisioning is required.');
     $_SESSION['credential_version'] = (int)($userRow['credential_version'] ?? 0);
     $_SESSION['user'] = [
         'id'         => (int)$userRow['id'],
         'role'       => canonical_role($userRow['role']),
+        'self_service_only' => (int)($userRow['self_service_only']??0),
         'admin_type' => $userRow['admin_type'] ?? null,
         'username'   => $userRow['username'],
         'email'      => $userRow['email'],
@@ -298,6 +303,8 @@ function attempt_remember_me_login() {
     $user = $stmt->fetch();
 
     if (!$user || empty($user['remember_token'])) return false;
+    if(($user['registration_status']??'')==='rejected')return false;
+    if($user['role']==='nurse' && !empty($user['self_service_only']))return false;
     if($user['role']!=='admin' && empty($user['email_verified']))return false;
     if (!is_supported_role($user['role'] ?? '')) return false;
 
@@ -376,6 +383,8 @@ function dashboard_url_for($role) {
  * (end_date IS NULL OR end_date >= CURDATE()) and start_date IS NULL OR start_date <= CURDATE().
  */
 function get_adviser_active_assignment($db, $userId) {
+    $scope=$db->prepare('SELECT * FROM users WHERE id=?');$scope->execute([(int)$userId]);$scopeUser=$scope->fetch();
+    if(!empty($scopeUser['self_service_only']))return [];
     $stmt = $db->prepare("
         SELECT aa.*, s.name AS section_name, s.course, s.year_level
         FROM advisory_assignments aa

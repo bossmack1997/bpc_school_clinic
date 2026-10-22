@@ -3,11 +3,11 @@
  * auth/register.php
  * ------------------------------------------------------------------
  * Unified Medical Self-Registration System for BPC School Clinic.
- * Supports dedicated self-registration for EXACTLY 4 roles:
+ * Public registration creates basic accounts or restricted staff requests:
  *   1. Student
  *   2. Teacher
- *   3. Nurse
- *   4. Administrator
+ *   3. Nurse (restricted staff request)
+ *   Administrator accounts use restricted provisioning, not public registration.
  * ------------------------------------------------------------------
  */
 require_once __DIR__ . '/../config/config.php';
@@ -150,12 +150,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     role, admin_type, username, email, password_hash, first_name, middle_name, last_name, 
                     gender, date_of_birth, phone, profile_picture, status, email_verified,
                     otp_hash, otp_expires_at, otp_attempts, otp_last_sent_at, risk_level,
-                    registration_status, validation_reason, validation_confidence
+                    registration_status, validation_reason, validation_confidence, self_service_only
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, 
                     ?, ?, ?, ?, 'pending', 0,
                     ?, ?, 0, NOW(), ?,
-                    ?, ?, ?
+                    ?, ?, ?, 1
                 )
             ");
             $stmt->execute([
@@ -253,7 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                log_activity($userId, 'Initiated teacher registration (pending OTP and trusted faculty eligibility)', 'auth');
+                log_activity($userId, 'Initiated teacher registration (pending email OTP for basic self-service access)', 'auth');
 
             } elseif ($role === 'nurse') {
                 $employeeId    = $validation['metadata']['employee_id'] ?? trim($_POST['employee_id'] ?? '');
@@ -399,7 +399,7 @@ $pageTitle = 'Create an Account';
             </button>
             <button type="button" class="reg-role-btn <?= $selectedRole === 'nurse' ? 'is-active' : '' ?>" data-role="nurse" role="radio" aria-checked="<?= $selectedRole === 'nurse' ? 'true' : 'false' ?>">
               <span class="reg-role-btn__icon"><i class="bi bi-person-badge-fill"></i></span>
-              <span class="reg-role-btn__text"><strong>Nurse / Staff</strong><small>For clinic staff and nurses</small></span>
+              <span class="reg-role-btn__text"><strong>Nurse / Staff Request</strong><small>Requires authorized clinical provisioning</small></span>
             </button>
           </div>
           <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole) ?>">
@@ -606,7 +606,7 @@ $pageTitle = 'Create an Account';
           </div>
           <div class="p-2.5 rounded-3 mb-2 small d-flex align-items-center gap-2" style="background:#EBF5FF; border:1px solid #BFDBFE; color:#1E40AF;">
             <i class="bi bi-info-circle-fill fs-6 flex-shrink-0"></i>
-            <div>Advisory assignments are verified and activated by the Clinic Administrator upon registration approval.</div>
+            <div>Email OTP activates your personal clinic account. Advisory access is separate and requires staff authorization.</div>
           </div>
         </div>
 
@@ -780,13 +780,13 @@ $pageTitle = 'Create an Account';
       contactReq: false,
       studentNumReq: true,
       empIdReq: false,
-      validIdReq: true,
-      validIdLabel: 'Student ID / Valid ID *'
+      validIdReq: false,
+      validIdLabel: 'Student ID / Valid ID (Optional)'
     },
     teacher: {
       title: 'Teacher Registration',
       sideTitle: 'Teacher / Adviser Portal',
-      sideDesc: 'Register as a teacher or class adviser to submit authorized clinic referrals and monitor student emergencies.',
+      sideDesc: 'Verify your email to access your own clinic services. Advisory permissions require separate staff authorization.',
       btnText: 'Register Teacher Account',
       genderReq: false,
       dobReq: false,
@@ -799,7 +799,7 @@ $pageTitle = 'Create an Account';
     nurse: {
       title: 'Nurse Registration',
       sideTitle: 'Clinic Nurse Station',
-      sideDesc: 'Register as a school clinic nurse to manage patient triage, electronic medical records, consultations, and medicine stocks.',
+      sideDesc: 'Submit a clinical staff access request. Email verification does not grant nurse permissions; authorized provisioning is required.',
       btnText: 'Register Nurse Account',
       genderReq: true,
       dobReq: true,

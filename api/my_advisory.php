@@ -15,6 +15,7 @@
  */
 require_once __DIR__ . '/../config/config.php';
 require_role('teacher');
+if(!empty(current_user()['self_service_only']))admin_access_denied('Advisory access requires separate staff authorization.');
 
 header('Content-Type: application/json');
 $db = getDB();

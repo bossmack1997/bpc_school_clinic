@@ -1,5 +1,7 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    # Private medical attachments are served only through the authorized PHP endpoint.
+    RewriteRule ^uploads/medical_records(?:/|$) - [F,L,NC]
     RewriteRule ^(?:config|database|includes|scratch|setup|storage)(?:/|$) - [F,L,NC]
 </IfModule>
 

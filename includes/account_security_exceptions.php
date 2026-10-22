@@ -42,6 +42,9 @@ final class AccountSecurityExceptionService
                 if($next!=='pending')throw new RuntimeException('Only pending identity reviews can be decided.');
                 if($decision==='verify'&&!$u['email_verified'])throw new RuntimeException('OTP email verification is mandatory.');
                 $next=$decision==='verify'?'active':'rejected';$registration=$decision==='verify'?'approved':'rejected';
+                if($decision==='verify' && in_array($u['role'],['teacher','nurse'],true)) {
+                    $this->db->prepare('UPDATE users SET self_service_only=0 WHERE id=?')->execute([$u['id']]);
+                }
             }
             if($next!==$u['status']){
                 $this->db->prepare('UPDATE users SET status=?,registration_status=?,reviewed_by=?,reviewed_at=NOW(),validation_reason=?,credential_version=COALESCE(credential_version,0)+1 WHERE id=?')->execute([$next,$registration,$actor,trim($notes),$u['id']]);

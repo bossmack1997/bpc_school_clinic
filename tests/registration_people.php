@@ -17,7 +17,7 @@ $_SESSION['credential_version']=0;$_SESSION['created']=time();$_SESSION['last_ac
 $_SERVER['REQUEST_METHOD']='GET';$_GET=['view'=>701];
 register_shutdown_function(function(){
     $html=ob_get_clean();
-    $ok=str_contains($html,'Eligibility Verification Required')&&str_contains($html,'Authentication history fixture')&&str_contains($html,'&lt;script&gt;Fixture evidence&lt;/script&gt;')&&!str_contains($html,'CLINICAL_DETAIL_MUST_NOT_RENDER')&&!str_contains($html,'name="action" value="approve_account"');
+    $ok=str_contains($html,'Activation Pending')&&str_contains($html,'Authentication history fixture')&&str_contains($html,'&lt;script&gt;Fixture evidence&lt;/script&gt;')&&!str_contains($html,'CLINICAL_DETAIL_MUST_NOT_RENDER')&&!str_contains($html,'name="action" value="approve_account"');
     echo ($ok?'PASS':'FAIL')." People Management labels, escaped audit history and account-only activity scope\n";
     if(!$ok)exit(1);
 });

@@ -199,6 +199,7 @@ if ($sbRole === 'admin' && $sbProfile!=='doctor') {
         $sbFile     = $sbItem[2];
         $sbType     = $sbItem[3] ?? 'link';
         $sbFileBase = $sbFile ? explode('?', (string)$sbFile)[0] : '';
+        if($sbRole==='teacher' && !empty($sbUser['self_service_only']) && in_array($sbFileBase,['students.php','my_advisory.php'],true))continue;
         $sbTabQuery = (strpos((string)$sbFile, 'tab=') !== false) ? explode('tab=', (string)$sbFile)[1] : null;
 
         $sbActive = false;
