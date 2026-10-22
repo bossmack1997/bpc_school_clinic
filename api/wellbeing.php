@@ -1,8 +1,8 @@
 <?php
 /**
  * api/wellbeing.php
- * Student Health & Well-being profile endpoints.
- * Server-side authorization enforces ownership / role-based access.
+ * Student Medical Health Profile endpoints.
+ * Provides medical information (conditions, allergies, previous illnesses, medications) for clinic care.
  */
 require_once __DIR__ . '/../config/config.php';
 require_login();
@@ -22,20 +22,23 @@ function current_student_id($db, $userId) {
 }
 
 // ---------------------------------------------------------------------
-// GET — fetch a well-being profile
-//   - student: only own profile (full access)
-//   - nurse / admin: clinic medical information
-//   - adviser / others: 403 Forbidden
+// GET — fetch medical health profile
 // ---------------------------------------------------------------------
 if ($action === 'get') {
     $studentId = (int)($_GET['student_id'] ?? 0);
+
+    if ($studentId <= 0) {
+        if ($role === 'student') {
+            $studentId = current_student_id($db, $u['id']) ?? 0;
+        }
+    }
 
     if ($studentId <= 0) {
         json_response(false, [], 'Invalid student ID.');
     }
 
     // Verify student exists
-    $stmt = $db->prepare("SELECT id, user_id FROM students WHERE id = ?");
+    $stmt = $db->prepare("SELECT id, user_id, blood_type, allergies, known_medical_conditions, emergency_contact_name, emergency_contact_number FROM students WHERE id = ?");
     $stmt->execute([$studentId]);
     $studentRow = $stmt->fetch();
     if (!$studentRow) {
@@ -57,37 +60,28 @@ if ($action === 'get') {
     $stmt->execute([$studentId]);
     $row = $stmt->fetch();
 
-    if (!$row) {
-        json_response(true, ['profile' => null, 'exists' => false, 'scope' => $role === 'nurse' ? 'medical_only' : 'full']);
-    }
+    $medicalProfile = [
+        'student_id'               => $studentId,
+        'blood_type'               => $studentRow['blood_type'] ?? '',
+        'allergies'                => !empty($studentRow['allergies']) ? $studentRow['allergies'] : ($row['allergies'] ?? ''),
+        'known_medical_conditions' => !empty($studentRow['known_medical_conditions']) ? $studentRow['known_medical_conditions'] : ($row['known_medical_conditions'] ?? ''),
+        'previous_illnesses'       => $row['previous_illnesses'] ?? '',
+        'current_medications'      => $row['current_medications'] ?? '',
+        'other_medical_info'       => $row['other_medical_info'] ?? '',
+        'emergency_contact_name'   => $studentRow['emergency_contact_name'] ?? '',
+        'emergency_contact_number' => $studentRow['emergency_contact_number'] ?? '',
+        'updated_at'               => $row['updated_at'] ?? null,
+    ];
 
-    // Server-side filtering by role:
-    if ($role === 'nurse') {
-        // NURSE gets strictly the 5 medical health fields ONLY.
-        // Mental/emotional and support preferences fields are NEVER transmitted to Nurse.
-        $medicalProfile = [
-            'id'                       => (int)$row['id'],
-            'student_id'               => (int)$row['student_id'],
-            'known_medical_conditions' => $row['known_medical_conditions'] ?? '',
-            'allergies'                => $row['allergies'] ?? '',
-            'previous_illnesses'       => $row['previous_illnesses'] ?? '',
-            'current_medications'      => $row['current_medications'] ?? '',
-            'other_medical_info'       => $row['other_medical_info'] ?? '',
-            'updated_at'               => $row['updated_at'] ?? null,
-        ];
-        json_response(true, ['profile' => $medicalProfile, 'exists' => true, 'scope' => 'medical_only']);
-    }
-
-    // Student / Admin receive full profile
-    json_response(true, ['profile' => $row, 'exists' => true, 'scope' => 'full']);
+    json_response(true, ['profile' => $medicalProfile, 'exists' => true, 'scope' => 'medical_only']);
 }
 
 // ---------------------------------------------------------------------
-// SAVE — student updates own well-being profile
+// SAVE — student updates own medical health profile
 // ---------------------------------------------------------------------
 if ($action === 'save') {
     if ($role !== 'student') {
-        json_response(false, [], 'Only students can update their own well-being profile.');
+        json_response(false, [], 'Only students can update their own medical profile.');
     }
     csrf_verify_or_die();
 
@@ -96,59 +90,52 @@ if ($action === 'save') {
         json_response(false, [], 'Student record not found.');
     }
 
-    $consent = trim($_POST['consent_status'] ?? '');
-    if ($consent !== 'granted') {
-        json_response(false, [], 'You must acknowledge the privacy notice before saving.');
-    }
-
     $text = function ($k) {
-        return trim(substr((string)($_POST[$k] ?? ''), 0, 8000));
+        return trim(substr((string)($_POST[$k] ?? ''), 0, 4000));
     };
 
-    $prefs = $_POST['support_preferences'] ?? [];
-    if (is_array($prefs)) {
-        $prefs = array_map('trim', array_filter($prefs, fn($p) => trim((string)$p) !== ''));
-    } else {
-        $prefs = [];
+    $allergies = $text('allergies');
+    $conditions = $text('known_medical_conditions');
+    $prevIllness = $text('previous_illnesses');
+    $medications = $text('current_medications');
+    $otherInfo = $text('other_medical_info');
+    $bloodType = trim((string)($_POST['blood_type'] ?? ''));
+
+    // Update students table
+    $updateFields = [];
+    $updateParams = [];
+    if ($allergies !== '') {
+        $updateFields[] = "allergies = ?";
+        $updateParams[] = $allergies;
     }
-    $prefsJson = json_encode($prefs);
+    if ($conditions !== '') {
+        $updateFields[] = "known_medical_conditions = ?";
+        $updateParams[] = $conditions;
+    }
+    if ($bloodType !== '') {
+        $updateFields[] = "blood_type = ?";
+        $updateParams[] = $bloodType;
+    }
+    if (!empty($updateFields)) {
+        $updateParams[] = $studentId;
+        $db->prepare("UPDATE students SET " . implode(', ', $updateFields) . " WHERE id = ?")->execute($updateParams);
+    }
 
-    $fields = [
-        'known_medical_conditions' => $text('known_medical_conditions'),
-        'allergies'                => $text('allergies'),
-        'previous_illnesses'       => $text('previous_illnesses'),
-        'current_medications'      => $text('current_medications'),
-        'other_medical_info'       => $text('other_medical_info'),
-        'concerns'                 => $text('concerns'),
-        'previous_support'         => $text('previous_support'),
-        'diagnosis_disclosed'      => $text('diagnosis_disclosed'),
-        'current_support'          => $text('current_support'),
-        'other_wellbeing'          => $text('other_wellbeing'),
-        'support_preferences'      => $prefsJson,
-        'student_notes'            => $text('student_notes'),
-        'consent_status'           => 'granted',
-        'consent_at'               => date('Y-m-d H:i:s'),
-    ];
-
-    // Upsert (preserve existing created_at on update)
+    // Upsert into wellbeing_profiles table for backwards compatibility
     $stmt = $db->prepare("SELECT id FROM wellbeing_profiles WHERE student_id = ?");
     $stmt->execute([$studentId]);
     $existing = $stmt->fetchColumn();
 
     if ($existing) {
-        $cols = array_keys($fields);
-        $sql = "UPDATE wellbeing_profiles SET " . implode(', ', array_map(fn($c) => "$c = ?", $cols)) . ", updated_at = NOW() WHERE student_id = ?";
-        $params = array_merge(array_values($fields), [$studentId]);
-        $db->prepare($sql)->execute($params);
+        $db->prepare("UPDATE wellbeing_profiles SET allergies = ?, known_medical_conditions = ?, previous_illnesses = ?, current_medications = ?, other_medical_info = ?, updated_at = NOW() WHERE student_id = ?")
+           ->execute([$allergies, $conditions, $prevIllness, $medications, $otherInfo, $studentId]);
     } else {
-        $cols = array_keys($fields);
-        $sql = "INSERT INTO wellbeing_profiles (student_id, " . implode(', ', $cols) . ") VALUES (?, " . implode(', ', array_fill(0, count($cols), '?')) . ")";
-        $params = array_merge([$studentId], array_values($fields));
-        $db->prepare($sql)->execute($params);
+        $db->prepare("INSERT INTO wellbeing_profiles (student_id, allergies, known_medical_conditions, previous_illnesses, current_medications, other_medical_info, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())")
+           ->execute([$studentId, $allergies, $conditions, $prevIllness, $medications, $otherInfo]);
     }
 
-    log_activity($u['id'], 'Updated well-being profile', 'wellbeing', "Student #$studentId");
-    json_response(true, [], 'Your health and well-being information has been saved securely.');
+    log_activity($u['id'], 'Updated medical health profile', 'medical_records', "Student #$studentId");
+    json_response(true, [], 'Your medical health profile has been saved.');
 }
 
 json_response(false, [], 'Unknown action.');

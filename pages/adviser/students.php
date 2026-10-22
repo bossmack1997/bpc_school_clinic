@@ -1,11 +1,23 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
-require_role('adviser');
+require_role('teacher');
 $db = getDB();
 $u = current_user();
 
 $assignments = get_adviser_active_assignment($db, $u['id']);
 $allStudents = get_adviser_students($db, $u['id']);
+
+// ------------------------------------------------------------------
+// Server-side search by student name or ID (authorized students only)
+// ------------------------------------------------------------------
+$search = trim((string)($_GET['q'] ?? ''));
+if ($search !== '') {
+    $qLower = strtolower($search);
+    $allStudents = array_values(array_filter($allStudents, function ($st) use ($qLower) {
+        $haystack = strtolower(trim(($st['first_name'] ?? '') . ' ' . ($st['last_name'] ?? '') . ' ' . ($st['student_number'] ?? '') . ' ' . ($st['section'] ?? '')));
+        return str_contains($haystack, $qLower);
+    }));
+}
 
 // Build section groups based on adviser's active assignments
 $sectionGroups = [];
@@ -61,48 +73,6 @@ $pageTitle = 'My Advisory Class';
 <html lang="en">
 <head>
 <?php include __DIR__ . '/../../includes/head.php'; ?>
-<style>
-  .advisory-card {
-    background: #ffffff;
-    border-radius: 12px;
-    border: 1px solid var(--border-color, #E2E8F0);
-    overflow: hidden;
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
-  }
-  .advisory-card:hover {
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
-  }
-  .advisory-card-header {
-    background: #ffffff;
-    padding: 16px 20px;
-    cursor: pointer;
-    user-select: none;
-    transition: background-color 0.2s ease;
-    border-bottom: 1px solid transparent;
-  }
-  .advisory-card-header:hover {
-    background-color: rgba(14, 122, 62, 0.03);
-  }
-  .advisory-card-header[aria-expanded="true"] {
-    background-color: rgba(14, 122, 62, 0.04);
-    border-bottom-color: var(--border-color, #E2E8F0);
-  }
-  .advisory-chevron {
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    font-size: 1.1rem;
-    color: var(--text-muted, #718096);
-  }
-  .advisory-card-header[aria-expanded="true"] .advisory-chevron {
-    transform: rotate(180deg);
-    color: var(--primary, #0E7A3E);
-  }
-  .advisory-badge-count {
-    font-size: 0.82rem;
-    font-weight: 600;
-    padding: 6px 14px;
-    border-radius: 20px;
-  }
-</style>
 </head>
 <body>
 <div class="app-wrapper">
@@ -118,6 +88,13 @@ $pageTitle = 'My Advisory Class';
           <p class="text-muted small mb-0">Manage and monitor students grouped by their assigned Course and Section.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
+          <div class="search-wrap position-relative d-flex align-items-center" style="width:240px;max-width:100%;">
+            <i class="bi bi-search text-muted position-absolute" style="left:10px;z-index:2;pointer-events:none;"></i>
+            <input type="search" id="studentSearch" class="form-control form-control-sm ps-4" placeholder="Search by name or student ID" value="<?= e($search) ?>" aria-label="Search students">
+          </div>
+          <a href="students.php<?= $search !== '' ? '' : '?q=' ?>" class="btn btn-outline-secondary btn-sm <?= $search !== '' ? 'btn-danger' : '' ?>">
+            <i class="bi <?= $search !== '' ? 'bi-x-circle' : 'bi-arrow-clockwise' ?> me-1"></i> <?= $search !== '' ? 'Clear' : 'Refresh' ?>
+          </a>
           <button type="button" class="btn btn-outline-secondary btn-sm" id="expandAllBtn">
             <i class="bi bi-arrows-expand me-1"></i> Expand All
           </button>
@@ -129,6 +106,15 @@ $pageTitle = 'My Advisory Class';
           </a>
         </div>
       </div>
+
+      <?php if ($search !== ''): ?>
+        <div class="alert alert-info border d-flex align-items-center gap-2 mb-3">
+          <i class="bi bi-search text-info fs-5"></i>
+          <div class="small">
+            Showing <strong><?= count($allStudents) ?></strong> student(s) matching <strong><?= e($search) ?></strong>.
+          </div>
+        </div>
+      <?php endif; ?>
 
       <!-- Scope Notice Banner -->
       <div class="alert alert-light border d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
@@ -159,9 +145,9 @@ $pageTitle = 'My Advisory Class';
               $yearLabel = !empty($group['year_level']) ? $group['year_level'] : '';
             ?>
             <div class="col-12 advisory-section-item">
-              <div class="advisory-card">
+              <div class="app-collapse">
                 <!-- Section Header (Clickable) -->
-                <div class="advisory-card-header d-flex flex-wrap align-items-center justify-content-between gap-3 collapsed"
+                <div class="app-collapse__header d-flex flex-wrap align-items-center justify-content-between gap-3 collapsed"
                      data-bs-toggle="collapse"
                      data-bs-target="#<?= $collapseId ?>"
                      aria-expanded="false"
@@ -188,10 +174,10 @@ $pageTitle = 'My Advisory Class';
                   </div>
 
                   <div class="d-flex align-items-center gap-2">
-                    <span class="badge <?= $count > 0 ? 'bg-success-light text-success' : 'bg-light text-muted border' ?> advisory-badge-count">
+                    <span class="app-badge <?= $count > 0 ? 'app-badge--success' : 'app-badge--neutral' ?>">
                       <i class="bi <?= $count > 0 ? 'bi-person-check-fill' : 'bi-person-x' ?> me-1"></i> <?= e($countLabel) ?>
                     </span>
-                    <i class="bi bi-chevron-down advisory-chevron ms-2"></i>
+                    <i class="bi bi-chevron-down app-collapse__chevron ms-2" aria-hidden="true"></i>
                   </div>
                 </div>
 
@@ -216,7 +202,7 @@ $pageTitle = 'My Advisory Class';
                               <tr>
                                 <td class="ps-4">
                                   <div class="d-flex align-items-center gap-2">
-                                    <div class="avatar-sm rounded-circle bg-light border text-success fw-bold d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; font-size: 0.85rem;">
+                                    <div class="app-avatar-sm rounded-circle border text-success fw-bold d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; font-size: 0.85rem;">
                                       <?= strtoupper(substr($s['first_name'], 0, 1) . substr($s['last_name'], 0, 1)) ?>
                                     </div>
                                     <div>
@@ -283,16 +269,28 @@ $pageTitle = 'My Advisory Class';
 $(function () {
   'use strict';
 
-  // Expand All button
+// Expand All button
   $('#expandAllBtn').on('click', function () {
     $('.advisory-collapse').collapse('show');
-    $('.advisory-card-header').attr('aria-expanded', 'true').removeClass('collapsed');
+    $('.app-collapse__header').attr('aria-expanded', 'true');
+    $('.app-collapse').addClass('is-open');
   });
 
   // Collapse All button
   $('#collapseAllBtn').on('click', function () {
     $('.advisory-collapse').collapse('hide');
-    $('.advisory-card-header').attr('aria-expanded', 'false').addClass('collapsed');
+    $('.app-collapse__header').attr('aria-expanded', 'false');
+    $('.app-collapse').removeClass('is-open');
+  });
+
+  // Keep the visual "open" state in sync with Bootstrap's collapse events.
+  $('.advisory-collapse').on('show.bs.collapse', function () {
+    $(this).siblings('.app-collapse__header').attr('aria-expanded', 'true');
+    $(this).closest('.app-collapse').addClass('is-open');
+  });
+  $('.advisory-collapse').on('hidden.bs.collapse', function () {
+    $(this).siblings('.app-collapse__header').attr('aria-expanded', 'false');
+    $(this).closest('.app-collapse').removeClass('is-open');
   });
 });
 </script>

@@ -5,7 +5,7 @@
 ?>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-<meta name="theme-color" content="#0E7A3E">
+<meta name="theme-color" content="#0b6b3a">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -34,7 +34,8 @@ window.FIREBASE_CONFIG = {
 <?php endif; ?>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <!-- Bootstrap 5 -->
 <link rel="stylesheet" href="<?= asset_url('css/bootstrap.min.css') ?>">
@@ -50,10 +51,31 @@ window.FIREBASE_CONFIG = {
 <link rel="stylesheet" href="<?= asset_url('css/sweetalert2.min.css') ?>">
 <!-- AOS Animation -->
 <link rel="stylesheet" href="<?= asset_url('css/aos.css') ?>">
-<!-- App styles -->
+<!-- Legacy page styles (landing / auth / kiosk) — superseded on app pages -->
 <link rel="stylesheet" href="<?= asset_url('css/style.css') ?>">
+
+<!-- ================================================================
+     UNIFIED DESIGN SYSTEM
+     The single source of truth for every role (Admin, Nurse,
+     Teacher/Adviser, Student). Load order matters: these must come
+     after style.css so the tokens and component normalisations win.
+       design-system.css  tokens, base, app shell, Bootstrap primitives
+       components.css      one component vocabulary for all roles
+       responsive.css      one breakpoint contract for all pages
+     ================================================================ -->
+<link rel="stylesheet" href="<?= asset_url('css/design-system.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/components.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/responsive.css') ?>">
+
 <!-- MICA Voice AI Assistant styles -->
 <link rel="stylesheet" href="<?= asset_url('css/mica.css') ?>">
+<?php if (!empty($loadRegistrationStyles)): ?>
+<link rel="stylesheet" href="<?= asset_url('css/registration.css') ?>">
+<?php endif; ?>
+<link rel="stylesheet" href="<?= asset_url('css/theme.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/ui-overrides.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/dashboard-unified.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/notifications-header.css') ?>">
 
 <script>const APP_URL = "<?= APP_URL ?>";</script>
 <!-- Moment.js for real-time clock -->

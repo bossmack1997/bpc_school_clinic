@@ -6,9 +6,10 @@
  * and automatic stock alerts shown as notifications.
  */
 $roleDir = $roleDir ?? 'nurse';
-$canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
+$canManage = current_user()['role']==='nurse'; // nurses manage; admin view-only
 ?>
-<div class="page-enter fade-in">
+<link rel="stylesheet" href="<?= asset_url('css/inventory-refinements.css') ?>?v=<?= filemtime(__DIR__.'/../assets/css/inventory-refinements.css') ?>">
+<div class="page-enter fade-in inventory-workspace">
   <!-- Header -->
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <h6 class="section-title mb-0"><i class="bi bi-capsule-pill text-success me-1"></i> Medicine Inventory</h6>
@@ -22,55 +23,68 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
     </div>
   </div>
 
+  <div id="inventoryFeedback" class="small mb-3" role="status" aria-live="polite"></div>
+  <div class="d-flex flex-wrap gap-2 mb-3"><a class="btn btn-sm btn-outline-success" href="<?= APP_URL ?>/pages/medicine_requisition.php" target="_blank" rel="noopener">Prepare restock draft / PDF</a><span class="small text-muted align-self-center"><?= $canManage?'Nurse-managed stock and batch records':'Read-only stock oversight. Physical stock changes are restricted to nurses.' ?></span></div>
+  <?php if($canManage): ?><details class="card p-3 mb-3"><summary class="fw-semibold small">Restock draft calculation rules</summary><form id="inventoryRuleForm" class="row g-2 mt-1">
+  <?php foreach(['lookback_days'=>'Usage lookback (days)','coverage_days'=>'Coverage (days)','safety_days'=>'Safety allowance (days)','threshold_multiplier'=>'Minimum stock multiplier'] as $key=>$label): ?><div class="col-12 col-sm-6 col-lg-3"><label class="form-label small" for="rule_<?= $key ?>"><?= e($label) ?></label><input class="form-control form-control-sm" type="number" min="1" max="365" required name="<?= $key ?>" id="rule_<?= $key ?>"></div><?php endforeach; ?>
+  <div class="col-12"><button type="submit" class="btn btn-sm btn-outline-success">Save draft rules</button></div></form><p class="small text-muted mb-0 mt-2">Suggestions use the higher of the configured minimum-stock target and actual dispensing demand. Every draft requires human review.</p></details><?php endif; ?>
   <!-- Dashboard Cards -->
   <div class="row g-3 mb-3" id="invStatsRow">
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-primary-subtle text-primary"><i class="bi bi-box-seam"></i></div>
-        <div><div class="stat-label">Total Medicines</div><div class="stat-value counter-animate" data-count="0" id="statTotal">0</div></div>
-      </div></div>
+    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6">
+      <div class="dbg-stat dbg-stat--green">
+        <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-box-seam"></i></div></div>
+        <div class="dbg-stat__value counter-animate" data-count="0" id="statTotal">0</div>
+        <div class="dbg-stat__label">Total Medicines</div>
+      </div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-success-subtle text-success"><i class="bi bi-check-circle"></i></div>
-        <div><div class="stat-label">Available</div><div class="stat-value counter-animate" data-count="0" id="statAvail">0</div></div>
-      </div></div>
+    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6">
+      <div class="dbg-stat dbg-stat--teal">
+        <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-check-circle"></i></div></div>
+        <div class="dbg-stat__value counter-animate" data-count="0" id="statAvail">0</div>
+        <div class="dbg-stat__label">Available</div>
+      </div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-warning-subtle text-warning"><i class="bi bi-exclamation-triangle"></i></div>
-        <div><div class="stat-label">Low Stock</div><div class="stat-value counter-animate" data-count="0" id="statLow">0</div></div>
-      </div></div>
+    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6">
+      <div class="dbg-stat dbg-stat--orange">
+        <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-exclamation-triangle"></i></div></div>
+        <div class="dbg-stat__value counter-animate" data-count="0" id="statLow">0</div>
+        <div class="dbg-stat__label">Low Stock</div>
+      </div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-danger-subtle text-danger"><i class="bi bi-x-circle"></i></div>
-        <div><div class="stat-label">Expired</div><div class="stat-value counter-animate" data-count="0" id="statExpired">0</div></div>
-      </div></div>
+    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6">
+      <div class="dbg-stat dbg-stat--red">
+        <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-x-circle"></i></div></div>
+        <div class="dbg-stat__value counter-animate" data-count="0" id="statExpired">0</div>
+        <div class="dbg-stat__label">Expired</div>
+      </div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-info-subtle text-info"><i class="bi bi-clock"></i></div>
-        <div><div class="stat-label">Near Expiration</div><div class="stat-value counter-animate" data-count="0" id="statNear">0</div></div>
-      </div></div>
+    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6">
+      <div class="dbg-stat dbg-stat--blue">
+        <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-clock"></i></div></div>
+        <div class="dbg-stat__value counter-animate" data-count="0" id="statNear">0</div>
+        <div class="dbg-stat__label">Near Expiration</div>
+      </div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-secondary-subtle text-secondary"><i class="bi bi-box-arrow-in-down"></i></div>
-        <div><div class="stat-label">Out of Stock</div><div class="stat-value counter-animate" data-count="0" id="statOut">0</div></div>
-      </div></div>
+    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6">
+      <div class="dbg-stat dbg-stat--red">
+        <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-box-arrow-in-down"></i></div></div>
+        <div class="dbg-stat__value counter-animate" data-count="0" id="statOut">0</div>
+        <div class="dbg-stat__label">Out of Stock</div>
+      </div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-success-subtle text-success"><i class="bi bi-capsule"></i></div>
-        <div><div class="stat-label">Dispensed Today</div><div class="stat-value counter-animate" data-count="0" id="statDispToday">0</div></div>
-      </div></div>
+    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6">
+      <div class="dbg-stat dbg-stat--teal">
+        <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-capsule"></i></div></div>
+        <div class="dbg-stat__value counter-animate" data-count="0" id="statDispToday">0</div>
+        <div class="dbg-stat__label">Dispensed Today</div>
+      </div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card stat-card p-3 h-100"><div class="d-flex align-items-center gap-2">
-        <div class="stat-icon bg-primary-subtle text-primary"><i class="bi bi-tags"></i></div>
-        <div><div class="stat-label">Categories</div><div class="stat-value counter-animate" data-count="0" id="statCats">0</div></div>
-      </div></div>
+    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6">
+      <div class="dbg-stat dbg-stat--green">
+        <div class="dbg-stat__top"><div class="dbg-stat__icon"><i class="bi bi-tags"></i></div></div>
+        <div class="dbg-stat__value counter-animate" data-count="0" id="statCats">0</div>
+        <div class="dbg-stat__label">Categories</div>
+      </div>
     </div>
   </div>
 
@@ -144,15 +158,15 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
 <!-- ============================================================ -->
 <!-- Add / Edit Medicine Modal                                    -->
 <!-- ============================================================ -->
-<div class="modal fade" id="medModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="medModal" tabindex="-1" aria-hidden="true" aria-labelledby="medModalTitle">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-success text-white rounded-top-4">
-        <h5 class="modal-title" id="medModalTitle"><i class="bi bi-plus-circle me-2"></i> Add Medicine</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--success">
+      <h5 class="modal-title" id="medModalTitle"><?= bpc_icon('plus-circle') ?> Add Medicine</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form id="medForm" novalidate>
-        <input type="hidden" name="id" id="medId">
+        <input type="hidden" name="id" id="medId"><input type="hidden" name="original_quantity" id="originalMedicineQuantity">
         <div class="modal-body">
           <div class="row g-2">
             <div class="col-md-6"><label class="form-label small fw-semibold">Medicine Name *</label><input class="form-control" name="medicine_name" id="f_name" required></div>
@@ -189,11 +203,11 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
 </div>
 
 <!-- Stock Update Modal -->
-<div class="modal fade" id="stockModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="stockModal" tabindex="-1" aria-hidden="true" aria-labelledby="stockModalTitle">
   <div class="modal-dialog">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-primary text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-box-arrow-in-up me-2"></i> Stock Adjustment</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--info">
+      <h5 class="modal-title" id="stockModalTitle"><?= bpc_icon('box') ?> Stock Adjustment</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form id="stockForm" novalidate>
@@ -219,11 +233,11 @@ $canManage = ($roleDir === 'nurse'); // nurses manage; admin view-only
 </div>
 
 <!-- Import Modal -->
-<div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true" aria-labelledby="importModalTitle">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-       <div class="modal-header border-0 bg-primary text-white rounded-top-4">
-         <h5 class="modal-title"><i class="bi bi-upload me-2"></i> Import Medicines</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--info">
+      <h5 class="modal-title" id="importModalTitle"><?= bpc_icon('upload') ?> Import Medicines</h5>
          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
        </div>
       <div class="modal-body">
@@ -263,10 +277,35 @@ window.__initInventoryUI = function () {
   let pendingImport = [];   // validated rows ready to commit
   let allMedRows = [];      // for bulk selection
 
+  if(canManage){
+    $.get(APP+'/api/inventory.php',{action:'policy'},function(result){if(result.success)Object.keys(result.policy).forEach(function(key){$('#rule_'+key).val(result.policy[key]);});},'json');
+    $('#inventoryRuleForm').on('submit',function(event){event.preventDefault();var button=$(this).find('[type="submit"]');button.prop('disabled',true);$.post(APP+'/api/inventory.php',$(this).serialize()+'&action=save_policy&csrf_token='+encodeURIComponent(csrf),function(result){$('#inventoryFeedback').text(result.message);},'json').fail(function(xhr){$('#inventoryFeedback').text((xhr.responseJSON&&xhr.responseJSON.message)||'Draft rules could not be saved.');}).always(function(){button.prop('disabled',false);});});
+  }
+
   // ============================================================
   // Status badge
   // ============================================================
+  function normalizeStatusValue(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Unknown';
+    const map = {
+      available: 'Available',
+      low_stock: 'Low Stock',
+      lowstock: 'Low Stock',
+      out_of_stock: 'Out of Stock',
+      outofstock: 'Out of Stock',
+      expired: 'Expired',
+      near_expiration: 'Near Expiration',
+      nearexpiration: 'Near Expiration',
+      expiring_soon: 'Near Expiration',
+      expiringsoon: 'Near Expiration',
+      'Expiring Soon': 'Near Expiration'
+    };
+    return map[raw.toLowerCase()] || raw;
+  }
+
   function statusBadge(s) {
+    const normalized = normalizeStatusValue(s);
     const map = {
       'Available': '<span class="badge bg-success">Available</span>',
       'Low Stock': '<span class="badge bg-warning text-dark">Low Stock</span>',
@@ -274,7 +313,7 @@ window.__initInventoryUI = function () {
       'Expired': '<span class="badge bg-dark">Expired</span>',
       'Near Expiration': '<span class="badge bg-info">Near Expiration</span>',
     };
-    return map[s] || '<span class="badge bg-secondary">' + escapeHtml(s) + '</span>';
+    return map[normalized] || '<span class="badge bg-secondary">' + escapeHtml(normalized || 'Unknown') + '</span>';
   }
 
   // ============================================================
@@ -282,91 +321,110 @@ window.__initInventoryUI = function () {
   // ============================================================
   function loadStats() {
     $.get(APP + '/api/inventory.php', { action: 'stats' }, function (res) {
-      if (!res.success) return;
-      const s = res;
-      $('#statTotal').text(s.total_medicines).attr('data-count', s.total_medicines);
-      $('#statAvail').text(s.available).attr('data-count', s.available);
-      $('#statLow').text(s.low_stock).attr('data-count', s.low_stock);
-      $('#statExpired').text(s.expired).attr('data-count', s.expired);
-      $('#statNear').text(s.near_expiration).attr('data-count', s.near_expiration);
-      $('#statOut').text(s.out_of_stock).attr('data-count', s.out_of_stock);
-      $('#statDispToday').text(s.dispensed_today).attr('data-count', s.dispensed_today);
-      $('#statCats').text(s.total_categories).attr('data-count', s.total_categories);
-    }, 'json');
+      const payload = res || {};
+      if (!payload.success){$('#inventoryFeedback').text(payload.message||'Summary unavailable.');return;}
+      const s = payload;
+      $('#statTotal').text(Number(s.total_medicines || 0)).attr('data-count', Number(s.total_medicines || 0));
+      $('#statAvail').text(Number(s.available || 0)).attr('data-count', Number(s.available || 0));
+      $('#statLow').text(Number(s.low_stock || 0)).attr('data-count', Number(s.low_stock || 0));
+      $('#statExpired').text(Number(s.expired || 0)).attr('data-count', Number(s.expired || 0));
+      $('#statNear').text(Number(s.near_expiration || 0)).attr('data-count', Number(s.near_expiration || 0));
+      $('#statOut').text(Number(s.out_of_stock || 0)).attr('data-count', Number(s.out_of_stock || 0));
+      $('#statDispToday').text(Number(s.dispensed_today || 0)).attr('data-count', Number(s.dispensed_today || 0));
+      $('#statCats').text(Number(s.total_categories || 0)).attr('data-count', Number(s.total_categories || 0));
+    }, 'json').fail(function(xhr){$('#inventoryFeedback').text((xhr.responseJSON&&xhr.responseJSON.message)||'Summary unavailable. Refresh to retry.');});
   }
 
   // ============================================================
   // Load categories for filter
   // ============================================================
+  function applyInitialFilters() {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('status') || '';
+    const expiry = params.get('expiry') || '';
+    const category = params.get('category') || '';
+    const normalizedStatus = status === 'expiring_soon' ? 'near_expiration' : status;
+
+    if (normalizedStatus && $('#invStatus option[value="' + normalizedStatus + '"]').length) {
+      $('#invStatus').val(normalizedStatus);
+    }
+    if (expiry && $('#invExpiry option[value="' + expiry + '"]').length) {
+      $('#invExpiry').val(expiry);
+    }
+    if (category && $('#invCategory option[value="' + category + '"]').length) {
+      $('#invCategory').val(category);
+    }
+  }
+
   function loadCategories() {
     $.get(APP + '/api/inventory.php', { action: 'categories' }, function (res) {
-      if (!res.success) return;
+      if (!res.success){$('#inventoryFeedback').text(res.message||'Categories unavailable.');loadInventory();return;}
       const $sel = $('#invCategory');
       res.data.forEach(function (c) { $sel.append('<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'); });
-    }, 'json');
+      applyInitialFilters();
+      loadInventory();
+    }, 'json').fail(function(xhr){$('#inventoryFeedback').text((xhr.responseJSON&&xhr.responseJSON.message)||'Categories unavailable.');loadInventory();});
   }
 
   // ============================================================
   // Load inventory table
   // ============================================================
+  let inventoryRequest=null;
   function loadInventory() {
-    const params = {
-      action: 'list',
-      search: $('#invSearch').val(),
-      category: $('#invCategory').val(),
-      expiry: $('#invExpiry').val(),
-      status: $('#invStatus').val(),
-      limit: 200,
-    };
-    $.get(APP + '/api/inventory.php', params, function (res) {
-      if (!res.success) return;
-      $('#invCount').text(res.total + ' medicine(s)');
-      allMedRows = res.data;
-
+    if(dt){dt.ajax.reload();return;}
+    const cols=Array.from({length:canManage?13:11},()=>null);
+    if(canManage){cols[0]={orderable:false,searchable:false};cols[12]={orderable:false,searchable:false};}
+    dt=$('#invTable').DataTable({serverSide:true,processing:true,searching:false,ordering:false,columns:cols,pageLength:10,lengthMenu:[10,25,50],order:[],
+      language:{emptyTable:'No medicines match the selected filters.',processing:'Loading medicine records�'},
+      ajax:function(request,callback){
+        if(inventoryRequest)inventoryRequest.abort();
+        $('#inventoryFeedback').text('Loading inventory�');
+        inventoryRequest=$.get(APP+'/api/inventory.php',{action:'list',search:$('#invSearch').val(),category:$('#invCategory').val(),expiry:$('#invExpiry').val(),status:$('#invStatus').val(),offset:request.start,limit:request.length},function(res){
+          if(!res.success){$('#inventoryFeedback').text(res.message||'Unable to load inventory.');callback({draw:request.draw,data:[],recordsTotal:0,recordsFiltered:0});return;}
+          $('#invCount').text(res.total+' medicine(s)');allMedRows=res.data;
       const rows = res.data.map(function (m) {
-        const name = escapeHtml(m.medicine_name);
-        const generic = escapeHtml(m.generic_name || '—');
-        const brand = escapeHtml(m.brand || '—');
-        const qty = m.quantity + ' ' + (m.unit || '');
+        const medicine = m || {};
+        const medicineName = String(medicine.medicine_name || 'Unnamed medicine');
+        const generic = String(medicine.generic_name || '—');
+        const brand = String(medicine.brand || '—');
+        const qty = String(medicine.quantity ?? 0) + ' ' + (medicine.unit || '');
         const actions = canManage
           ? `<div class="d-flex gap-1 flex-wrap">
-               <button class="btn btn-sm btn-outline-primary edit-med" data-id="${m.id}" title="Edit"><i class="bi bi-pencil"></i></button>
-               <button class="btn btn-sm btn-outline-info stock-med" data-id="${m.id}" title="Stock"><i class="bi bi-box-arrow-in-up"></i></button>
-               <button class="btn btn-sm btn-outline-danger del-med" data-id="${m.id}" title="Delete"><i class="bi bi-trash"></i></button>
+               <button class="btn btn-sm btn-outline-primary edit-med" data-id="${medicine.id}" title="Edit"><i class="bi bi-pencil"></i></button>
+               <button class="btn btn-sm btn-outline-info stock-med" data-id="${medicine.id}" title="Stock"><i class="bi bi-box-arrow-in-up"></i></button>
+               <button class="btn btn-sm btn-outline-danger del-med" data-id="${medicine.id}" title="Archive"><i class="bi bi-trash"></i></button>
              </div>`
           : '';
-const checkCell = canManage ? `<input type="checkbox" class="form-check-input inv-row-check" value="${m.id}">` : '';
+        const checkCell = canManage ? `<input type="checkbox" class="form-check-input inv-row-check" value="${medicine.id}">` : '';
         const row = [
           checkCell,
-          `<span class="fw-semibold small">${name}</span>`,
-          `<span class="small">${generic}<br><span class="text-muted" style="font-size:.75rem">${brand}</span></span>`,
-          `<span class="small">${escapeHtml(m.category || '—')}</span>`,
-          `<span class="small">${escapeHtml([m.dosage, m.form].filter(Boolean).join(' · ') || '—')}</span>`,
-          `<span class="small fw-semibold">${qty}</span>`,
-          `<span class="small">${m.reorder_level}</span>`,
-          `<span class="small ${m.expiration_date && m.expiration_date < new Date().toISOString().slice(0,10) ? 'text-danger fw-bold' : ''}">${escapeHtml(m.expiration_date || '—')}</span>`,
-          `<span class="small">${escapeHtml(m.supplier || '—')}</span>`,
-          `<span class="small">${escapeHtml(m.batch_number || '—')}</span>`,
-          `<span class="small">${escapeHtml(m.storage_location || '—')}</span>`,
-          statusBadge(m.status),
+          `<span class="fw-semibold small">${escapeHtml(medicineName)}</span>`,
+          `<span class="small">${escapeHtml(generic)}<br><span class="text-muted" style="font-size:.75rem">${escapeHtml(brand)}</span></span>`,
+          `<span class="small">${escapeHtml(medicine.category || '—')}</span>`,
+          `<span class="small">${escapeHtml([medicine.dosage, medicine.form].filter(Boolean).join(' · ') || '—')}</span>`,
+          `<span class="small fw-semibold">${escapeHtml(qty)}</span>`,
+          `<span class="small">${escapeHtml(String(medicine.reorder_level ?? 0))}</span>`,
+          `<span class="small ${medicine.expiration_date && medicine.expiration_date < new Date().toISOString().slice(0,10) ? 'text-danger fw-bold' : ''}">${escapeHtml(medicine.expiration_date || '—')}</span>`,
+          `<span class="small">${escapeHtml(medicine.supplier || '—')}</span>`,
+          `<span class="small">${escapeHtml(medicine.batch_number || '—')}</span>`,
+          `<span class="small">${escapeHtml(medicine.storage_location || '—')}</span>`,
+          statusBadge(medicine.status || medicine.inventory_status),
         ];
+        if (!canManage) row.shift();
         if (canManage) row.push(actions);
         return row;
       });
 
-      if (dt) dt.destroy();
-
-      const cols = canManage
-        ? [{ orderable:false, searchable:false }, null, null, null, null, null, null, null, null, null, null, null, { orderable:false, searchable:false }]
-        : [null, null, null, null, null, null, null, null, null, null, null, null];
-
-      dt = $('#invTable').DataTable({ data: rows, columns: cols, pageLength: 10, order: [] });
-    }, 'json');
+          callback({draw:request.draw,data:rows,recordsTotal:res.total,recordsFiltered:res.total});
+          $('#inventoryFeedback').text(res.total?'Inventory loaded.':'No medicines match the selected filters.');
+        },'json').fail(function(xhr,status){if(status==='abort')return;$('#inventoryFeedback').text((xhr.responseJSON&&xhr.responseJSON.message)||'Connection lost. Refresh to retry.');callback({draw:request.draw,data:[],recordsTotal:0,recordsFiltered:0});});
+      }
+    });
   }
 
   $('#invSearch').on('keyup', function () { clearTimeout(window.__invT); window.__invT = setTimeout(loadInventory, 300); });
   $('#invCategory, #invExpiry, #invStatus').on('change', loadInventory);
-  $('#invRefreshBtn').on('click', function () { loadInventory(); loadStats(); toastSuccess('Refreshed.'); });
+  $('#invRefreshBtn').on('click', function () { loadInventory(); loadStats(); });
 
   // ============================================================
   // Add / Edit
@@ -375,13 +433,14 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
     $('#medForm')[0].reset();
     $('#medId').val('');
     $('#medModalTitle').html('<i class="bi bi-plus-circle me-2"></i> Add Medicine');
-    new bootstrap.Modal(document.getElementById('medModal')).show();
+    BPCModal.show('medModal');
   });
 
   $(document).on('click', '.edit-med', function () {
     const id = $(this).data('id');
-    const m = allMedRows.find(function (x) { return x.id === id; });
+    const m = allMedRows.find(function (x) { return Number(x.id) === Number(id); });
     if (!m) return;
+    $('#originalMedicineQuantity').val(m.quantity);
     $('#medId').val(m.id);
     $('#f_name').val(m.medicine_name); $('#f_generic').val(m.generic_name || '');
     $('#f_brand').val(m.brand || ''); $('#f_category').val(m.category || '');
@@ -392,11 +451,12 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
     $('#f_exp').val(m.expiration_date || ''); $('#f_loc').val(m.storage_location || '');
     $('#f_barcode').val(m.barcode || ''); $('#f_desc').val(m.description || '');
     $('#medModalTitle').html('<i class="bi bi-pencil me-2"></i> Edit Medicine');
-    new bootstrap.Modal(document.getElementById('medModal')).show();
+    BPCModal.show('medModal');
   });
 
   $('#medForm').on('submit', function (e) {
     e.preventDefault();
+    const submit=$(this).find('[type="submit"]');if(submit.prop('disabled'))return;
     const id = $('#medId').val();
     const action = id ? 'update' : 'add';
 
@@ -412,10 +472,11 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
       return;
     }
 
+    submit.prop('disabled',true);
     $.post(APP + '/api/inventory.php', $(this).serialize() + '&action=' + action + '&csrf_token=' + csrf, function (res) {
-      if (res.success) { toastSuccess(res.message); bootstrap.Modal.getInstance(document.getElementById('medModal')).hide(); loadInventory(); loadStats(); }
+      if (res.success) { toastSuccess(res.message); BPCModal.hide('medModal'); loadInventory(); loadStats(); }
       else toastError(res.message);
-    }, 'json');
+    }, 'json').fail(function(xhr){toastError((xhr.responseJSON&&xhr.responseJSON.message)||'Connection lost. Check current inventory before retrying.');}).always(function(){submit.prop('disabled',false);});
   });
 
   // ============================================================
@@ -423,14 +484,14 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
   // ============================================================
   $(document).on('click', '.stock-med', function () {
     $('#stockId').val($(this).data('id'));
-    new bootstrap.Modal(document.getElementById('stockModal')).show();
+    BPCModal.show('stockModal');
   });
   $('#stockForm').on('submit', function (e) {
-    e.preventDefault();
+    e.preventDefault();var submit=$(this).find('[type="submit"]');if(submit.prop('disabled'))return;submit.prop('disabled',true);
     $.post(APP + '/api/inventory.php', $(this).serialize() + '&action=stock_update&csrf_token=' + csrf, function (res) {
-      if (res.success) { toastSuccess(res.message); bootstrap.Modal.getInstance(document.getElementById('stockModal')).hide(); loadInventory(); loadStats(); }
+      if (res.success) { toastSuccess(res.message); BPCModal.hide('stockModal'); loadInventory(); loadStats(); }
       else toastError(res.message);
-    }, 'json');
+    }, 'json').fail(function(xhr){toastError((xhr.responseJSON&&xhr.responseJSON.message)||'Connection lost. Check stock before retrying.');}).always(function(){submit.prop('disabled',false);});
   });
 
   // ============================================================
@@ -473,7 +534,7 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
   // Import (CSV via SheetJS on client, then commit via JSON)
   // ============================================================
   $('#importMedBtn').on('click', function () {
-    new bootstrap.Modal(document.getElementById('importModal')).show();
+    BPCModal.show('importModal');
   });
 
   // ============================================================
@@ -637,7 +698,6 @@ const checkCell = canManage ? `<input type="checkbox" class="form-check-input in
   // ============================================================
   loadStats();
   loadCategories();
-  loadInventory();
   })();
 };
 </script>

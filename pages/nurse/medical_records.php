@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
 require_role('nurse');
-$pageTitle = 'Medical Records';
+$pageTitle = 'Student Search & Records';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -12,14 +12,28 @@ $pageTitle = 'Medical Records';
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area page-enter">
+      <!-- Header & Quick Actions -->
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+          <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-folder2-open text-success me-2"></i> Medical Records &amp; Patient Files</h5>
+          <small class="text-muted">Search student clinic records, upload medical documents, or scan QR pass.</small>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-warning fw-bold text-dark shadow-sm" onclick="openQrScannerModal()">
+            <i class="bi bi-qr-code-scan me-1"></i> Scan Patient QR
+          </button>
+        </div>
+      </div>
+
+      <div class="mb-3 d-none" id="studentOverview"></div>
       <div class="row g-3">
         <div class="col-lg-5">
           <div class="card p-3">
-            <h6 class="section-title mb-3"><i class="bi bi-file-earmark-medical text-success me-1"></i> Upload Record</h6>
+            <h6 class="section-title mb-3"><i class="bi bi-search-heart text-success me-1"></i> Find a Student</h6>
             <div class="mb-3">
               <label class="form-label small fw-semibold">Search Student</label>
               <input type="text" id="studentSearch" class="form-control" placeholder="Name or student number...">
-              <div id="searchResults" class="list-group mt-1"></div>
+              <div id="searchResults" class="list-group mt-1 shadow-sm" style="max-height: 200px; overflow-y: auto;"></div>
             </div>
             <form id="uploadForm" class="d-none">
               <input type="hidden" name="student_id" id="student_id">
@@ -33,7 +47,7 @@ $pageTitle = 'Medical Records';
               </div>
               <div class="mb-2"><label class="form-label small">File</label><input type="file" class="form-control" name="file" required></div>
               <div class="mb-2"><label class="form-label small">Description</label><input class="form-control" name="description"></div>
-              <button class="btn btn-primary w-100" type="submit">Upload</button>
+              <button class="btn btn-primary w-100" type="submit">Upload Document</button>
             </form>
           </div>
         </div>
@@ -60,18 +74,23 @@ $pageTitle = 'Medical Records';
 </div>
 
 <!-- Detail Modal -->
-<div class="modal fade" id="recordDetailModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="recordDetailModal" tabindex="-1" aria-labelledby="recordDetailModalTitle" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-success text-white rounded-top-4">
-        <h6 class="modal-title"><i class="bi bi-file-earmark-medical me-2"></i> Medical Record Details</h6>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title" id="recordDetailModalTitle"><?= bpc_icon('file-medical') ?> Medical Record Details</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body" id="recordDetailBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
   </div>
 </div>
 
+<?php include __DIR__ . '/../../includes/patient_workspace_modal.php'; ?>
+<?php include __DIR__ . '/../../includes/qr_scanner_modal.php'; ?>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
@@ -82,8 +101,8 @@ $('#studentSearch').on('keyup', function () {
   if (q.length < 2) { $('#searchResults').empty(); return; }
   $.get(APP_URL + '/api/students_api.php', { action: 'search', q }, function (res) {
     const $r = $('#searchResults').empty();
-    res.data.forEach(s => {
-      $r.append(`<button type="button" class="list-group-item list-group-item-action" data-id="${s.id}" data-name="${s.first_name} ${s.last_name} (${s.student_number})">${s.first_name} ${s.last_name} — ${s.student_number}</button>`);
+    (res.data || []).forEach(s => {
+      $r.append(`<button type="button" class="list-group-item list-group-item-action py-2" data-id="${s.id}" data-name="${escapeHtml(s.first_name + ' ' + s.last_name)} (${s.student_number})">${escapeHtml(s.first_name + ' ' + s.last_name)} — ${s.student_number}</button>`);
     });
   }, 'json');
 });
@@ -96,9 +115,42 @@ $(document).on('click', '#searchResults button', function () {
   $('#searchResults').empty();
   $('#studentSearch').val('');
 
+  // Load the unified record once.
+  $.get(APP_URL + '/api/students_api.php', { action: 'overview', student_id: selectedId }, function (res) {
+    if (!res.success) { toastError(res.message); return; }
+    const s = res.student, h = res.consultations || [];
+    const allergy = s.allergies ? escapeHtml(s.allergies) : 'No recorded allergies';
+    const condition = s.known_medical_conditions ? escapeHtml(s.known_medical_conditions) : 'No recorded conditions';
+    const recent = h.length ? h.slice(0, 3).map(v => `<li>${escapeHtml(v.consultation_date || '')} — ${escapeHtml(v.chief_complaint || 'Clinic visit')}</li>`).join('') : '<li>No recorded clinic visits.</li>';
+    $('#studentOverview').removeClass('d-none').html(`
+      <div class="card border-success">
+        <div class="card-body py-3">
+          <div class="d-flex justify-content-between flex-wrap gap-2">
+            <div>
+              <h6 class="mb-1 text-dark fw-bold">${escapeHtml(s.first_name + ' ' + s.last_name)}</h6>
+              <small class="text-muted">${escapeHtml(s.student_number)} · ${escapeHtml(s.course || '—')} · ${escapeHtml(s.year_level || '—')} ${escapeHtml(s.section || '')}</small>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+              <button type="button" class="btn btn-sm btn-success fw-bold" onclick="openPatientWorkspace(${s.id})">
+                <i class="bi bi-person-workspace me-1"></i> Open Patient Workspace
+              </button>
+              <span class="badge text-bg-light">MICA record summary</span>
+            </div>
+          </div>
+          <div class="row small mt-3">
+            <div class="col-md-4"><strong>Allergies</strong><br>${allergy}</div>
+            <div class="col-md-4"><strong>Conditions</strong><br>${condition}</div>
+            <div class="col-md-4"><strong>Recent history</strong><ul class="mb-0 ps-3">${recent}</ul></div>
+          </div>
+          <p class="small text-muted mb-0 mt-2"><i class="bi bi-robot me-1"></i>${escapeHtml(res.mica_summary || 'Health records updated.')}</p>
+        </div>
+      </div>
+    `);
+  }, 'json');
+
   $.get(APP_URL + '/api/medical_records.php', { action: 'consultations', student_id: selectedId }, function (res) {
     const $sel = $('#consultationSelect').empty().append('<option value="">— Select —</option>');
-    res.data.forEach(c => {
+    (res.data || []).forEach(c => {
       $sel.append(`<option value="${c.id}">${c.consultation_date?.split(' ')[0] || '—'} — ${c.chief_complaint || '—'}</option>`);
     });
   }, 'json');
@@ -118,7 +170,7 @@ function loadRecords() {
   const q = $('#recordSearch').val();
   $.get(APP_URL + '/api/medical_records.php', { action: 'list', search: q }, function (res) {
     if (!res.success) return;
-    const rows = res.data.map(r => [
+    const rows = (res.data || []).map(r => [
       (r.first_name || '') + ' ' + (r.last_name || ''),
       r.student_number || '—',
       r.consultation_date?.split(' ')[0] || '—',
@@ -126,7 +178,8 @@ function loadRecords() {
       r.chief_complaint || '—',
       r.diagnosis || '—',
       r.file_path ? `<a href="${APP_URL}/${r.file_path}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark"></i></a>` : '—',
-      `<button class="btn btn-sm btn-outline-info view-record" data-id="${r.consultation_id || r.id}" title="View Details"><i class="bi bi-eye"></i></button>`
+      `<button class="btn btn-sm btn-outline-info view-record me-1" data-id="${r.consultation_id || r.id}" title="View Details"><i class="bi bi-eye"></i></button>` +
+      (r.student_id ? `<button class="btn btn-sm btn-outline-success" onclick="openPatientWorkspace(${r.student_id})" title="Open Patient Workspace"><i class="bi bi-person-workspace"></i></button>` : '')
     ]);
     $('#recordsTable').DataTable({ data: rows, columns:[{},{},{},{},{},{},{},{}], pageLength: 10, destroy:true });
   }, 'json');
@@ -174,7 +227,7 @@ $(document).on('click', '.view-record', function () {
     }
     html += '</div>';
     $('#recordDetailBody').html(html);
-    new bootstrap.Modal(document.getElementById('recordDetailModal')).show();
+    BPCModal.show('recordDetailModal');
   }, 'json');
 });
 

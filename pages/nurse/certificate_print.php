@@ -56,7 +56,8 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
   <title>Certificate <?= e($certNumber) ?> — <?= e(APP_NAME) ?></title>
   <link rel="stylesheet" href="<?= asset_url('css/bootstrap.min.css') ?>">
   <link rel="stylesheet" href="<?= asset_url('css/bootstrap-icons.min.css') ?>">
-  <link href="<?= asset_url('css/style.css') ?>" rel="stylesheet">
+  <link href="<?= asset_url('css/design-system.css') ?>" rel="stylesheet">
+  <link href="<?= asset_url('css/components.css') ?>" rel="stylesheet">
   <script src="<?= asset_url('js/qrcode.min.js') ?>"></script>
   <style>
     @page {
@@ -64,21 +65,21 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
       margin: 15mm;
     }
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: var(--font-sans);
       background: #f8f9fa;
     }
     .cert-container {
       max-width: 800px;
       margin: 0 auto;
       background: #fff;
-      border: 3px solid #0B6B3A;
+      border: 3px solid var(--primary);
       border-radius: 12px;
       padding: 40px;
       position: relative;
     }
     .cert-header {
       text-align: center;
-      border-bottom: 2px solid #0B6B3A;
+      border-bottom: 2px solid var(--primary);
       padding-bottom: 20px;
       margin-bottom: 30px;
     }
@@ -87,7 +88,7 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
       margin-bottom: 10px;
     }
     .cert-header h1 {
-      color: #0B6B3A;
+      color: var(--primary);
       font-size: 28px;
       font-weight: 700;
       margin: 0;
@@ -106,7 +107,7 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
     .cert-body .student-name {
       font-size: 20px;
       font-weight: 700;
-      color: #0B6B3A;
+      color: var(--primary);
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -168,7 +169,7 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
     }
     @media print {
       body { background: #fff; }
-      .cert-container { border: 3px solid #0B6B3A !important; box-shadow: none !important; }
+      .cert-container { border: 3px solid var(--primary) !important; box-shadow: none !important; }
       .no-print { display: none !important; }
     }
   </style>
@@ -182,7 +183,7 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
         <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Logo">
         <h1>BULACAN POLYTECHNIC COLLEGE</h1>
         <div class="subtitle">SCHOOL CLINIC</div>
-        <h2 style="color:#0B6B3A; margin-top:15px; font-size:22px;">MEDICAL CERTIFICATE</h2>
+        <h2 style="color:var(--primary); margin-top:15px; font-size:22px;">MEDICAL CERTIFICATE</h2>
       </div>
 
       <div class="cert-body">
@@ -252,5 +253,6 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
       }
     })();
   </script>
+<?php include __DIR__ . '/../../components/global_sos.php'; ?>
 </body>
 </html>

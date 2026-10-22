@@ -1,0 +1,25 @@
+.queue-consultation-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1.25rem; align-items: start; }
+.queue-list-panel, .queue-detail-panel, .queue-workspace-inner { min-width: 0; }
+.queue-workspace { overflow: hidden; border-radius: 16px; }
+.queue-workspace [hidden] { display: none !important; }
+.queue-workspace input, .queue-workspace select, .queue-workspace textarea { max-width: 100%; }
+.queue-workspace h5, .queue-workspace small, .queue-workspace summary { overflow-wrap: anywhere; }
+.queue-list-panel .app-queue-hero__number { font-size: 2.5rem; }
+.queue-list-panel .app-tabs { display: flex; flex-wrap: wrap; gap: .25rem; }
+.queue-list-panel .app-tabs .nav-link { padding: .5rem; font-size: .8rem; }
+.queue-list-panel #queueSearch { width: min(190px, 100%) !important; min-width: 0; }
+.queue-list-panel .table-responsive { min-height: 180px !important; }
+.queue-list-panel #queueTable { font-size: .8rem; }
+.queue-workspace .card { min-width: 0; }
+.queue-workspace .modal-title { font-size: 1.05rem; }
+.queue-workspace #patientAvatarLetter { flex-shrink: 0; }
+.queue-workspace #consultationEmptyState { min-height: 220px; display: grid; place-items: center; }
+@media (max-width: 1199.98px) {
+  .queue-consultation-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 575.98px) {
+  .queue-workspace .p-3 { padding: .75rem !important; }
+  .queue-workspace .d-flex { flex-wrap: wrap; }
+  .queue-workspace .btn { white-space: normal; }
+  .queue-list-panel .app-queue-hero__number { font-size: 2rem; }
+}

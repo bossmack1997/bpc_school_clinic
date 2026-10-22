@@ -59,18 +59,54 @@ $(function () {
   }, 300); // Brief delay to let CSS paint, then hide
 
   // ================================================================
-  // Sidebar Toggle (Mobile) - hamburger button
+  // Skip-link target — give the main region a stable id once
   // ================================================================
+  (function () {
+    if (!document.getElementById('mainContent')) {
+      var main = document.querySelector('.main-content');
+      if (main) main.id = 'mainContent';
+    }
+  })();
+
+  // ================================================================
+  // Sidebar Toggle (Mobile) - hamburger button + scrim
+  // ================================================================
+  var $sidebar = $('.sidebar');
+  var $scrim = $('#sidebarScrim');
+
+  // Drawer open/close. Visibility is owned by the .is-visible class in
+  // responsive.css so the fade transition can run; the hidden attribute
+  // would kill it by forcing display:none.
+  function setSidebar(open) {
+    $sidebar.toggleClass('show', open);
+    $scrim.toggleClass('is-visible', open);
+    $('#sidebarToggle').attr('aria-expanded', open ? 'true' : 'false');
+    $('.mica-fab').toggleClass('is-dimmed', open);
+  }
+
   $('#sidebarToggle').on('click', function () {
-    $('.sidebar').toggleClass('show');
+    setSidebar(!$sidebar.hasClass('show'));
   });
+
+  if ($scrim && $scrim.length) {
+    $scrim.on('click', function () {
+      setSidebar(false);
+    });
+  }
 
   // Close sidebar on outside click (mobile)
   $(document).on('click', function (e) {
     if (window.innerWidth < 1200) {
-      if (!$(e.target).closest('.sidebar, #sidebarToggle').length) {
-        $('.sidebar').removeClass('show');
+      if (!$(e.target).closest('.sidebar, #sidebarToggle, #sidebarScrim').length) {
+        setSidebar(false);
       }
+    }
+  });
+
+  $(document).on('keydown', function (e) {
+    if (e.key === 'Escape' && $sidebar.hasClass('show')) {
+      setSidebar(false);
+      $('#sidebarToggle').trigger('focus');
     }
   });
 
@@ -79,43 +115,51 @@ $(function () {
   // ================================================================
   const storedCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
 
+  // The collapsed class is the single source of truth. All geometry
+  // (sidebar width and main-content offset) lives in design-system.css
+  // and responsive.css, so this never writes inline styles that would
+  // fight the stylesheet or drift from the breakpoints.
+  const SIDEBAR_RAIL_MIN = 1360;
+  const SIDEBAR_DRAWER_MAX = 1199;
+
   function applySidebarState(collapsed) {
-    if (collapsed) {
-      $('.sidebar').addClass('collapsed');
-      $('.main-content').css('margin-left', '72px');
-      $('.main-content').css('width', 'calc(100% - 72px)');
-    } else {
-      $('.sidebar').removeClass('collapsed');
-      $('.main-content').css('margin-left', '');
-      $('.main-content').css('width', '');
-    }
-    localStorage.setItem('sidebar-collapsed', collapsed);
+    $('.sidebar').toggleClass('collapsed', !!collapsed);
+    localStorage.setItem('sidebar-collapsed', !!collapsed);
   }
 
-  // Apply stored state on load (only for desktop)
-  if (window.innerWidth >= 1200) {
+  // The rail is the default between 1200px and 1359px, so honour the
+  // stored preference but never let it leak into drawer mode.
+  if (window.innerWidth >= SIDEBAR_DRAWER_MAX + 1) {
     applySidebarState(storedCollapsed);
   }
 
   $(document).on('click', '.sidebar-toggle-collapse', function (e) {
     e.stopPropagation();
-    const isCollapsed = $('.sidebar').hasClass('collapsed');
-    applySidebarState(!isCollapsed);
+    applySidebarState(!$('.sidebar').hasClass('collapsed'));
   });
 
-  // Reset sidebar on window resize crossing the threshold
+  // Reset sidebar on window resize crossing a breakpoint
   let lastWidth = window.innerWidth;
   $(window).on('resize', function () {
     const w = window.innerWidth;
-    if ((lastWidth < 1200 && w >= 1200) || (lastWidth >= 1200 && w < 1200)) {
-      if (w >= 1200) {
-        applySidebarState(localStorage.getItem('sidebar-collapsed') === 'true');
-        $('.sidebar').removeClass('show');
-      } else {
+    const crossedDrawer = (lastWidth <= SIDEBAR_DRAWER_MAX && w > SIDEBAR_DRAWER_MAX)
+      || (lastWidth > SIDEBAR_DRAWER_MAX && w <= SIDEBAR_DRAWER_MAX);
+    const crossedRail = (lastWidth < SIDEBAR_RAIL_MIN && w >= SIDEBAR_RAIL_MIN)
+      || (lastWidth >= SIDEBAR_RAIL_MIN && w < SIDEBAR_RAIL_MIN);
+
+    if (crossedDrawer) {
+      if (w <= SIDEBAR_DRAWER_MAX) {
+        // Entering drawer mode: close the drawer and clear the rail state
+        setSidebar(false);
         $('.sidebar').removeClass('collapsed');
-        $('.main-content').css('margin-left', '');
-        $('.main-content').css('width', '');
+      } else {
+        applySidebarState(localStorage.getItem('sidebar-collapsed') === 'true');
+        setSidebar(false);
       }
+    } else if (crossedRail) {
+      // Entering the icon-rail range the stylesheet owns the width, so
+      // drop the class to avoid a stale pin state on the way back out.
+      if (w < SIDEBAR_RAIL_MIN) applySidebarState(false);
     }
     lastWidth = w;
   });
@@ -127,15 +171,16 @@ $(function () {
   const storedTheme = localStorage.getItem('clinic-theme') || 'light';
 
   function applyTheme(theme) {
-    if (theme === 'dark') {
+    const isDark = theme === 'dark';
+    if (isDark) {
       document.documentElement.setAttribute('data-theme', 'dark');
-      darkToggle.find('i').removeClass('bi-moon-stars').addClass('bi-sun');
-      darkToggle.attr('title', 'Switch to Light Mode');
     } else {
       document.documentElement.removeAttribute('data-theme');
-      darkToggle.find('i').removeClass('bi-sun').addClass('bi-moon-stars');
-      darkToggle.attr('title', 'Switch to Dark Mode');
     }
+    darkToggle
+      .attr('title', isDark ? 'Switch to light theme' : 'Switch to dark theme')
+      .attr('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme')
+      .html(isDark ? darkToggle.attr('data-icon-sun') : darkToggle.attr('data-icon-moon'));
     localStorage.setItem('clinic-theme', theme);
   }
 
@@ -151,9 +196,12 @@ $(function () {
   // ================================================================
   function updateClock() {
     const now = new Date();
-    const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+    const isCompact = window.matchMedia('(max-width: 767.98px)').matches;
+    const options = isCompact
+      ? { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' }
+      : { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: 'Asia/Manila' };
     const dateStr = now.toLocaleDateString('en-US', options);
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' });
 
     $('.topbar-clock-time').text(timeStr);
     $('.topbar-clock-date').text(dateStr);
@@ -223,6 +271,23 @@ $(function () {
     });
   }
 
+  $(document).on('click', '#markAllNotificationsRead', function () {
+    var button = this; button.disabled = true;
+    markAllNotificationsRead(function (error) {
+      button.disabled = false;
+      $('#notificationActionStatus').text(error || 'All notifications marked as read.');
+    });
+  });
+  $(document).on('click', '#notifList .notif-mark-read', function (event) {
+    event.preventDefault(); event.stopPropagation();
+    var button = this; button.disabled = true;
+    markNotificationRead($(button).attr('data-id'), function (error) {
+      button.disabled = false;
+      $('#notificationActionStatus').text(error || 'Notification marked as read.');
+    });
+  });
+  $('#notificationBell').on('show.bs.dropdown', function () { loadNotifications(); });
+
   // Start single notification poller per page session
   if ($('#notifBadge').length && !window.__NOTIF_POLL_ACTIVE__) {
     window.__NOTIF_POLL_ACTIVE__ = true;
@@ -246,6 +311,7 @@ $(function () {
           var sosData = JSON.parse(decodeURIComponent(rawSos));
           if (typeof openSosDetailsModal === 'function') {
             openSosDetailsModal(sosData);
+            markNotificationRead(id);
           }
         } catch (err) {
           console.warn('[Notifications] Failed to parse SOS details:', err);
@@ -254,21 +320,14 @@ $(function () {
       return;
     }
 
-    // Regular notification link
-    if (id) {
-      var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
-      $.post(base + '/api/notifications.php', {
-        action: 'mark_read',
-        id: id,
-        csrf_token: $('meta[name="csrf-token"]').attr('content')
-      });
-    }
-
-    if (!href || href === '#' || href === 'javascript:void(0)') {
-      e.preventDefault();
-      var targetUrl = getNotificationPageUrl() + (id ? '?id=' + encodeURIComponent(id) : '');
-      window.location.href = targetUrl;
-    }
+    // Read state is persisted before navigating, including the badge refresh.
+    e.preventDefault();
+    var destination = (!href || href === '#' || href === 'javascript:void(0)')
+      ? getNotificationPageUrl() + (id ? '?id=' + encodeURIComponent(id) : '') : href;
+    markNotificationRead(id, function (error) {
+      if (error) { $('#notificationActionStatus').text(error); return; }
+      window.location.href = destination;
+    });
   });
 
   // Accept SOS
@@ -345,7 +404,163 @@ $(function () {
     });
   }
 
+  // ================================================================
+  // SOS — open modal from sidebar floating action
+  // ================================================================
+  $(document).on('click', '[data-action="open-sos"]', function (e) {
+    e.preventDefault();
+    if (typeof MICA !== 'undefined' && MICA.open) {
+      MICA.open();
+    }
+    var sosModal = $('#sosModal');
+    if (sosModal.length) {
+      sosModal.modal('show');
+    }
+  });
+
+  // ================================================================
+  // Double-submit guard
+  // ----------------------------------------------------------------
+  // Disables a form's submit button while its request is in
+  // flight, then restores it. Prevents the duplicate records
+  // caused by an impatient double-click.
+  //
+  //   * The button is disabled the moment the form submits.
+  //   * It is restored as soon as the POST that the submit
+  //     triggered completes (background GET polling never
+  //     restores it, so a slow save cannot be re-clicked).
+  //   * A safety sweep restores buttons that were disabled
+  //     by a submit which never reached the network (for
+  //     example, one stopped by client-side validation), so
+  //     no form is ever left permanently disabled.
+  //   * Opt out with the .no-auto-disable class.
+  // ================================================================
+  $(document).on('submit', 'form', function () {
+    var $btn = $(this).find(
+      'button[type="submit"]:not(.no-auto-disable), input[type="submit"]:not(.no-auto-disable)'
+    ).first();
+    if ($btn.length) {
+      $btn.prop('disabled', true).addClass('is-busy');
+    }
+  });
+
+  $(document).on('ajaxComplete', function (event, xhr, settings) {
+    if (settings && settings.type && String(settings.type).toUpperCase() === 'POST') {
+      $('form .is-busy').prop('disabled', false).removeClass('is-busy');
+    }
+  });
+
+  // Safety sweep: only runs when no request is in flight, so a
+  // genuinely busy save is never interrupted.
+  setInterval(function () {
+    if (window.jQuery && jQuery.active === 0) {
+      $('form .is-busy').prop('disabled', false).removeClass('is-busy');
+    }
+  }, 3000);
+
 }); // end DOM ready
+
+// ================================================================
+// BPCModal — single source of truth for every Bootstrap modal.
+//
+// Root cause fixed here: page scripts previously called
+//   new bootstrap.Modal(el).show()
+// on every open. That constructor call creates a NEW instance
+// each time and overwrites the one stored on the element, so
+// the old instance's listeners (hidden.bs.modal cleanup,
+// backdrop removal) keep firing alongside the new one's. The
+// visible symptoms were stacked backdrops, a stuck dim layer
+// after close, and modals that stop responding after first use.
+//
+// getOrCreateInstance() returns the existing instance when there
+// is one and only creates it once, so open/close/reopen is
+// idempotent.
+// ================================================================
+window.BPCModal = (function () {
+  'use strict';
+
+  function resolve(el) {
+    if (!el) return null;
+    if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+      // Bootstrap failed to load — degrade to a plain class
+      // toggle so the dialog is still reachable rather than dead.
+      el.classList.add('show');
+      el.setAttribute('aria-hidden', 'false');
+      return null;
+    }
+    return bootstrap.Modal.getOrCreateInstance(el);
+  }
+
+  function get(target) {
+    var el = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!el) {
+      console.warn('[BPCModal] modal element not found:', target);
+      return null;
+    }
+    return resolve(el);
+  }
+
+  function show(target) {
+    var m = get(target);
+    if (m && typeof m.show === 'function') m.show();
+    return m;
+  }
+
+  function hide(target) {
+    var m = get(target);
+    if (m && typeof m.hide === 'function') m.hide();
+    return m;
+  }
+
+  /**
+   * Reset every form inside a modal that opted in via
+   * data-reset-on-close, clearing the previous operation's
+   * values so they never leak into the next open. Fields
+   * marked data-preserve (e.g. hidden ids the opener
+   * re-populates) are kept.
+   */
+  function resetForms(modalEl) {
+    if (!modalEl || !modalEl.querySelector) return;
+    var forms = modalEl.querySelectorAll('form[data-reset-on-close], [data-reset-on-close] form');
+    Array.prototype.forEach.call(forms, function (form) {
+      Array.prototype.forEach.call(form.elements, function (field) {
+        if (field.hasAttribute('data-preserve')) return;
+        var type = (field.type || '').toLowerCase();
+        if (field.tagName === 'SELECT') {
+          field.selectedIndex = 0;
+        } else if (type === 'checkbox' || type === 'radio') {
+          field.checked = field.hasAttribute('checked');
+        } else if (type !== 'button' && type !== 'submit' && type !== 'reset' && type !== 'hidden') {
+          field.value = '';
+        }
+      });
+      var msgs = form.querySelectorAll('.invalid-feedback, .form-error');
+      Array.prototype.forEach.call(msgs, function (n) { n.textContent = ''; });
+      Array.prototype.forEach.call(form.querySelectorAll('.is-invalid, .is-valid'), function (n) {
+        n.classList.remove('is-invalid', 'is-valid');
+      });
+    });
+  }
+
+  // One delegated listener: whenever any modal finishes hiding,
+  // reset its opted-in forms. Bound once, so it never duplicates.
+  document.addEventListener('hidden.bs.modal', function (e) {
+    resetForms(e.target);
+    // Safety net: if a script error interrupted Bootstrap's own
+    // cleanup, an orphaned .modal-backdrop can stay behind and
+    // keep the page dimmed/unscrollable. When no modal remains
+    // open, clear any leftover backdrop and restore scrolling.
+    window.setTimeout(function () {
+      if (document.querySelector('.modal.show')) return;
+      document.querySelectorAll('.modal-backdrop').forEach(function (bd) { bd.remove(); });
+      document.body.classList.remove('modal-open');
+      document.body.style.paddingRight = '';
+      document.body.style.overflow = '';
+    }, 60);
+  });
+
+  return { get: get, show: show, hide: hide, resetForms: resetForms };
+})();
 
 // ================================================================
 // Escape HTML helper (global — avoids XSS in dynamic notification HTML)
@@ -364,6 +579,8 @@ function escapeHtml(text) {
 // Notifications
 // ================================================================
 function loadNotifications() {
+  if (window.__notificationRequestPending) { window.__notificationRefreshQueued = true; return; }
+  window.__notificationRequestPending = true;
   var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
   var notifPageUrl = typeof window.getNotificationPageUrl === 'function'
     ? window.getNotificationPageUrl()
@@ -376,14 +593,16 @@ function loadNotifications() {
 
     // Show the badge when there are unread notifications (red indicator)
     if (unread > 0) {
-      $badge.text(unread).removeClass('d-none');
+      $badge.text(unread > 99 ? '99+' : unread).removeClass('d-none');
+      $('#notificationBell').attr('aria-label', unread + ' unread notifications');
     } else {
       $badge.addClass('d-none');
+      $('#notificationBell').attr('aria-label', 'Notifications, no unread notifications');
     }
 
     const $list = $('#notifList').empty();
     if (!res.data || res.data.length === 0) {
-      $list.append('<li><a class="dropdown-item text-muted small text-center" href="#">No notifications</a></li>');
+      $list.append('<li><a class="dropdown-item text-muted small text-center" href="#">No new notifications.</a></li>');
     } else {
       const userRole = (window.MICA_USER && window.MICA_USER.role)
         || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role'))
@@ -392,6 +611,9 @@ function loadNotifications() {
 
       res.data.slice(0, 12).forEach(function (n) {
         const timeAgo = (typeof timeSince === 'function') ? timeSince(n.created_at || '') : 'Just now';
+        const unreadItem = Number(n.is_read) === 0;
+        const metaSafe = escapeHtml(n.type_label || n.type || 'Notification');
+        const readControls = '<div class="notif-row-meta"><span>' + metaSafe + ' / ' + (unreadItem ? 'Unread' : 'Read') + '</span>' + (unreadItem ? '<button type="button" class="notif-mark-read" data-id="' + encodeURIComponent(n.id) + '">Mark as Read</button>' : '') + '</div>';
         const isSos = n.type === 'emergency' && n.sos && n.sos.emergency_id;
         const titleSafe = escapeHtml(n.title || 'Notification');
         const msgSafe = escapeHtml(n.message || '');
@@ -407,7 +629,7 @@ function loadNotifications() {
           const sosEl = document.createElement('li');
           const sosJson = encodeURIComponent(JSON.stringify(sos));
           sosEl.innerHTML =
-            `<a href="#" class="dropdown-item notif-dropdown-item sos-notif-item ${n.is_read ? '' : 'unread'}"
+            `<a href="#" class="dropdown-item notif-dropdown-item sos-notif-item ${unreadItem ? 'unread' : ''}"
                 data-id="${notifId}"
                 data-sos="${sosJson}">
                <div class="d-flex align-items-start gap-2">
@@ -418,13 +640,14 @@ function loadNotifications() {
                    <div class="small fw-semibold text-danger">${titleSafe}</div>
                    <div class="text-muted" style="font-size:.75rem">${msgSafe}</div>
                    <div class="d-flex align-items-center gap-2 mt-1">
-                     <span class="badge bg-danger" style="font-size:.6rem;">${statusLabel}</span>
+                     <span class="badge bg-danger" style="font-size:.6rem;">${escapeHtml(statusLabel)}</span>
                      ${hasLocation ? '<span class="badge bg-primary" style="font-size:.6rem;"><i class="bi bi-geo-alt-fill me-1"></i>GPS</span>' : ''}
-                     <span class="text-muted" style="font-size:.65rem">${timeAgo}</span>
+                     <span class="text-muted" style="font-size:.65rem">${escapeHtml(timeAgo)}</span>
                    </div>
                  </div>
                </div>
              </a>`;
+          sosEl.insertAdjacentHTML('beforeend', readControls);
           $list.append(sosEl);
         } else {
           // ---- Regular notification ----
@@ -437,35 +660,38 @@ function loadNotifications() {
                 : 'background:var(--info);';
 
           let link = n.link;
+          try { if (link && new URL(link, window.location.href).origin !== window.location.origin) link = null; } catch (error) { link = null; }
           if (!link || link === '#' || link === 'javascript:void(0)') {
             link = notifPageUrl + (notifId ? '?id=' + notifId : '');
           }
 
           $list.append(
-            `<li><a class="dropdown-item notif-dropdown-item notif-link ${n.is_read ? '' : 'unread'}" href="${escapeHtml(link)}" data-id="${notifId}">
+            `<li><a class="dropdown-item notif-dropdown-item notif-link ${unreadItem ? 'unread' : ''}" href="${escapeHtml(link)}" data-id="${notifId}">
                <div class="d-flex align-items-start gap-2">
                  <div class="mt-1 flex-shrink-0">
                    <span class="notif-dot" style="${dotColor}"></span>
                  </div>
                  <div class="flex-grow-1">
-                   <div class="small fw-semibold ${n.is_read ? '' : 'text-primary'}">${titleSafe}</div>
+                   <div class="small fw-semibold ${unreadItem ? 'text-primary' : ''}">${titleSafe}</div>
                    <div class="text-muted" style="font-size:.75rem">${msgSafe}</div>
-                   <div class="text-muted" style="font-size:.65rem">${timeAgo}</div>
+                   <div class="text-muted" style="font-size:.65rem" title="${escapeHtml(n.created_at || '')}">${escapeHtml(timeAgo)} / ${escapeHtml(n.created_at || '')}</div>
                  </div>
                </div>
-             </a></li>`
+             </a>${readControls}</li>`
           );
         }
       });
 
-      // Always show a "View all notifications" link to the full Notification Center.
-      $list.append('<li><hr class="dropdown-divider"></li>');
-      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${notifPageUrl}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
+
     }
   }, 'json').fail(function (xhr, status, err) {
     if (window.console && console.debug) {
       console.debug('[Notifications] Poll failed (will retry):', status, err);
+      $('#notificationActionStatus').text('Unable to refresh notifications. Retrying automatically.');
     }
+  }).always(function () {
+    window.__notificationRequestPending = false;
+    if (window.__notificationRefreshQueued) { window.__notificationRefreshQueued = false; loadNotifications(); }
   });
 }
 
@@ -479,19 +705,26 @@ function openSosDetailsModal(sos) {
 
   var isStaff = (window.MICA_USER && (window.MICA_USER.role === 'nurse' || window.MICA_USER.role === 'admin'));
 
-  var studentName = [sos.first_name, sos.last_name].filter(Boolean).join(' ') || 'Unknown Student';
-  var hasGps = sos.latitude != null && sos.longitude != null && sos.latitude !== '' && sos.longitude !== '';
+  var studentName = [sos.first_name, sos.last_name].filter(Boolean).join(' ') || 'Unknown reporter';
+  var hasGps = bpcSosHasGps(sos);
   var mapsUrl = hasGps ? 'https://www.google.com/maps?q=' + encodeURIComponent(sos.latitude + ',' + sos.longitude) : '#';
   var isManual = sos.location_source === 'manual' || (!hasGps && sos.location);
+  var statusLabels = { new:'New', active:'Active', acknowledged:'Accepted', responding:'Responding', responded:'Responded', resolved:'Resolved', cancelled:'Cancelled', false_alarm:'False Alarm' };
+  var statusColors = { active: 'danger', responded: 'warning text-dark', resolved: 'success', false_alarm: 'secondary' };
+  var statusBadge = '<span class="badge bg-' + (statusColors[sos.sos_status] || 'secondary') + '">' + (statusLabels[sos.sos_status] || (sos.sos_status || 'Unknown')) + '</span>';
+  var contact = sos.contact_number || sos.phone || sos.mobile || sos.reporter_phone || 'N/A';
+  var dateValue = sos.created_at || sos.sos_created_at || sos.location_updated_at || null;
+  var dateLabel = dateValue ? new Date(dateValue.replace(' ', 'T')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+  var timeLabel = dateValue ? new Date(dateValue.replace(' ', 'T')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'N/A';
 
   var locationHtml = '';
   if (hasGps) {
     var latF = Number(sos.latitude).toFixed(6);
     var lngF = Number(sos.longitude).toFixed(6);
-    var accLabel = sos.location_accuracy ? 'Accuracy: ±' + escapeHtml(sos.location_accuracy) : 'Accuracy: ±8 meters';
+    var accLabel = escapeHtml(bpcSosAccuracyLabel(sos.location_accuracy));
     locationHtml =
       '<div class="p-3 bg-light rounded-3 border border-danger-subtle">' +
-        '<div class="fw-bold text-danger mb-1"><i class="bi bi-crosshair me-1"></i> Current Location (Live GPS):</div>' +
+        '<div class="fw-bold text-danger mb-1"><i class="bi bi-crosshair me-1"></i> Reported GPS estimate:</div>' +
         '<div class="fs-6 fw-bold text-dark mb-1">' + latF + ', ' + lngF + '</div>' +
         '<div class="small text-muted mb-2">' + accLabel + ' · Updated: ' + (timeLabel || 'Just now') + '</div>' +
         '<a href="' + mapsUrl + '" target="_blank" rel="noopener" class="btn btn-sm btn-danger">' +
@@ -518,7 +751,7 @@ function openSosDetailsModal(sos) {
     '</div>' +
     '<hr>' +
     '<div class="row g-2 small">' +
-      '<div class="col-6"><div class="text-muted">Student ID</div><div class="fw-semibold">' + escapeHtml(sos.student_number || 'N/A') + '</div></div>' +
+      '<div class="col-6"><div class="text-muted">Student / Employee ID</div><div class="fw-semibold">' + escapeHtml(sos.student_number || sos.employee_id || 'N/A') + '</div></div>' +
       '<div class="col-6"><div class="text-muted">Course</div><div class="fw-semibold">' + escapeHtml(sos.course || 'N/A') + '</div></div>' +
       '<div class="col-6"><div class="text-muted">Year Level</div><div class="fw-semibold">' + escapeHtml(sos.year_level || 'N/A') + '</div></div>' +
       '<div class="col-6"><div class="text-muted">Contact Number</div><div class="fw-semibold">' + escapeHtml(contact) + '</div></div>' +
@@ -533,6 +766,7 @@ function openSosDetailsModal(sos) {
       locationHtml +
     '</div>';
 
+  html += '<hr><div class="small">Role: ' + escapeHtml(sos.reporter_role || 'Unknown') + '<br>Responder: ' + escapeHtml(sos.responder_name || 'Unassigned') + '<br>Accepted: ' + escapeHtml(sos.acknowledged_at || 'Pending') + '<br>Responding: ' + escapeHtml(sos.responded_at || 'Pending') + '</div>';
   $('#sosDetailsBody').html(html);
 
   // Store the full SOS object + emergency id for Accept/Resolve
@@ -545,14 +779,16 @@ function openSosDetailsModal(sos) {
   var $acceptBtn = $('#sosAcceptBtn');
   var $resolveBtn = $('#sosResolveBtn');
   var status = sos.sos_status || 'active';
+  $acceptBtn.toggle(['new','active'].includes(status));
+  $resolveBtn.toggle(!['resolved','cancelled','false_alarm'].includes(status));
 
-  if (isStaff) {
+  if (isStaff && sos.can_respond !== false) {
     $footer.show();
     // Disable actions appropriately based on status
-    if (status === 'resolved' || status === 'false_alarm') {
+    if (['resolved','cancelled','false_alarm'].includes(status)) {
       $acceptBtn.prop('disabled', true).addClass('disabled');
       $resolveBtn.prop('disabled', true).addClass('disabled');
-    } else if (status === 'responded') {
+    } else if (['acknowledged','responding','responded'].includes(status)) {
       $acceptBtn.prop('disabled', true).addClass('disabled');
       $resolveBtn.prop('disabled', false).removeClass('disabled');
     } else {
@@ -571,37 +807,43 @@ function openSosDetailsModal(sos) {
 // ================================================================
 // SOS — Accept / Resolve
 // ================================================================
-function updateSosStatus(status) {
+async function bpcSosAction(emergencyId, operation, buttons) {
+  if (bpcSosAction.pending) return null;
+  bpcSosAction.pending = true;
+  var $buttons = $(buttons); $buttons.prop('disabled', true);
+  var buttonSnapshots = [];
+  document.querySelectorAll(buttons).forEach(function(button){buttonSnapshots.push([button,button.innerHTML]);button.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span> Updating...';});
+  try {
+    var notes = '';
+    if (operation === 'resolve') {
+      var answer = await Swal.fire({title: 'Resolve this SOS?', input: 'textarea', inputLabel: 'Resolution notes', showCancelButton: true,
+        inputValidator: function(value) { if (!value || !value.trim()) return 'Enter resolution notes.'; }});
+      if (!answer.isConfirmed) return null;
+      notes = answer.value.trim();
+    }
+    var response;
+    try {
+      response = await fetch(APP_URL + '/api/emergencies.php', {method: 'POST', credentials: 'same-origin',
+        headers: {'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({action:'update_status', emergency_id:emergencyId, op:operation === 'accept' ? 'accept' : operation,
+          resolution_notes:notes, csrf_token:$('meta[name="csrf-token"]').attr('content') || ''})});
+    } catch (error) { throw new Error('Connection lost. Check the emergency status before retrying.'); }
+    var result;
+    try { result = await response.json(); } catch (error) { throw new Error('The server returned an unreadable response (HTTP ' + response.status + '). Refresh to check the current status.'); }
+    if (!response.ok || !result.success) throw new Error(result.message || 'Emergency update failed (HTTP ' + response.status + ').');
+    if (typeof loadNotifications === 'function') loadNotifications();
+    window.dispatchEvent(new Event('bpc-sos-updated'));
+    Swal.fire({icon:'success',title:'SOS updated',text:result.message,timer:2000});
+    return result;
+  } catch (error) { Swal.fire({icon:'error',title:'Emergency update failed',text:error.message}); return null; }
+  finally { bpcSosAction.pending = false; buttonSnapshots.forEach(function(snapshot){snapshot[0].innerHTML=snapshot[1];}); $buttons.prop('disabled', false); }
+}
+async function updateSosStatus(status) {
   var modalEl = document.getElementById('sosDetailsModal');
   if (!modalEl) return;
-  var emergencyId = $(modalEl).data('emergency-id');
-  if (!emergencyId) return;
-
-  var $btn = status === 'accept' ? $('#sosAcceptBtn') : $('#sosResolveBtn');
-  var originalHtml = $btn.html();
-  $btn.html('<span class="spinner-border spinner-border-sm me-1"></span> Updating...').prop('disabled', true);
-
-  $.post(APP_URL + '/api/ai_assistant.php', {
-    action: 'sos_update_status',
-    emergency_id: emergencyId,
-    status: status,
-    csrf_token: $('meta[name="csrf-token"]').attr('content')
-  }, function (res) {
-    $btn.html(originalHtml).prop('disabled', false);
-    if (res && res.success) {
-      Swal.fire({ icon: 'success', title: 'SOS ' + (status === 'accept' ? 'Accepted' : 'Resolved'), text: res.message || 'Status updated.', timer: 3000, timerProgressBar: true });
-      // Refresh notifications & re-render the modal with the updated status
-      loadNotifications();
-      var sos = { ...($(modalEl).data('sos') || {}), sos_status: status === 'accept' ? 'responded' : 'resolved' };
-      $(modalEl).data('sos', sos);
-      openSosDetailsModal(sos);
-    } else {
-      Swal.fire({ icon: 'error', title: 'Error', text: (res && res.message) || 'Failed to update SOS status.' });
-    }
-  }, 'json').fail(function () {
-    $btn.html(originalHtml).prop('disabled', false);
-    Swal.fire({ icon: 'error', title: 'Error', text: 'Network error. Please try again.' });
-  });
+  var sos = $(modalEl).data('sos') || {};
+  var result = await bpcSosAction($(modalEl).data('emergency-id'), status, '#sosAcceptBtn, #sosResolveBtn');
+  if (result) openSosDetailsModal(Object.assign({}, sos, result, {sos_status:result.status}));
 }
 
 // ================================================================
@@ -645,32 +887,132 @@ function confirmAction(message, callback) {
   });
 }
 
-function toastSuccess(msg) {
-  Swal.fire({
-    icon: 'success',
-    title: msg,
-    timer: 2000,
-    showConfirmButton: false,
-    position: 'top-end',
-    toast: true,
-    customClass: {
-      popup: 'rounded-4 shadow-lg',
-    },
-  });
+// ================================================================
+// UNIFIED TOAST SYSTEM
+// ----------------------------------------------------------------
+// One non-blocking feedback channel for every role and every page.
+//   success / error / warning / info / emergency
+// Desktop  bottom-right · Mobile bottom-centre
+// Errors are non-blocking by design: the surrounding form or panel
+// keeps its state so the user can correct and retry immediately.
+// Blocking acknowledgement is still available via showErrorDialog().
+// ================================================================
+var BPC_ICON_PATHS = {
+  success: '<path d="M20 6 9 17l-5-5"/>',
+  error: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
+  warning: '<path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
+  emergency: '<path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4Z"/><path d="M12 8v4M12 16h.01"/>'
+};
+
+var BPC_ICON_CLOSE = '<path d="M18 6 6 18M6 6l12 12"/>';
+
+function bpcToastIcon(kind) {
+  return '<svg class="bpc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" '
+    + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+    + (BPC_ICON_PATHS[kind] || BPC_ICON_PATHS.info) + '</svg>';
 }
 
-function toastError(msg) {
-  Swal.fire({
-    icon: 'error',
-    title: 'Error',
-    text: msg,
-    confirmButtonColor: '#0B6B3A',
-    customClass: {
-      confirmButton: 'btn btn-primary',
-    },
-    buttonsStyling: false,
+function bpcToastStack() {
+  var stack = document.getElementById('appToastStack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'appToastStack';
+    stack.className = 'app-toast-stack';
+    stack.setAttribute('role', 'region');
+    stack.setAttribute('aria-label', 'Notifications');
+    document.body.appendChild(stack);
+  }
+  return stack;
+}
+
+function dismissBpcToast(el) {
+  if (!el || el.dataset.leaving === '1') return;
+  el.dataset.leaving = '1';
+  el.classList.add('is-leaving');
+  window.setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+}
+
+/**
+ * Unified toast.
+ * @param {string} message
+ * @param {string} [kind]  success | error | warning | info | emergency
+ * @param {string} [title]
+ */
+function bpcToast(message, kind, title) {
+  if (!message) return null;
+  kind = kind || 'info';
+
+  var stack = bpcToastStack();
+  var el = document.createElement('div');
+  el.className = 'app-toast app-toast--' + kind;
+  el.setAttribute('role', (kind === 'error' || kind === 'emergency') ? 'alert' : 'status');
+  el.setAttribute('aria-live', (kind === 'error' || kind === 'emergency') ? 'assertive' : 'polite');
+
+  var body = '';
+  if (title) {
+    body += '<div class="app-toast__title">' + escapeHtml(String(title)) + '</div>';
+    body += '<p class="app-toast__text">' + escapeHtml(String(message)) + '</p>';
+  } else {
+    body += '<div class="app-toast__title">' + escapeHtml(String(message)) + '</div>';
+  }
+
+  el.innerHTML = '<span class="app-toast__icon">' + bpcToastIcon(kind) + '</span>'
+    + '<div class="app-toast__body">' + body + '</div>'
+    + '<button type="button" class="app-toast__close" aria-label="Dismiss notification">'
+    + '<svg class="bpc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" '
+    + 'stroke-linecap="round" aria-hidden="true" focusable="false">' + BPC_ICON_CLOSE + '</svg>'
+    + '</button>';
+
+  el.querySelector('.app-toast__close').addEventListener('click', function () { dismissBpcToast(el); });
+
+  stack.appendChild(el);
+
+  var ttl = (kind === 'error' || kind === 'emergency') ? 7000 : 3200;
+  var timer = window.setTimeout(function () { dismissBpcToast(el); }, ttl);
+
+  // Pause the countdown while the pointer rests on the toast.
+  el.addEventListener('mouseenter', function () { window.clearTimeout(timer); });
+  el.addEventListener('mouseleave', function () { window.clearTimeout(timer); dismissBpcToast(el); });
+
+  // Never let the stack grow past a readable number of rows.
+  while (stack.children.length > 4) { dismissBpcToast(stack.firstElementChild); }
+
+  return el;
+}
+
+window.bpcToast = bpcToast;
+
+function toastSuccess(msg) { bpcToast(msg, 'success'); }
+function toastError(msg, title) { bpcToast(msg, 'error', title); }
+function toastWarning(msg) { bpcToast(msg, 'warning'); }
+function toastInfo(msg) { bpcToast(msg, 'info'); }
+function toastEmergency(msg) { bpcToast(msg, 'emergency', 'Emergency'); }
+
+window.toastSuccess = toastSuccess;
+window.toastError = toastError;
+window.toastWarning = toastWarning;
+window.toastInfo = toastInfo;
+window.toastEmergency = toastEmergency;
+
+/**
+ * Blocking acknowledgement for the rare failure a user MUST read
+ * (destructive actions, session loss). Same visual language as the
+ * rest of the system — no raw technical text reaches the user.
+ */
+function showErrorDialog(message, title) {
+  return Swal.fire({
+    title: title || 'Something went wrong',
+    html: '<p class="mb-0" style="font-size:0.9rem;color:var(--text-secondary)">'
+      + escapeHtml(message || 'Unable to complete the request. Please try again.')
+      + '</p>',
+    showConfirmButton: true,
+    confirmButtonText: 'Close',
+    customClass: { confirmButton: 'btn btn-primary', popup: 'app-swal' },
+    buttonsStyling: false
   });
 }
+window.showErrorDialog = showErrorDialog;
 
 // ================================================================
 // Loading Overlay Helper
@@ -689,12 +1031,27 @@ function showLoading(show) {
 // DataTable Defaults (Premium styling)
 // ================================================================
 if (typeof $.fn.DataTable !== 'undefined') {
+  // Shared empty state. DataTables renders this inside the table body, so it
+  // must be a full-width block rather than a bare sentence, and it explains
+  // what happened instead of just reporting "no data".
+  function dtEmptyState() {
+    return '<div class="empty-state" style="padding:32px 16px;">'
+      + '<div class="empty-state__icon"><i class="bi bi-inbox" aria-hidden="true"></i></div>'
+      + '<h6 class="empty-state__title">No records found</h6>'
+      + '<p class="empty-state__text">There are currently no records matching this view. '
+      + 'Try changing your search or filters.</p>'
+      + '</div>';
+  }
+
   $.extend(true, $.fn.dataTable.defaults, {
     language: {
       search: '<i class="bi bi-search me-1"></i>',
       searchPlaceholder: 'Search...',
       lengthMenu: '_MENU_ per page',
-      emptyTable: 'No data available',
+      zeroRecords: dtEmptyState(),
+      emptyTable: dtEmptyState(),
+      infoEmpty: 'Showing 0 to 0 of 0 records',
+      infoFiltered: '(filtered from _MAX_ total records)',
     },
     dom: '<"d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"<"d-flex align-items-center gap-2"l><"d-flex"f>>t<"d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2"<"d-flex align-items-center"i><"d-flex"p>>',
     pageLength: 10,
@@ -807,3 +1164,13 @@ $(document).on('change', '#picInput', function () {
     reader.readAsDataURL(file);
   }
 });
+
+function bpcSosHasGps(sos) {
+  return sos.latitude !== null && sos.longitude !== null && sos.latitude !== '' && sos.longitude !== '' &&
+    Number.isFinite(Number(sos.latitude)) && Number.isFinite(Number(sos.longitude)) && Math.abs(Number(sos.latitude)) <= 90 && Math.abs(Number(sos.longitude)) <= 180;
+}
+function bpcSosAccuracyLabel(value) {
+  var accuracy = parseFloat(value);
+  if (!Number.isFinite(accuracy) || accuracy < 0) return 'Accuracy unknown; location is approximate.';
+  return 'Accuracy: �' + accuracy.toLocaleString() + ' meters' + (accuracy > 100 ? '. Poor accuracy; confirm the location with the reporter.' : '.');
+}

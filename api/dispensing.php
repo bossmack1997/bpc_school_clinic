@@ -1,21 +1,26 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
-require_role(['nurse','admin']);
+require_login();
 header('Content-Type: application/json');
 
 $db = getDB();
 $user = current_user();
+if($user['role']==='admin')admin_access_denied('Clinical records and dispensing are restricted to authorized clinic staff.');
 $action = $_REQUEST['action'] ?? '';
 
 if ($action === 'search_medicines') {
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $q = '%' . ($_GET['q'] ?? '') . '%';
-    $stmt = $db->prepare("SELECT id, medicine_name, generic_name, brand, category, quantity, unit, reorder_level, expiration_date, batch_number FROM medicines WHERE (medicine_name LIKE ? OR generic_name LIKE ? OR brand LIKE ?) AND is_archived = 0 ORDER BY medicine_name LIMIT 10");
+    $stmt = $db->prepare("SELECT id, medicine_name, generic_name, brand, category, quantity, unit, reorder_level, expiration_date, batch_number, status FROM medicines WHERE (medicine_name LIKE ? OR generic_name LIKE ? OR brand LIKE ?) AND is_archived = 0 ORDER BY medicine_name LIMIT 10");
     $stmt->execute([$q, $q, $q]);
     json_response(true, ['data' => $stmt->fetchAll()]);
 }
 
 if ($action === 'dispense') {
+    if($_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(405);json_response(false,[],'Use POST.');}
     csrf_verify_or_die();
+    require_once __DIR__.'/../includes/medicine_inventory_service.php';
+    if (canonical_role($user['role'] ?? '') !== 'nurse') json_response(false, [], 'Only nurses can dispense medicine.');
     $studentId = (int)($_POST['student_id'] ?? 0);
     $medicineId = (int)($_POST['medicine_id'] ?? 0);
     $quantity = (int)($_POST['quantity'] ?? 0);
@@ -23,29 +28,19 @@ if ($action === 'dispense') {
     $diagnosis = trim($_POST['diagnosis'] ?? '');
     $remarks = trim($_POST['remarks'] ?? '');
 
-    if ($studentId <= 0 || $medicineId <= 0 || $quantity <= 0) json_response(false, [], 'Invalid input.');
-    if (!$purpose) json_response(false, [], 'Purpose/Reason is required.');
-
-    $stmt = $db->prepare("SELECT id, medicine_name, quantity, unit, expiration_date, category FROM medicines WHERE id=? AND is_archived = 0");
-    $stmt->execute([$medicineId]);
-    $medicine = $stmt->fetch();
-    if (!$medicine) json_response(false, [], 'Medicine not found.');
-
-    // Out of stock check
-    if ((int)$medicine['quantity'] <= 0) json_response(false, [], 'Medicine is out of stock.');
-
-    // Expiration check
-    if (!empty($medicine['expiration_date']) && strtotime($medicine['expiration_date']) < strtotime(date('Y-m-d'))) {
-        json_response(false, [], 'Cannot dispense: this medicine is expired (' . $medicine['expiration_date'] . ').');
+    if ($studentId <= 0 || $medicineId <= 0 || $quantity <= 0) {
+        json_response(false, [], 'Invalid input parameters.');
     }
-
-    // Quantity exceeds available stock check
-    if ($quantity > (int)$medicine['quantity']) json_response(false, [], 'Not enough stock. Only ' . $medicine['quantity'] . ' ' . $medicine['unit'] . ' available.');
+    if (!$purpose) {
+        json_response(false, [], 'Purpose/Reason is required.');
+    }
 
     $db->beginTransaction();
     try {
+        $medicine=(new MedicineInventoryService($db))->lockForDispensing($medicineId,$quantity);
         $newQty = (int)$medicine['quantity'] - $quantity;
         $db->prepare("UPDATE medicines SET quantity=? WHERE id=?")->execute([$newQty, $medicineId]);
+        update_medicine_status($db, $medicineId);
 
         // Log in medicine_logs with reason
         $reason = 'Dispensed to Student #' . $studentId . ' — ' . ($purpose ?: 'Dispensing');
@@ -75,18 +70,18 @@ if ($action === 'dispense') {
 
         log_activity($user['id'], 'Dispensed medicine', 'dispensing', "Medicine #$medicineId to Student #$studentId");
 
-        // Notify the student that their medicine was dispensed
-        notify_student_dispense($db, $studentId, $medicine['medicine_name'], $quantity);
-
         $db->commit();
+        try{notify_student_dispense($db,$studentId,$medicine['medicine_name'],$quantity);(new MedicineInventoryService($db))->monitor();}catch(Throwable $e){error_log('Post-dispensing alert: '.$e->getMessage());}
         json_response(true, ['new_quantity' => $newQty], 'Medicine dispensed successfully.');
     } catch (Exception $e) {
-        $db->rollBack();
-        json_response(false, [], 'Failed to dispense: ' . $e->getMessage());
+        if($db->inTransaction())$db->rollBack();
+        if($e instanceof InvalidArgumentException){http_response_code(422);json_response(false,[],$e->getMessage());}
+        json_response(false, [], safe_api_error($e, 'The medicine could not be dispensed. Please try again.', 'dispensing/dispense'));
     }
 }
 
 if ($action === 'search_students') {
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $q = '%' . ($_GET['q'] ?? '') . '%';
     $stmt = $db->prepare("SELECT s.id, s.student_number, u.first_name, u.last_name FROM students s JOIN users u ON u.id=s.user_id WHERE (s.student_number LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?) AND u.status='active' LIMIT 10");
     $stmt->execute([$q, $q, $q, $q]);
@@ -97,14 +92,19 @@ if ($action === 'history') {
     $studentId = (int)($_GET['student_id'] ?? 0);
     if ($studentId <= 0) json_response(false, [], 'Invalid student.');
 
+    $role = canonical_role($user['role'] ?? '');
     // IDOR protection: students can only access their own history
-    if ($user['role'] === 'student') {
+    if ($role === 'student') {
         $stmt = $db->prepare("SELECT id FROM students WHERE user_id=?");
         $stmt->execute([$user['id']]);
         $myStudentId = (int)$stmt->fetchColumn();
         if ($myStudentId <= 0 || $studentId !== $myStudentId) {
             json_response(false, [], 'Not authorized to view this dispensing history.');
         }
+    } elseif ($role === 'teacher') {
+        require_adviser_student_access($db, $studentId);
+    } elseif (!in_array($role, ['nurse', 'admin'], true)) {
+        json_response(false, [], 'Not authorized.');
     }
 
     $stmt = $db->prepare("
@@ -123,6 +123,7 @@ if ($action === 'history') {
 // DISPENSING HISTORY (all, for nurse) — searchable & printable
 // ================================================================
 if ($action === 'all_history') {
+    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
     $search = trim($_GET['search'] ?? '');
     $limit = min((int)($_GET['limit'] ?? 50), 200);
     $offset = (int)($_GET['offset'] ?? 0);
@@ -131,7 +132,7 @@ if ($action === 'all_history') {
     $params = [];
     if ($search !== '') {
         $like = '%' . $search . '%';
-        $where .= " AND (m.medicine_name LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR s.student_number LIKE ? OR ml.reason LIKE ?)";
+        $where .= " AND (m.medicine_name LIKE ? OR su.first_name LIKE ? OR su.last_name LIKE ? OR s.student_number LIKE ? OR ml.reason LIKE ?)";
         $params = array_merge($params, [$like, $like, $like, $like, $like]);
     }
 
@@ -139,7 +140,7 @@ if ($action === 'all_history') {
         SELECT COUNT(*) FROM medicine_logs ml
         JOIN medicines m ON m.id = ml.medicine_id
         LEFT JOIN students s ON s.id = ml.student_id
-        LEFT JOIN users u ON u.id = s.user_id
+        LEFT JOIN users su ON su.id = s.user_id
         WHERE $where
     ");
     $countStmt->execute($params);

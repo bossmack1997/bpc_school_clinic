@@ -5,8 +5,13 @@ $pageTitle = 'Smart Health Pass';
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head><?php include __DIR__ . '/../../includes/head.php'; ?></head>
-<body>
+<head><?php include __DIR__ . '/../../includes/head.php'; ?>
+<style>
+  .health-pass-page { background-color: #FAFAFC; }
+</style>
+<link rel="stylesheet" href="<?= asset_url('css/patient-activity.css') . '?v=' . filemtime(__DIR__ . '/../../assets/css/patient-activity.css') ?>">
+</head>
+<body class="health-pass-page">
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <input type="hidden" id="micaCurrentPage" value="student/my_qr">
@@ -14,159 +19,122 @@ $pageTitle = 'Smart Health Pass';
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area page-enter fade-in">
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
-        <h5 class="section-title mb-0"><i class="bi bi-credit-card-2-front text-success me-1"></i> Smart Digital Health Pass</h5>
-        <div class="d-flex flex-wrap gap-2">
-          <button class="btn btn-sm btn-outline-primary" id="refreshHealthPass"><i class="bi bi-arrow-clockwise me-1"></i> Refresh</button>
-          <button class="btn btn-sm btn-outline-success" id="downloadQrBtn"><i class="bi bi-download me-1"></i> Download QR</button>
-          <button class="btn btn-sm btn-outline-success" id="printQrBtn"><i class="bi bi-printer me-1"></i> Print</button>
+
+      <!-- ===== Header Bar ===== -->
+      <div class="hp-header-bar mb-4">
+        <h6 class="hp-title"><i class="bi bi-credit-card-2-front"></i> Smart Digital Health Pass</h6>
+        <div class="hp-actions">
+          <button class="btn btn-outline-primary" id="refreshHealthPass"><i class="bi bi-arrow-clockwise me-1"></i> Refresh</button>
+          <button class="btn btn-outline-success" id="downloadQrBtn"><i class="bi bi-download me-1"></i> Download QR</button>
+          <button class="btn btn-outline-success" id="printQrBtn"><i class="bi bi-printer me-1"></i> Print</button>
         </div>
       </div>
 
-      <!-- ===== Student Health Pass Header (photo + QR + details) ===== -->
+      <!-- ===== QR Code + Student Details ===== -->
       <div class="row g-3 mb-4">
         <!-- QR Code Card -->
         <div class="col-lg-4 col-xl-3">
-          <div class="card p-4 text-center shadow-sm h-100">
+          <div class="hp-qr-card p-4 text-center">
             <div class="text-center mb-3">
-              <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Logo" style="height:48px;">
+              <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Logo" class="hp-qr-logo">
             </div>
-            <div id="qrStudentInfo" class="mb-2">
+            <div id="qrStudentInfo" class="hp-qr-info mb-3">
               <div class="text-muted small">Loading health pass...</div>
             </div>
-            <div id="qrCanvas" class="d-inline-block p-3 bg-white border rounded-3 mx-auto"></div>
-            <div class="small text-muted mt-3">BPC School Clinic</div>
-            <div class="small text-muted">Present this QR for check-in, appointments, and verification.</div>
-            <div class="d-grid gap-2 mt-3">
-              <button class="btn btn-sm btn-success" id="downloadQrBtn2"><i class="bi bi-download me-1"></i> Download QR</button>
-              <button class="btn btn-sm btn-success" id="printQrBtn2"><i class="bi bi-printer me-1"></i> Print</button>
+            <div id="qrCanvas" class="hp-qr-canvas d-inline-block mx-auto"></div>
+            <div class="hp-qr-meta mt-3">
+              <div>Present this QR for check-in, appointments, and verification.</div>
+              <div>BPC School Clinic</div>
+            </div>
+            <div class="hp-qr-actions mt-3">
+              <button class="btn btn-outline-success" id="downloadQrBtn2"><i class="bi bi-download me-1"></i> Download</button>
+              <button class="btn btn-outline-success" id="printQrBtn2"><i class="bi bi-printer me-1"></i> Print</button>
             </div>
           </div>
         </div>
 
         <!-- Student Details + QR Status Card -->
         <div class="col-lg-8 col-xl-9">
-          <div class="card p-4 shadow-sm h-100">
+          <div class="hp-details-card p-4">
             <div class="d-flex align-items-start gap-3 mb-3">
-                  <img id="studentPhoto" src="<?= asset_url('images/default-avatar.svg') ?>" alt="Student Photo"
-                   style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--accent);">
+              <img id="studentPhoto" src="<?= asset_url('images/default-avatar.svg') ?>" alt="Student Photo" class="hp-student-photo">
               <div class="flex-grow-1">
-                <h4 class="fw-bold mb-1" id="studentName">—</h4>
-                <div class="text-muted" id="studentNumber">—</div>
-                <div class="text-muted small" id="studentCourse">—</div>
+                <h4 class="hp-student-name mb-1" id="studentName">—</h4>
+                <div class="hp-student-id" id="studentNumber">—</div>
+                <div class="hp-student-course" id="studentCourse">—</div>
               </div>
               <div class="text-end">
-                <span class="badge fs-6" id="qrStatusBadge">—</span>
-                <div class="small text-muted mt-1" id="qrLastScan">Last scan: —</div>
-                <div class="small text-muted" id="qrExpiry">—</div>
+                <span class="hp-qr-status-badge" id="qrStatusBadge">—</span>
+                <div class="hp-qr-meta mt-1" id="qrLastScan">Last scan: —</div>
+                <div class="hp-qr-meta" id="qrExpiry">—</div>
               </div>
             </div>
 
-            <div class="row g-2 small">
-              <div class="col-md-6">
-                <div class="d-flex justify-content-between py-1 border-bottom"><span class="text-muted">Blood Type</span><span class="fw-medium" id="studentBlood">—</span></div>
-                <div class="d-flex justify-content-between py-1 border-bottom"><span class="text-muted">Allergies</span><span class="fw-medium" id="studentAllergies">—</span></div>
-                <div class="d-flex justify-content-between py-1"><span class="text-muted">Emergency Contact</span><span class="fw-medium" id="studentEmergency">—</span></div>
-              </div>
-              <div class="col-md-6">
-                <div class="d-flex justify-content-between py-1 border-bottom"><span class="text-muted">Gender</span><span class="fw-medium" id="studentGender">—</span></div>
-                <div class="d-flex justify-content-between py-1 border-bottom"><span class="text-muted">Birthdate</span><span class="fw-medium" id="studentBirthdate">—</span></div>
-                <div class="d-flex justify-content-between py-1"><span class="text-muted">Email</span><span class="fw-medium" id="studentEmail">—</span></div>
-              </div>
+            <div class="hp-student-grid">
+              <div class="hp-dt-row"><span class="hp-dt-label">Blood Type</span><span class="hp-dt-value" id="studentBlood">—</span></div>
+              <div class="hp-dt-row"><span class="hp-dt-label">Allergies</span><span class="hp-dt-value" id="studentAllergies">—</span></div>
+              <div class="hp-dt-row"><span class="hp-dt-label">Emergency Contact</span><span class="hp-dt-value" id="studentEmergency">—</span></div>
+              <div class="hp-dt-row"><span class="hp-dt-label">Gender</span><span class="hp-dt-value" id="studentGender">—</span></div>
+              <div class="hp-dt-row"><span class="hp-dt-label">Birthdate</span><span class="hp-dt-value" id="studentBirthdate">—</span></div>
+              <div class="hp-dt-row"><span class="hp-dt-label">Email</span><span class="hp-dt-value" id="studentEmail">—</span></div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- ===== Dashboard Cards ===== -->
-      <div class="row g-3 mb-4">
-        <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-success mb-2"><i class="bi bi-calendar-event fs-3"></i></div>
-            <div class="small text-muted fw-medium">Today's Appointment</div>
-            <div id="cardAppointment" class="fw-bold mt-1">—</div>
-          </div>
+      <!-- ===== Summary Cards ===== -->
+      <div class="hp-summary-grid mb-4">
+        <div class="hp-summary-card hp-card-appointment">
+          <div class="hp-card-icon"><i class="bi bi-calendar-event"></i></div>
+          <div class="hp-card-label">Today's Appointment</div>
+          <div id="cardAppointment" class="hp-card-value">—</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-success mb-2"><i class="bi bi-qr-code-scan fs-3"></i></div>
-            <div class="small text-muted fw-medium">Current Queue</div>
-            <div id="cardQueue" class="fw-bold mt-1">—</div>
-          </div>
+        <div class="hp-summary-card hp-card-queue">
+          <div class="hp-card-icon"><i class="bi bi-qr-code-scan"></i></div>
+          <div class="hp-card-label">Current Queue</div>
+          <div id="cardQueue" class="hp-card-value">—</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-primary mb-2"><i class="bi bi-clock-history fs-3"></i></div>
-            <div class="small text-muted fw-medium">Est. Wait</div>
-            <div id="cardWaitTime" class="fw-bold mt-1">—</div>
-          </div>
+        <div class="hp-summary-card hp-card-wait">
+          <div class="hp-card-icon"><i class="bi bi-clock-history"></i></div>
+          <div class="hp-card-label">Est. Wait</div>
+          <div id="cardWaitTime" class="hp-card-value">—</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-info mb-2"><i class="bi bi-graph-up fs-3"></i></div>
-            <div class="small text-muted fw-medium">Latest BMI</div>
-            <div id="cardBmi" class="fw-bold mt-1">—</div>
-          </div>
+        <div class="hp-summary-card hp-card-bmi">
+          <div class="hp-card-icon"><i class="bi bi-graph-up"></i></div>
+          <div class="hp-card-label">Latest BMI</div>
+          <div id="cardBmi" class="hp-card-value">—</div>
         </div>
       </div>
 
-      <div class="row g-3 mb-4">
-        <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-success mb-2"><i class="bi bi-clipboard-data fs-3"></i></div>
-            <div class="small text-muted fw-medium">Recent Visits</div>
-            <div id="cardVisits" class="fw-bold mt-1">—</div>
-          </div>
+      <div class="hp-summary-grid mb-4">
+        <div class="hp-summary-card hp-card-visits">
+          <div class="hp-card-icon"><i class="bi bi-clipboard-data"></i></div>
+          <div class="hp-card-label">Recent Visits</div>
+          <div id="cardVisits" class="hp-card-value">—</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-warning mb-2"><i class="bi bi-capsule fs-3"></i></div>
-            <div class="small text-muted fw-medium">Recent Medicines</div>
-            <div id="cardMedicines" class="fw-bold mt-1">—</div>
-          </div>
+        <div class="hp-summary-card hp-card-meds">
+          <div class="hp-card-icon"><i class="bi bi-capsule"></i></div>
+          <div class="hp-card-label">Recent Medicines</div>
+          <div id="cardMedicines" class="hp-card-value">—</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-danger mb-2"><i class="bi bi-shield-check fs-3"></i></div>
-            <div class="small text-muted fw-medium">Vaccination Status</div>
-            <div id="cardVaccination" class="fw-bold mt-1">—</div>
-          </div>
+        <div class="hp-summary-card hp-card-vax">
+          <div class="hp-card-icon"><i class="bi bi-shield-check"></i></div>
+          <div class="hp-card-label">Vaccination Status</div>
+          <div id="cardVaccination" class="hp-card-value">—</div>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="card p-3 h-100 shadow-sm text-center">
-            <div class="text-primary mb-2"><i class="bi bi-clock-fill fs-3"></i></div>
-            <div class="small text-muted fw-medium">QR Timeline</div>
-            <div id="cardTimeline" class="fw-bold mt-1">—</div>
-          </div>
+        <div class="hp-summary-card hp-card-timeline">
+          <div class="hp-card-icon"><i class="bi bi-clock-fill"></i></div>
+          <div class="hp-card-label">QR Timeline</div>
+          <div id="cardTimeline" class="hp-card-value">—</div>
         </div>
       </div>
 
-      <!-- ===== QR Timeline ===== -->
-      <div class="card p-4 shadow-sm mb-4">
-        <h6 class="section-title mb-3"><i class="bi bi-clock-history text-success me-1"></i> Visit Timeline</h6>
-        <div id="qrTimeline" class="text-muted small">
-          <div class="text-center py-3">No timeline events yet. Scan your QR at the clinic to begin.</div>
-        </div>
-      </div>
-
-      <!-- ===== Searchable Scan History Table ===== -->
-      <div class="card p-4 shadow-sm mb-4">
-        <h6 class="section-title mb-3"><i class="bi bi-table text-success me-1"></i> QR Scan History</h6>
-        <div class="table-responsive">
-          <table class="table table-hover align-middle" id="scanHistoryTable" style="width:100%">
-            <thead>
-              <tr>
-                <th>Date</th><th>Time</th><th>Purpose</th><th>Scanner</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
+      <?php $activityAutoLoad = true; include __DIR__ . '/../../includes/patient_activity_sections.php'; ?>
     </div>
   </div>
 </div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+<script src="<?= asset_url('js/patient-activity.js') . '?v=' . filemtime(__DIR__ . '/../../assets/js/patient-activity.js') ?>"></script>
 <script>
 (function () {
   'use strict';
@@ -188,10 +156,10 @@ $pageTitle = 'Smart Health Pass';
       data: { action: 'student_health_pass' },
       success: function (res) {
         if (!res.success) { toastError(res.message || 'Failed to load health pass.'); return; }
+        const refreshActivity = healthPassData !== null;
         healthPassData = res;
         renderHealthPass(res);
-        loadQrTimeline();
-        loadScanHistory();
+        if (refreshActivity) window.BPCPatientActivity.refresh();
       },
       error: function (jqXHR) {
         if (jqXHR.status === 401) {
@@ -215,6 +183,19 @@ $pageTitle = 'Smart Health Pass';
   }
 
   // ============================================================
+  // Helper: escape HTML
+  // ============================================================
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // ============================================================
   // Render the health pass header, QR, and dashboard cards
   // ============================================================
   function renderHealthPass(res) {
@@ -230,7 +211,7 @@ $pageTitle = 'Smart Health Pass';
     }
 
     // Student details
-    $('#studentName').text((s.first_name || '') + ' ' + (s.last_name || '') || '—');
+    $('#studentName').text(((s.first_name || '') + ' ' + (s.last_name || '')).trim() || '—');
     $('#studentNumber').text(s.student_number || '—');
     $('#studentCourse').text([s.course, s.year_level].filter(Boolean).join(' · ') || '—');
     $('#studentBlood').text(s.blood_type || '—');
@@ -240,7 +221,7 @@ $pageTitle = 'Smart Health Pass';
     $('#studentBirthdate').text(s.birthdate || '—');
     $('#studentEmail').text(s.email || '—');
 
-// QR Status badge
+    // QR Status badge
     const statusBadge = document.getElementById('qrStatusBadge');
     const qrStatusMap = {
       'active':      { cls: 'bg-success', label: 'Active' },
@@ -250,7 +231,7 @@ $pageTitle = 'Smart Health Pass';
       'deactivated': { cls: 'bg-danger', label: 'Deactivated' },
     };
     const qs = qrStatusMap[qr.status] || { cls: 'bg-secondary', label: qr.status || 'Unknown' };
-    statusBadge.className = 'badge ' + qs.cls + ' fs-6';
+    statusBadge.className = 'hp-qr-status-badge ' + qs.cls;
     statusBadge.textContent = qs.label;
 
     // Last scan date/time
@@ -268,9 +249,9 @@ $pageTitle = 'Smart Health Pass';
 
     // Student info in QR card
     $('#qrStudentInfo').html(
-      '<div class="fw-bold">' + escapeHtml((s.first_name || '') + ' ' + (s.last_name || '')) + '</div>' +
-      '<div class="text-muted small">' + escapeHtml(s.student_number || '') + '</div>' +
-      '<div class="text-muted small">' + escapeHtml([s.course, s.year_level].filter(Boolean).join(' · ')) + '</div>'
+      '<div class="hp-name">' + escapeHtml(((s.first_name || '') + ' ' + (s.last_name || '')).trim()) + '</div>' +
+      '<div class="hp-sub">' + escapeHtml(s.student_number || '') + '</div>' +
+      '<div class="hp-sub">' + escapeHtml([s.course, s.year_level].filter(Boolean).join(' · ')) + '</div>'
     );
 
     // Render QR code
@@ -278,8 +259,8 @@ $pageTitle = 'Smart Health Pass';
     if (window.QRCode && qr.qr_data) {
       new QRCode(document.getElementById('qrCanvas'), {
         text: qr.qr_data,
-        width: 200,
-        height: 200,
+        width: 150,
+        height: 150,
         correctLevel: QRCode.CorrectLevel.M,
       });
     } else {
@@ -290,11 +271,12 @@ $pageTitle = 'Smart Health Pass';
     // Today's Appointment
     if (res.today_appointment) {
       const a = res.today_appointment;
+      const bgClass = a.status === 'approved' ? 'bg-success-subtle' : a.status === 'pending' ? 'bg-warning-subtle' : 'bg-secondary-subtle';
+      const textClass = a.status === 'approved' ? 'text-success' : a.status === 'pending' ? 'text-warning' : 'text-secondary';
       $('#cardAppointment').html(
-        '<div class="text-success small">' + escapeHtml(a.reason || '') + '</div>' +
-        '<div class="small text-muted">' + escapeHtml(formatTime(a.appointment_time || '')) + '</div>' +
-        '<span class="badge bg-' + (a.status === 'approved' ? 'success' : a.status === 'pending' ? 'warning text-dark' : 'secondary') + ' small">' +
-        a.status + '</span>'
+        '<div class="hp-card-brief">' + escapeHtml(a.reason || '') + '</div>' +
+        '<div class="hp-card-sub">' + escapeHtml(formatTime(a.appointment_time || '')) + '</div>' +
+        '<span class="hp-card-badge ' + bgClass + ' ' + textClass + '">' + escapeHtml(a.status || '') + '</span>'
       );
     } else {
       $('#cardAppointment').text('No appointment today');
@@ -303,9 +285,10 @@ $pageTitle = 'Smart Health Pass';
     // Current Queue
     if (res.current_queue) {
       const q = res.current_queue;
+      const queueCls = q.status === 'waiting' ? 'hp-queue-waiting' : 'bg-info-subtle text-info';
       $('#cardQueue').html(
-        '<div class="fw-bold">' + escapeHtml(q.queue_number || '—') + '</div>' +
-        '<span class="badge bg-' + (q.status === 'waiting' ? 'warning text-dark' : 'info') + ' small">' + q.status + '</span>'
+        '<div class="hp-queue-num">' + escapeHtml(q.queue_number || '—') + '</div>' +
+        '<span class="hp-queue-pill ' + queueCls + '">' + escapeHtml(q.status || '') + '</span>'
       );
     } else {
       $('#cardQueue').text('No active queue');
@@ -314,29 +297,29 @@ $pageTitle = 'Smart Health Pass';
     // Estimated Wait
     if (res.estimated_wait) {
       $('#cardWaitTime').html(
-        '<div class="fw-bold">' + res.estimated_wait + ' min</div>' +
-        '<div class="small text-muted">estimated</div>'
+        '<div class="hp-card-value">' + res.estimated_wait + 'min</div>' +
+        '<div class="hp-card-sub">estimated</div>'
       );
     } else {
       $('#cardWaitTime').text('— min');
     }
 
-    // Latest Self-Recorded BMI
+    // Latest BMI
     if (res.latest_self_bmi) {
       const b = res.latest_self_bmi;
-      const statusClass = b.bmi_status === 'Normal' ? 'success' : b.bmi_status === 'Underweight' ? 'warning text-dark' : b.bmi_status === 'Overweight' ? 'warning' : 'danger';
+      const statusCls = b.bmi_status === 'Normal' ? 'hp-status-normal' : b.bmi_status === 'Underweight' ? 'hp-status-underweight' : b.bmi_status === 'Overweight' ? 'hp-status-overweight' : 'hp-status-obese';
       $('#cardBmi').html(
-        '<div class="fw-bold">' + escapeHtml(b.bmi || '—') + '</div>' +
-        '<span class="badge bg-' + statusClass + ' small">' + escapeHtml(b.bmi_status || '—') + '</span>' +
-        (res.latest_nurse_assessment ? '<div class="small text-muted mt-1">Nurse assessment also available</div>' : '')
+        '<div class="hp-card-value">' + escapeHtml(b.bmi || '—') + '</div>' +
+        '<span class="hp-status-pill ' + statusCls + '">' + escapeHtml(b.bmi_status || '—') + '</span>' +
+        (res.latest_nurse_assessment ? '<div class="hp-card-sub mt-1">Nurse assessment also available</div>' : '')
       );
     } else if (res.latest_nurse_assessment) {
       const b = res.latest_nurse_assessment;
-      const statusClass = b.bmi_status === 'Normal' ? 'success' : b.bmi_status === 'Underweight' ? 'warning text-dark' : b.bmi_status === 'Overweight' ? 'warning' : 'danger';
+      const statusCls = b.bmi_status === 'Normal' ? 'hp-status-normal' : b.bmi_status === 'Underweight' ? 'hp-status-underweight' : b.bmi_status === 'Overweight' ? 'hp-status-overweight' : 'hp-status-obese';
       $('#cardBmi').html(
-        '<div class="fw-bold">' + escapeHtml(b.bmi || '—') + '</div>' +
-        '<span class="badge bg-' + statusClass + ' small">' + escapeHtml(b.bmi_status || '—') + '</span>' +
-        '<div class="small text-muted mt-1">From nurse assessment</div>'
+        '<div class="hp-card-value">' + escapeHtml(b.bmi || '—') + '</div>' +
+        '<span class="hp-status-pill ' + statusCls + '">' + escapeHtml(b.bmi_status || '—') + '</span>' +
+        '<div class="hp-card-sub mt-1">From nurse assessment</div>'
       );
     } else {
       $('#cardBmi').text('No records');
@@ -345,8 +328,8 @@ $pageTitle = 'Smart Health Pass';
     // Recent Visits
     const visitCount = (res.recent_visits || []).length;
     $('#cardVisits').html(
-      '<div class="fw-bold">' + visitCount + '</div>' +
-      '<div class="small text-muted">past consultations</div>'
+      '<div class="hp-card-value">' + visitCount + '</div>' +
+      '<div class="hp-card-sub">past consultations</div>'
     );
 
     // Recent Medicines
@@ -356,8 +339,8 @@ $pageTitle = 'Smart Health Pass';
         return escapeHtml(m.medicine_name || '') + ' (' + m.quantity + ')';
       }).join(', ');
       $('#cardMedicines').html(
-        '<div class="fw-bold">' + medCount + '</div>' +
-        '<div class="small text-muted text-truncate">' + medNames + '</div>'
+        '<div class="hp-card-value">' + medCount + '</div>' +
+        '<div class="hp-card-sub text-truncate">' + medNames + '</div>'
       );
     } else {
       $('#cardMedicines').text('No dispensed records');
@@ -367,83 +350,17 @@ $pageTitle = 'Smart Health Pass';
     const vaxCount = res.vaccination_count || 0;
     if (vaxCount > 0) {
       $('#cardVaccination').html(
-        '<div class="fw-bold text-success">' + vaxCount + ' ✓</div>' +
-        '<div class="small text-muted">vaccines recorded</div>'
+        '<div class="hp-card-value text-success">' + vaxCount + ' </div>' +
+        '<div class="hp-card-sub">vaccines recorded</div>'
       );
     } else {
       $('#cardVaccination').html(
-        '<div class="fw-bold text-warning">0</div>' +
-        '<div class="small text-muted">no records</div>'
+        '<div class="hp-card-value text-warning">0</div>' +
+        '<div class="hp-card-sub">no records</div>'
       );
     }
   }
 
-  // ============================================================
-  // QR Timeline
-  // ============================================================
-  function loadQrTimeline() {
-    $.get(APP + '/api/qr_codes.php', { action: 'student_qr_timeline', limit: 15 }, function (res) {
-      if (!res.success || !res.timeline || !res.timeline.length) {
-        $('#qrTimeline').html('<div class="text-center py-3 text-muted small">No timeline events yet. Scan your QR at the clinic to begin.</div>');
-        return;
-      }
-      const events = res.timeline;
-      let html = '';
-      events.forEach(function (e, i) {
-        const isFirst = i === 0;
-        const statusClass = e.status === 'success' || e.status === 'completed' ? 'text-success' :
-                            e.status === 'duplicate' ? 'text-warning' : 'text-danger';
-        html += '<div class="d-flex align-items-start gap-2 mb-2">';
-        html += '<div class="' + (isFirst ? 'text-success' : 'text-muted') + ' fs-5">' + e.icon + '</div>';
-        html += '<div class="flex-grow-1">';
-        html += '<div class="fw-medium">' + escapeHtml(e.title || '') + '</div>';
-        html += '<div class="text-muted small">' + escapeHtml(e.detail || '') + '</div>';
-        html += '<div class="text-muted xsmall">' + formatDateTime(e.timestamp) + '</div>';
-        html += '</div>';
-        html +=         '<span class="badge bg-' + (e.status === 'success' || e.status === 'completed' ? 'success' : e.status === 'duplicate' ? 'warning text-dark' : 'danger') + ' small mt-1 align-top">' + escapeHtml(e.status || '') + '</span>';
-        html += '</div>';
-      });
-      $('#qrTimeline').html(html);
-      $('#cardTimeline').html(events.length + ' events');
-    }, 'json');
-  }
-
-  // ============================================================
-  // Searchable Scan History Table
-  // ============================================================
-  function loadScanHistory() {
-    if (!healthPassData || !healthPassData.student) return;
-    $.get(APP + '/api/qr_codes.php', {
-      action: 'scan_logs',
-      limit: 50,
-      search: healthPassData.student.student_number || '',
-    }, function (res) {
-      if (!res.success) return;
-      const rows = (res.data || []).map(function (l) {
-        const dt = (l.scan_time || '').split(' ');
-        const st = l.status === 'success' ? '<span class="badge bg-success">Success</span>' :
-                   l.status === 'duplicate' ? '<span class="badge bg-warning text-dark">Duplicate</span>' :
-                   l.status === 'expired' ? '<span class="badge bg-info">Expired</span>' :
-                   '<span class="badge bg-danger">' + escapeHtml(l.status || 'Error') + '</span>';
-        return [
-          dt[0] || '—',
-          dt[1] || '—',
-          escapeHtml(l.purpose || 'check-in'),
-          escapeHtml(l.scanner_name || '—'),
-          st,
-        ];
-      });
-      $('#scanHistoryTable').DataTable({
-        data: rows,
-        columns: [null, null, null, null, null],
-        pageLength: 10,
-        order: [[0, 'desc']],
-        destroy: true,
-      });
-    }, 'json');
-  }
-
-  // ============================================================
   // Download / Print QR
   // ============================================================
   function getCleanQrDataUrl() {
@@ -458,15 +375,12 @@ $pageTitle = 'Smart Health Pass';
       var cellSize = Math.max(1, Math.floor(targetSize / (moduleCount + margin * 2)));
       var totalSize = cellSize * (moduleCount + margin * 2);
       var offset = Math.floor((targetSize - totalSize) / 2);
-
       var canvas = document.createElement('canvas');
       canvas.width = targetSize;
       canvas.height = targetSize;
       var ctx = canvas.getContext('2d');
-
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetSize, targetSize);
-
       ctx.fillStyle = '#000000';
       for (var row = 0; row < moduleCount; row++) {
         for (var col = 0; col < moduleCount; col++) {
@@ -477,10 +391,8 @@ $pageTitle = 'Smart Health Pass';
           }
         }
       }
-
       return canvas.toDataURL('image/png');
     }
-
     const $img = $('#qrCanvas img');
     if ($img.length) return $img.attr('src');
     const c = $('#qrCanvas canvas')[0];
@@ -510,14 +422,15 @@ $pageTitle = 'Smart Health Pass';
     const w = window.open('', '_blank');
     w.document.write(`
       <html><head><title>BPC Smart Health Pass</title>
-      <style>body{font-family:Arial,sans-serif;text-align:center;padding:30px}
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>body{font-family:'Inter',Arial,sans-serif;text-align:center;padding:30px}
       img{max-width:250px}.muted{color:#777;font-size:12px;margin-top:8px}.brand{font-weight:bold;font-size:16px;margin-bottom:4px}
       .green{color:#0B6B3A;font-weight:bold}</style>
       </head><body>
       <div class="brand green">BPC School Clinic</div>
       <div class="muted">Bulacan Polytechnic College</div>
       <hr>
-      <div class="green">${escapeHtml((s.first_name || '') + ' ' + (s.last_name || ''))}</div>
+      <div class="green">${escapeHtml(((s.first_name || '') + ' ' + (s.last_name || '')).trim())}</div>
       <div class="muted">${escapeHtml(s.student_number || '')} · ${escapeHtml(s.course || '')} ${escapeHtml(s.year_level || '')}</div>
       <div style="margin-top:15px"><img src="${img}"></div>
       <div class="muted" style="margin-top:10px">BPC Smart Digital Health Pass — Present at the clinic for check-in, appointments, medical records, and certificates.</div>

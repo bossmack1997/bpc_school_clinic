@@ -26,7 +26,7 @@ $pageTitle = 'Clinic Announcements';
 </div>
 
 <!-- Announcement Modal -->
-<div class="modal fade" id="announcementModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="announcementModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" aria-labelledby="announcementModalTitle">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
@@ -69,7 +69,9 @@ $pageTitle = 'Clinic Announcements';
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
-const announcementModal = new bootstrap.Modal(document.getElementById('announcementModal'));
+// getOrCreateInstance keeps a single modal instance so repeated
+// opens never stack backdrops or duplicate event listeners.
+const announcementModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('announcementModal'));
 
 function loadAnnouncements() {
   $.get(APP_URL + '/api/announcements.php', { action: 'list' }, function (res) {

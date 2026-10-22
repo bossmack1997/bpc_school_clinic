@@ -4,11 +4,59 @@
  */
 
 function current_user() {
-    return $_SESSION['user'] ?? null;
+    $user = $_SESSION['user'] ?? null;
+    if (!is_array($user) || empty($user['id'])) {
+        return null;
+    }
+
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT id, role, status, admin_type, credential_version, username, email, first_name, last_name, phone, profile_picture FROM users WHERE id = ? LIMIT 1");
+        $stmt->execute([(int)$user['id']]);
+        $dbUser = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($dbUser && isset($_SESSION['credential_version']) && (int)$_SESSION['credential_version'] !== (int)$dbUser['credential_version']) return null;
+        if (!$dbUser || ($dbUser['status'] ?? '') !== 'active' || !is_supported_role($dbUser['role'] ?? '')) {
+            return null;
+        }
+
+        $_SESSION['user'] = [
+            'id' => (int)$dbUser['id'],
+            'role' => canonical_role($dbUser['role']),
+            'admin_type' => $dbUser['admin_type'] ?? null,
+            'username' => $dbUser['username'] ?? ($user['username'] ?? null),
+            'email' => $dbUser['email'] ?? ($user['email'] ?? null),
+            'first_name' => $dbUser['first_name'] ?? ($user['first_name'] ?? null),
+            'last_name' => $dbUser['last_name'] ?? ($user['last_name'] ?? null),
+            'phone' => $dbUser['phone'] ?? ($user['phone'] ?? ''),
+            'profile_picture' => $dbUser['profile_picture'] ?? ($user['profile_picture'] ?? null),
+        ];
+
+        return $_SESSION['user'];
+    } catch (Throwable $e) {
+        error_log('current_user verification failed: ' . $e->getMessage());
+        return null;
+    }
 }
 
 function is_logged_in() {
-    return isset($_SESSION['user']);
+    $user = current_user();
+    return is_array($user) && !empty($user['id']);
+}
+
+function is_api_request(): bool {
+    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+        return true;
+    }
+    $uri = $_SERVER['REQUEST_URI'] ?? '';
+    if (str_contains($uri, '/api/')) {
+        return true;
+    }
+    $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+    if (str_contains($accept, 'application/json')) {
+        return true;
+    }
+    return false;
 }
 
 function require_login() {
@@ -16,10 +64,22 @@ function require_login() {
         attempt_remember_me_login();
     }
     if (!is_logged_in()) {
+        if (is_api_request()) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Session expired or not authenticated. Please log in again.']);
+            exit;
+        }
         redirect(APP_URL . '/auth/login.php');
     }
     if (!validate_session()) {
         logout_user();
+        if (is_api_request()) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Session timed out. Please log in again.']);
+            exit;
+        }
         redirect(APP_URL . '/auth/login.php?timeout=1');
     }
     // Prevent caching of protected pages
@@ -31,30 +91,140 @@ function require_login() {
 function check_session_timeout() {
     if (!validate_session()) {
         logout_user();
+        if (is_api_request()) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Session timed out. Please log in again.']);
+            exit;
+        }
         redirect(APP_URL . '/auth/login.php?timeout=1');
     }
 }
 
 function require_role($roles) {
     require_login();
+
+    $currentUser = current_user();
+    if (!$currentUser) {
+        logout_user();
+        if (is_api_request()) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Session expired. Please log in again.']);
+            exit;
+        }
+        redirect(APP_URL . '/auth/login.php?timeout=1');
+        exit;
+    }
+
     $roles = is_array($roles) ? $roles : [$roles];
-    $userRole = current_user()['role'] ?? '';
+    // `adviser` is a legacy database value. The application deliberately
+    // exposes it as Teacher while the data migration is being applied.
+    $roles = array_map('canonical_role', $roles);
+    $userRole = canonical_role($currentUser['role'] ?? '');
     if (!in_array($userRole, $roles, true)) {
-        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+        if (is_api_request()) {
             http_response_code(403);
+            header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'Access denied.']);
             exit;
         }
         set_flash('danger', 'Access denied: you do not have permission to view this page.');
-        redirect(APP_URL . '/dashboard.php');
+        redirect(dashboard_url_for($userRole ?: 'student'));
         exit;
     }
 }
 
+/** Return one of the four supported application roles. */
+function canonical_role($role) {
+    $role = strtolower(trim((string)$role));
+    return match ($role) {
+        'administrator' => 'admin',
+        'adviser' => 'teacher',
+        default => $role,
+    };
+}
+
+function is_supported_role($role) {
+    return in_array(canonical_role($role), ['student', 'nurse', 'teacher', 'admin'], true);
+}
+
+/**
+ * Check if the system has an active Primary Administrator in the database.
+ */
+function has_active_primary_admin(?PDO $db = null): bool {
+    $db = $db ?? getDB();
+    try {
+        $stmt = $db->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND admin_type = 'primary_admin' AND status = 'active'");
+        return ((int)$stmt->fetchColumn()) > 0;
+    } catch (Throwable $e) {
+        $stmt = $db->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'");
+        return ((int)$stmt->fetchColumn()) > 0;
+    }
+}
+
+/**
+ * Check if a given user array or the currently logged-in user is a Primary Administrator.
+ */
+function is_primary_admin(?array $user = null): bool {
+    $user = $user ?? current_user();
+    if (!$user) return false;
+    return canonical_role($user['role'] ?? '') === 'admin' && (($user['admin_type'] ?? '') === 'primary_admin');
+}
+
+/**
+ * Check if an administrator has a specific permission.
+ * Primary Administrator has all permissions unconditionally.
+ * Co-Administrators are verified against the admin_permissions table.
+ */
+function has_admin_permission(string $permission, ?array $user = null, ?PDO $db = null): bool {
+    return has_permission($permission,$user,$db);
+}
+
+/**
+ * Enforce a specific admin permission, throwing 403 or redirecting if unauthorized.
+ */
+function admin_access_denied(string $message = 'Access denied: this module is not assigned to your account.'): never {
+    http_response_code(403);
+    if (is_api_request()) json_response(false, ['error_code'=>'ADMIN_PERMISSION_DENIED'], $message);
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!doctype html><html lang="en"><meta charset="utf-8"><title>Access denied</title><h1>Access denied</h1><p>'.htmlspecialchars($message,ENT_QUOTES,'UTF-8').'</p><p><a href="'.htmlspecialchars(APP_URL.'/pages/admin/dashboard.php',ENT_QUOTES,'UTF-8').'">Return to dashboard</a></p></html>';
+    exit;
+}
+function require_admin_permission(string $permission): void {
+    require_role('admin');
+    if (!has_admin_permission($permission)) admin_access_denied();
+}
+function require_primary_admin(): void {
+    require_role('admin');
+    if (!is_primary_admin()) admin_access_denied('Only the Primary Administrator can manage privileged accounts or permissions.');
+}
+function admin_can_view_emergencies(?array $user = null): bool {
+    $user=$user??current_user();
+    return $user && ($user['role']==='nurse'||($user['role']==='admin'&&has_admin_permission('view_emergencies',$user)));
+}
+function admin_can_respond_sos(?array $user = null): bool {
+    $user=$user??current_user();
+    return $user && ($user['role']==='nurse');
+}
+
+/** Inventory delegation is deliberately independent of Primary Admin's general bypass. */
+function can_view_inventory(?array $user=null, ?PDO $db=null): bool {
+    $user=$user??current_user();
+    return $user && has_permission('inventory_oversight',$user,$db);
+}
+function require_inventory_access(bool $manage=false): void {
+    require_role(['nurse','admin']);
+    $user=current_user();
+    if($manage ? $user['role']!=='nurse' : !can_view_inventory($user))admin_access_denied($manage?'Only nurses can manage medicine stock.':'Inventory data requires authorized clinic or delegated oversight access.');
+}
+
 function login_user(array $userRow) {
+    $_SESSION['credential_version'] = (int)($userRow['credential_version'] ?? 0);
     $_SESSION['user'] = [
         'id'         => (int)$userRow['id'],
-        'role'       => $userRow['role'],
+        'role'       => canonical_role($userRow['role']),
+        'admin_type' => $userRow['admin_type'] ?? null,
         'username'   => $userRow['username'],
         'email'      => $userRow['email'],
         'first_name' => $userRow['first_name'],
@@ -124,6 +294,7 @@ function attempt_remember_me_login() {
     $user = $stmt->fetch();
 
     if (!$user || empty($user['remember_token'])) return false;
+    if (!is_supported_role($user['role'] ?? '')) return false;
 
     [$storedSelector, $storedHash] = array_pad(explode(':', $user['remember_token']), 2, '');
     if (!hash_equals($storedSelector, $selector)) return false;
@@ -166,13 +337,27 @@ function attempt_remember_me_login() {
 
 /** Returns the dashboard URL for a given role */
 function dashboard_url_for($role) {
-    $role = strtolower(trim((string)$role));
+    $role = canonical_role($role);
+    if ($role === 'admin') {
+        $sessionUser = $_SESSION['user'] ?? null;
+        if (is_array($sessionUser) && !empty($sessionUser['id'])) {
+            try {
+                if (permission_profile($sessionUser) === 'doctor') {
+                    return APP_URL . '/pages/doctor/dashboard.php';
+                }
+            } catch (Throwable $e) {
+                error_log('Dashboard profile resolution failed: ' . $e->getMessage());
+            }
+        }
+    }
     return match ($role) {
-        'admin'              => APP_URL . '/pages/admin/dashboard.php',
-        'nurse'              => APP_URL . '/pages/nurse/dashboard.php',
-        'student'            => APP_URL . '/pages/student/dashboard.php',
-        'adviser', 'teacher' => APP_URL . '/pages/adviser/dashboard.php',
-        default              => APP_URL . '/auth/login.php',
+        'admin'   => APP_URL . '/pages/admin/dashboard.php',
+        'nurse'   => APP_URL . '/pages/nurse/dashboard.php',
+        'student' => APP_URL . '/pages/student/dashboard.php',
+        // Existing adviser pages are retained as the teacher portal while
+        // their filenames are migrated; their access checks use canonical roles.
+        'teacher' => APP_URL . '/pages/adviser/dashboard.php',
+        default   => APP_URL . '/auth/login.php',
     };
 }
 
@@ -384,7 +569,7 @@ function require_adviser_student_access($db, $studentId) {
         echo json_encode(['success' => false, 'message' => 'Access denied.']);
         exit;
     }
-    if (($u['role'] ?? '') === 'adviser') {
+    if (canonical_role($u['role'] ?? '') === 'teacher') {
         if (!adviser_can_access_student($db, $u['id'], $studentId)) {
             http_response_code(403);
             echo json_encode(['success' => false, 'message' => 'You do not have access to this student.']);
@@ -407,4 +592,3 @@ function require_adviser_student_access($db, $studentId) {
 function can_view_medical_info($viewerRole) {
     return in_array($viewerRole, ['nurse', 'admin', 'student'], true);
 }
-

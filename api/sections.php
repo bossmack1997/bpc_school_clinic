@@ -9,7 +9,8 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
-require_role(['admin', 'adviser']);
+require_role(['admin', 'teacher']);
+if(current_user()['role']==='admin')require_admin_permission('manage_sections');
 
 header('Content-Type: application/json');
 $db = getDB();
@@ -43,7 +44,7 @@ if ($action === 'list') {
         SELECT u.id, u.first_name, u.last_name, u.email, t.employee_id, t.department
         FROM users u
         LEFT JOIN teachers t ON t.user_id = u.id
-        WHERE u.role = 'adviser' AND u.status = 'active'
+        WHERE u.role = 'teacher' AND u.status = 'active'
         ORDER BY u.last_name, u.first_name
     ")->fetchAll();
 
@@ -265,6 +266,20 @@ if ($action === 'section_students') {
     $sec = $secStmt->fetch();
     if (!$sec) json_response(false, [], 'Section not found.');
 
+    if (canonical_role($user['role'] ?? '') === 'teacher') {
+        $assignedStmt = $db->prepare("
+            SELECT id FROM advisory_assignments 
+            WHERE teacher_id = ? AND section_id = ? AND status = 'active'
+              AND (end_date IS NULL OR end_date >= CURDATE())
+              AND (start_date IS NULL OR start_date <= CURDATE())
+            LIMIT 1
+        ");
+        $assignedStmt->execute([(int)$user['id'], $id]);
+        if (!$assignedStmt->fetch()) {
+            json_response(false, [], 'Access denied. You are not assigned as adviser to this section.');
+        }
+    }
+
     $secName = trim((string)$sec['name']);
     $secCourse = trim((string)($sec['course'] ?? ''));
     $secYear = trim((string)($sec['year_level'] ?? ''));
@@ -303,4 +318,3 @@ if ($action === 'section_students') {
 }
 
 json_response(false, [], 'Unknown action.');
-

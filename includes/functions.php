@@ -44,11 +44,11 @@ function get_flash() {
 function get_role_display_name(?string $role): string {
     $role = strtolower(trim($role ?? ''));
     return match ($role) {
-        'admin'              => 'System Administrator',
-        'nurse'              => 'Nurse',
-        'student'            => 'Student',
-        'teacher', 'adviser' => 'Teacher / Adviser',
-        default              => ucfirst($role ?: 'User'),
+        'admin'   => 'System Administrator',
+        'doctor'  => 'Doctor / Medical Officer',
+        'nurse'   => 'Nurse',
+        'student' => 'Student',
+        default   => ucfirst($role ?: 'User'),
     };
 }
 
@@ -72,6 +72,47 @@ function handle_exception($throwable) {
     exit;
 }
 
+/**
+ * Record a caught failure for developers, then return wording that is safe
+ * to show a user.
+ *
+ * Use this instead of concatenating $e->getMessage() into a response.
+ * Database driver messages leak schema, table and column names, and they
+ * differ per user action, so they are both an information-disclosure risk
+ * and confusing to read.
+ *
+ * The technical detail still reaches error_log, and in development the
+ * response also carries an `error_ref` that matches the log line, so a
+ * report from a user can be traced without exposing internals.
+ *
+ * @param Throwable $e          The caught exception.
+ * @param string    $userMessage Friendly text for the user.
+ * @param string    $context    Where it happened, for the log only.
+ * @return string   The message that is safe to display.
+ */
+function safe_error_message($e, string $userMessage, string $context = '') {
+    $ref    = substr(str_replace('.', '', uniqid('err', false)), 0, 12);
+    $detail = $context !== '' ? "[$context] " : '';
+    $detail .= $ref . ' ' . get_class($e) . ': ' . $e->getMessage()
+        . ' @ ' . $e->getFile() . ':' . $e->getLine();
+    error_log($detail);
+
+    // Surface the trace reference during local development so the browser
+    // console still helps, but never in production responses.
+    if (APP_DEBUG) {
+        return $userMessage . ' (ref: ' . $ref . ')';
+    }
+    return $userMessage;
+}
+
+/**
+ * Shorthand for the common case: a caught exception inside a JSON endpoint.
+ * Returns the safe message so callers can pass it straight to json_response.
+ */
+function safe_api_error($e, string $userMessage = 'Something went wrong. Please try again.', string $context = ''): string {
+    return safe_error_message($e, $userMessage, $context);
+}
+
 function handle_error($severity, $message, $file, $line) {
     if (!(error_reporting() & $severity)) {
         return false;
@@ -86,10 +127,11 @@ function handle_error($severity, $message, $file, $line) {
 function log_activity($userId, $action, $module = null, $details = null) {
     try {
         $db = getDB();
+        $uid = ($userId && (int)$userId > 0) ? (int)$userId : null;
         $stmt = $db->prepare(
             "INSERT INTO activity_logs (user_id, action, module, details, ip_address) VALUES (?, ?, ?, ?, ?)"
         );
-        $stmt->execute([$userId, $action, $module, $details, $_SERVER['REMOTE_ADDR'] ?? null]);
+        $stmt->execute([$uid, $action, $module, $details, $_SERVER['REMOTE_ADDR'] ?? null]);
     } catch (Exception $e) {
         error_log('log_activity failed: ' . $e->getMessage());
     }
@@ -97,6 +139,34 @@ function log_activity($userId, $action, $module = null, $details = null) {
 
 function push_notification($userId, $type, $title, $message, $link = null, $sosEmergencyId = null, $priority = 'medium', $relatedId = null) {
     $db = getDB();
+    if(in_array($type,['inventory','medicine','mica_inventory'],true)){
+        $recipient=$db->prepare('SELECT id,role,admin_type FROM users WHERE id=?');$recipient->execute([(int)$userId]);$recipient=$recipient->fetch(PDO::FETCH_ASSOC);
+        if($recipient&&$recipient['role']==='admin'&&!can_view_inventory($recipient,$db))return 0;
+    }
+
+    if ($type === 'announcement' && (int)$relatedId > 0) {
+        require_once __DIR__ . '/announcement_notifications.php';
+        return push_announcement_notification($db, (int)$userId, (int)$relatedId, (string)$title, (string)$message, (string)$link);
+    }
+
+
+    // Notification Deduplication (Automation #7):
+    // For non-emergency notifications, prevent spamming identical unread notifications within 24 hours
+    if ($type !== 'emergency' && $priority !== 'emergency' && $type !== 'sos') {
+        try {
+            $dedupStmt = $db->prepare("
+                SELECT id FROM notifications 
+                WHERE user_id = ? AND type = ? AND title = ? AND is_read = 0
+                  AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                LIMIT 1
+            ");
+            $dedupStmt->execute([(int)$userId, $type, $title]);
+            if ($dedupStmt->fetchColumn()) {
+                // Already notified recently and unread; skip duplicate
+                return 0;
+            }
+        } catch (Throwable $e) { /* fallback gracefully */ }
+    }
 
     // Full-featured insert with priority/related_id/read_at columns (added by
     // database/migration_qr_inventory_notifications.sql). Gracefully falls
@@ -277,6 +347,13 @@ function ensure_student_qr($db, $studentId, $generatedBy = null) {
 }
 
 /**
+ * Get or ensure student QR (alias of ensure_student_qr).
+ */
+function get_student_qr($db, $studentId) {
+    return ensure_student_qr($db, $studentId);
+}
+
+/**
  * Compute the inventory status of a medicine.
  * Returns one of: Available | Low Stock | Out of Stock | Expiring Soon | Expired
  */
@@ -313,13 +390,19 @@ function medicine_status($quantity, $reorderLevel, $expirationDate) {
  * Notify all nurses and admins about a medicine alert.
  */
 function notify_staff_medicine_alert($db, $medicine, $status) {
+    if (is_numeric($medicine)) {
+        $stmt = $db->prepare("SELECT id, medicine_name, quantity, expiration_date FROM medicines WHERE id = ?");
+        $stmt->execute([(int)$medicine]);
+        $medicine = $stmt->fetch() ?: [];
+    }
+    if (!is_array($medicine) || empty($medicine)) return;
     $mname = $medicine['medicine_name'] ?? 'Medicine';
     $titles = [
-        'Low Stock'       => '⚠️ Low Stock: ' . $mname,
-        'Out of Stock'    => '🚫 Out of Stock: ' . $mname,
-        'Expiring Soon'   => '🕒 Expiring Soon: ' . $mname,
-        'Near Expiration' => '🕒 Expiring Soon: ' . $mname,
-        'Expired'         => '⛔ Expired: ' . $mname,
+        'Low Stock'       => 'Low Stock: ' . $mname,
+        'Out of Stock'    => 'Out of Stock: ' . $mname,
+        'Expiring Soon'   => 'Expiring Soon: ' . $mname,
+        'Near Expiration' => 'Expiring Soon: ' . $mname,
+        'Expired'         => 'Expired: ' . $mname,
     ];
     $msgs = [
         'Low Stock'       => "Stock for {$mname} has reached its minimum (qty: {$medicine['quantity']}). Please reorder.",
@@ -333,18 +416,18 @@ function notify_staff_medicine_alert($db, $medicine, $status) {
     $priority = in_array($status, ['Expired', 'Out of Stock'], true) ? 'high' : 'medium';
     $title  = $titles[$status];
     $msg    = $msgs[$status];
-    $link   = APP_URL . '/pages/nurse/inventory.php';
-    $relId  = (int)$medicine['id'];
-
+    $relId  = !empty($medicine['id']) ? (int)$medicine['id'] : null;
     // Nurses
     $nurseStmt = $db->query("SELECT user_id FROM nurses");
+    $nurseLink = APP_URL . '/pages/nurse/inventory.php?search=' . urlencode($mname);
     foreach ($nurseStmt->fetchAll() as $n) {
-        push_notification($n['user_id'], 'medicine', $title, $msg, $link, null, $priority, $relId);
+        push_notification($n['user_id'], 'medicine', $title, $msg, $nurseLink, null, $priority, $relId);
     }
     // Admins
     $adminStmt = $db->query("SELECT id FROM users WHERE role = 'admin'");
+    $adminLink = APP_URL . '/pages/admin/inventory.php?search=' . urlencode($mname);
     foreach ($adminStmt->fetchAll() as $a) {
-        push_notification($a['id'], 'medicine', $title, $msg, $link, null, $priority, $relId);
+        push_notification($a['id'], 'medicine', $title, $msg, $adminLink, null, $priority, $relId);
     }
 }
 
@@ -359,7 +442,7 @@ function notify_student_dispense($db, $studentId, $medicineName, $quantity, $uni
     push_notification(
         $sid,
         'medicine',
-        '💊 Medicine Dispensed',
+        'Medicine Dispensed',
         "{$quantity} {$unit} of {$medicineName} was dispensed. It has been added to your medical record.",
         APP_URL . '/pages/student/medical_record.php'
     );
@@ -395,9 +478,35 @@ function format_date($date, $fmt = 'M d, Y') {
     return date($fmt, strtotime($date));
 }
 
-function format_datetime($date, $fmt = 'M d, Y g:i A') {
+function format_datetime($date, $fmt = 'M d, Y · g:i A') {
     if (!$date) return '—';
-    return date($fmt, strtotime($date));
+    try {
+        $manila = new DateTimeZone('Asia/Manila');
+        $value = $date instanceof DateTimeInterface
+            ? DateTimeImmutable::createFromInterface($date)
+            : new DateTimeImmutable((string)$date, $manila);
+        return $value->setTimezone($manila)->format($fmt);
+    } catch (Throwable $e) {
+        return '—';
+    }
+}
+
+function format_relative_datetime($date): string {
+    if (!$date) return '';
+    try {
+        $manila = new DateTimeZone('Asia/Manila');
+        $value = $date instanceof DateTimeInterface
+            ? DateTimeImmutable::createFromInterface($date)->setTimezone($manila)
+            : (new DateTimeImmutable((string)$date, $manila))->setTimezone($manila);
+        $seconds = max(0, (new DateTimeImmutable('now', $manila))->getTimestamp() - $value->getTimestamp());
+        if ($seconds < 60) return 'Just now';
+        if ($seconds < 3600) return (int)floor($seconds / 60) . ' min ago';
+        if ($seconds < 86400) return (int)floor($seconds / 3600) . ' hrs ago';
+        if ($seconds < 604800) return (int)floor($seconds / 86400) . ' days ago';
+        return '';
+    } catch (Throwable $e) {
+        return '';
+    }
 }
 
 function e($value) {
@@ -568,10 +677,55 @@ function verify_dynamic_qr($db, $payload) {
  */
 function generate_queue_number($db) {
     $prefix = get_qr_setting($db, 'queue_prefix', 'A');
-    $stmt = $db->prepare("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status NOT IN ('cancelled','completed')");
+    $stmt = $db->prepare("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE()");
     $stmt->execute();
     $count = (int)$stmt->fetchColumn();
     return $prefix . '-' . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Get active queue ticket for a patient today (status: waiting, called, serving)
+ */
+function get_active_patient_queue_ticket($db, $patientId, $patientType = 'student') {
+    if (!$patientId) return null;
+    $field = ($patientType === 'teacher') ? 'teacher_id' : 'student_id';
+    $stmt = $db->prepare("
+        SELECT q.*
+        FROM queue_numbers q
+        WHERE q.{$field} = ?
+          AND DATE(q.created_at) = CURDATE()
+          AND q.status IN ('waiting', 'called', 'serving')
+        ORDER BY q.id DESC
+        LIMIT 1
+    ");
+    $stmt->execute([$patientId]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
+ * Calculate dynamic estimated wait time in minutes (Optimized with request cache & index range)
+ */
+function calculate_queue_wait_time($db, $studentsAhead = 0) {
+    if ($studentsAhead <= 0) return 0;
+    static $cachedMinPerPatient = null;
+    if ($cachedMinPerPatient === null) {
+        try {
+            $stmt = $db->query("
+                SELECT AVG(TIMESTAMPDIFF(MINUTE, served_at, completed_at)) as avg_min
+                FROM queue_numbers
+                WHERE created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
+                  AND status = 'completed'
+                  AND served_at IS NOT NULL
+                  AND completed_at IS NOT NULL
+                  AND TIMESTAMPDIFF(MINUTE, served_at, completed_at) BETWEEN 1 AND 60
+            ");
+            $avg = (float)$stmt->fetchColumn();
+            $cachedMinPerPatient = ($avg >= 2 && $avg <= 20) ? round($avg) : 5;
+        } catch (Throwable $e) {
+            $cachedMinPerPatient = 5;
+        }
+    }
+    return max(1, (int)($studentsAhead * $cachedMinPerPatient));
 }
 
 // ================================================================
@@ -581,10 +735,10 @@ function generate_queue_number($db) {
 /**
  * Log a QR scan to qr_scan_logs.
  */
-function log_qr_scan($db, $studentId, $qrToken, $purpose, $scannerId, $status = 'success', $location = null, $device = null, $metadata = null, $scanMethod = 'unknown') {
+function log_qr_scan($db, $studentId, $qrToken, $purpose, $scannerId, $status = 'success', $location = null, $device = null, $metadata = null, $scanMethod = 'unknown', $teacherId = null) {
     $stmt = $db->prepare("
-        INSERT INTO qr_scan_logs (student_id, qr_token, purpose, scanner_id, scanner_name, scan_location, device, ip_address, status, metadata, scan_method)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO qr_scan_logs (teacher_id, student_id, qr_token, purpose, scanner_id, scanner_name, scan_location, device, ip_address, status, metadata, scan_method)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $scannerName = null;
     if ($scannerId) {
@@ -598,7 +752,7 @@ function log_qr_scan($db, $studentId, $qrToken, $purpose, $scannerId, $status = 
     $metadata = $metadata ? json_encode($metadata) : null;
     $scanMethod = in_array($scanMethod, ['camera', 'upload', 'walk_in'], true) ? $scanMethod : 'unknown';
 
-    $stmt->execute([$studentId, $qrToken, $purpose, $scannerId, $scannerName, $location, $device, $ip, $status, $metadata, $scanMethod]);
+    $stmt->execute([$teacherId, $studentId, $qrToken, $purpose, $scannerId, $scannerName, $location, $device, $ip, $status, $metadata, $scanMethod]);
     return $db->lastInsertId();
 }
 
@@ -760,19 +914,21 @@ function resolve_patient_qr($db, $payload) {
     $studentRes = verify_student_qr($db, $payload);
     if ($studentRes['valid']) {
         return [
-            'valid'       => true,
+            'valid'        => true,
             'patient_type' => 'student',
-            'id'          => (int)$studentRes['student_id'],
-            'record'      => $studentRes['student'],
+            'id'           => (int)$studentRes['student_id'],
+            'record'       => $studentRes['student'],
+            'student'      => $studentRes['student'],
         ];
     }
     $teacherRes = verify_teacher_qr($db, $payload);
     if ($teacherRes['valid']) {
         return [
-            'valid'       => true,
+            'valid'        => true,
             'patient_type' => 'teacher',
-            'id'          => (int)$teacherRes['teacher_id'],
-            'record'      => $teacherRes['teacher'],
+            'id'           => (int)$teacherRes['teacher_id'],
+            'record'       => $teacherRes['teacher'],
+            'teacher'      => $teacherRes['teacher'],
         ];
     }
     return ['valid' => false, 'patient_type' => null, 'id' => null, 'record' => null, 'reason' => $studentRes['reason'] ?? 'invalid_token'];
@@ -1258,3 +1414,211 @@ function send_emergency_fcm($db, string $title, string $body, array $data = []):
 
     return send_fcm_push($tokens, $title, $body, $data);
 }
+
+/**
+ * Centralized aggregator for Admin "Needs Attention" exceptions.
+ * Categorizes system alerts into CRITICAL, WARNING, and INFO.
+ *
+ * @param PDO|null $db
+ * @return array ['critical' => [...], 'warning' => [...], 'info' => [...], 'total' => int]
+ */
+function get_admin_needs_attention_alerts(?PDO $db = null): array {
+    $db = $db ?? getDB();
+    $alerts = [
+        'critical' => [],
+        'warning'  => [],
+        'info'     => [],
+        'total'    => 0,
+    ];
+
+    try {
+        // 1. Critical: Active SOS Emergencies
+        $sosCount = (int)$db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('new','active','acknowledged','responding') AND resolved_at IS NULL")->fetchColumn();
+        if ($sosCount > 0) {
+            $alerts['critical'][] = [
+                'id'       => 'sos_active',
+                'category' => 'Security & Emergency',
+                'title'    => 'Active Emergency SOS Alert',
+                'desc'     => "{$sosCount} emergency SOS alert(s) requiring clinic response.",
+                'count'    => $sosCount,
+                'link'     => 'emergencies.php',
+                'icon'     => 'bi-shield-fill-exclamation',
+                'type'     => 'critical',
+            ];
+        }
+
+        // 2. Critical: Expired Medicines in Active Inventory
+        $expiredCount = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity > 0 AND expiration_date IS NOT NULL AND expiration_date < CURDATE()")->fetchColumn();
+        if ($expiredCount > 0) {
+            $alerts['critical'][] = [
+                'id'       => 'med_expired',
+                'category' => 'Inventory & Safety',
+                'title'    => 'Expired Medicines in Stock',
+                'desc'     => "{$expiredCount} expired medicine batch(es) in stock requiring disposal.",
+                'count'    => $expiredCount,
+                'link'     => 'inventory.php?status=expired',
+                'icon'     => 'bi-exclamation-octagon-fill',
+                'type'     => 'critical',
+            ];
+        }
+
+        // 3. Warning / Critical: Flagged & Suspicious Registrations
+        $pendingStmt = $db->query("
+            SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.role, u.risk_level, u.validation_reason, u.created_at
+            FROM users u
+            WHERE u.status = 'pending' AND (u.registration_status = 'review' OR u.risk_level IN ('medium', 'high'))
+            ORDER BY u.created_at DESC
+        ");
+        $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_ASSOC);
+        $highRiskCount = 0;
+        $medRiskCount = 0;
+        foreach ($pendingUsers as $pu) {
+            if (($pu['risk_level'] ?? '') === 'high') {
+                $highRiskCount++;
+            } else {
+                $medRiskCount++;
+            }
+        }
+
+        if ($highRiskCount > 0) {
+            $alerts['critical'][] = [
+                'id'       => 'reg_high_risk',
+                'category' => 'Identity & Registration',
+                'title'    => 'High-Risk Account Registrations',
+                'desc'     => "{$highRiskCount} registration(s) flagged with high identity anomaly / conflict.",
+                'count'    => $highRiskCount,
+                'link'     => 'users.php?tab=pending',
+                'icon'     => 'bi-person-x-fill',
+                'type'     => 'critical',
+            ];
+        }
+
+        if ($medRiskCount > 0) {
+            $alerts['warning'][] = [
+                'id'       => 'reg_review',
+                'category' => 'Identity & Registration',
+                'title'    => 'Account Registrations Requiring Review',
+                'desc'     => "{$medRiskCount} registration(s) queued for administrative verification.",
+                'count'    => $medRiskCount,
+                'link'     => 'users.php?tab=pending',
+                'icon'     => 'bi-person-exclamation',
+                'type'     => 'warning',
+            ];
+        }
+
+        // 4. Warning: Low Medicine Stock Alerts
+        $lowStockCount = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= reorder_level AND reorder_level > 0 AND (expiration_date IS NULL OR expiration_date >= CURDATE())")->fetchColumn();
+        if ($lowStockCount > 0) {
+            $alerts['warning'][] = [
+                'id'       => 'med_low_stock',
+                'category' => 'Inventory & Supplies',
+                'title'    => 'Low Stock Inventory Alert',
+                'desc'     => "{$lowStockCount} medicine item(s) have reached or dropped below reorder level.",
+                'count'    => $lowStockCount,
+                'link'     => 'inventory.php?status=low_stock',
+                'icon'     => 'bi-capsule',
+                'type'     => 'warning',
+            ];
+        }
+
+        // 5. Security: Multiple Failed Login Attempts (Locked IPs)
+        $lockedIpsCount = (int)$db->query("
+            SELECT COUNT(*)
+            FROM (
+                SELECT ip_address
+                FROM login_attempts
+                WHERE UNIX_TIMESTAMP(attempted_at) >= (UNIX_TIMESTAMP() - 900)
+                GROUP BY ip_address
+                HAVING COUNT(*) >= 5
+            ) AS locked_ips
+        ")->fetchColumn();
+        if ($lockedIpsCount > 0) {
+            $alerts['warning'][] = [
+                'id'       => 'sec_locked_ips',
+                'category' => 'Security & Access',
+                'title'    => 'Rate-Limited IP Addresses',
+                'desc'     => "{$lockedIpsCount} IP address(es) currently locked out due to repeated failed logins.",
+                'count'    => $lockedIpsCount,
+                'link'     => 'security.php',
+                'icon'     => 'bi-shield-lock-fill',
+                'type'     => 'warning',
+            ];
+        }
+
+        // 6. Info: Soon-to-expire medicines (within 30 days)
+        $soonExpireCount = (int)$db->query("
+            SELECT COUNT(*) FROM medicines 
+            WHERE is_archived = 0 AND quantity > 0 
+              AND expiration_date >= CURDATE() 
+              AND expiration_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+        ")->fetchColumn();
+        if ($soonExpireCount > 0) {
+            $alerts['info'][] = [
+                'id'       => 'med_expiring_soon',
+                'category' => 'Inventory Lifecycle',
+                'title'    => 'Medicines Expiring Soon',
+                'desc'     => "{$soonExpireCount} medicine item(s) expiring within the next 30 days.",
+                'count'    => $soonExpireCount,
+                'link'     => 'inventory.php?status=near_expiration',
+                'icon'     => 'bi-clock-history',
+                'type'     => 'info',
+            ];
+        }
+
+    } catch (Throwable $e) {
+        error_log('get_admin_needs_attention_alerts error: ' . $e->getMessage());
+    }
+
+    $viewer=current_user();
+    if($viewer && !is_primary_admin($viewer)) {
+        foreach(['critical','warning','info'] as $group)$alerts[$group]=array_values(array_filter($alerts[$group],function($alert)use($viewer){
+            $file=basename(explode('?', $alert['link'])[0]);
+            return match($file){
+                'emergencies.php'=>has_admin_permission('view_emergencies',$viewer),
+                'users.php'=>has_admin_permission('manage_users',$viewer)||has_admin_permission('approve_users',$viewer),
+                'security.php'=>has_admin_permission('manage_security',$viewer),
+                default=>false,
+            };
+        }));
+    }
+    $alerts['total'] = count($alerts['critical']) + count($alerts['warning']) + count($alerts['info']);
+    return $alerts;
+}
+
+/**
+ * Automatically calculate and update medicine status in the database:
+ * NORMAL | LOW STOCK | CRITICAL | EXPIRED
+ */
+function update_medicine_status(PDO $db, int $medId): string {
+    if ($medId <= 0) return 'NORMAL';
+    $stmt = $db->prepare("SELECT quantity, reorder_level, expiration_date FROM medicines WHERE id = ?");
+    $stmt->execute([$medId]);
+    $row = $stmt->fetch();
+    if (!$row) return 'NORMAL';
+
+    $qty = (int)$row['quantity'];
+    $reorder = (int)$row['reorder_level'];
+    $exp = $row['expiration_date'] ? strtotime($row['expiration_date']) : null;
+    $today = strtotime(date('Y-m-d'));
+
+    if ($exp !== null && $exp < $today) {
+        $status = 'EXPIRED';
+    } elseif ($qty <= 0) {
+        $status = 'CRITICAL';
+    } elseif ($qty <= $reorder) {
+        $status = 'LOW STOCK';
+    } else {
+        $status = 'NORMAL';
+    }
+
+    $db->prepare("UPDATE medicines SET status = ? WHERE id = ?")->execute([$status, $medId]);
+    return $status;
+}
+
+function sync_all_medicine_statuses(PDO $db): void {
+    $meds = $db->query("SELECT id FROM medicines")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($meds as $id) {
+        update_medicine_status($db, (int)$id);
+    }
+}
+

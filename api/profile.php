@@ -7,8 +7,19 @@ $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
 
+if ($action === 'save_account_settings' || $action === 'change_password') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); json_response(false, [], 'Use POST.'); }
+    csrf_verify_or_die();require_once __DIR__.'/../includes/account_settings.php';
+    try {
+        if ($action === 'save_account_settings') { account_settings_save($db,$user,$_POST); log_activity($user['id'],'Updated personal settings','profile'); }
+        else { account_settings_password($db,$user,$_POST); log_activity($user['id'],'Changed password','profile'); }
+        json_response(true, [], $action === 'change_password' ? 'Password changed. Other sessions have been signed out.' : 'Personal information saved.');
+    } catch (InvalidArgumentException $e) { json_response(false, [], $e->getMessage()); }
+    catch (Throwable $e) { error_log('Account settings update failed for user #'.(int)$user['id']); http_response_code(500); json_response(false, [], 'Unable to save changes. Please try again.'); }
+}
+
 if ($action === 'update_info') {
-    csrf_verify_or_die();
+    if (!csrf_verify($_POST['csrf_token'] ?? '')) { http_response_code(403); json_response(false, [], 'Your session form expired. Refresh the page and try again.'); }
     $firstName = trim($_POST['first_name'] ?? '');
     $lastName  = trim($_POST['last_name'] ?? '');
     $phone     = trim($_POST['phone'] ?? '');
@@ -260,37 +271,32 @@ if ($action === 'update_nurse_info') {
     }
 }
 
-if ($action === 'change_password') {
-    csrf_verify_or_die();
-    $current = $_POST['current_password'] ?? '';
-    $new     = $_POST['new_password'] ?? '';
-    $confirm = $_POST['confirm_password'] ?? '';
-
-    $stmt = $db->prepare("SELECT password_hash FROM users WHERE id=?");
-    $stmt->execute([$user['id']]);
-    $hash = $stmt->fetchColumn();
-
-    if (!password_verify($current, $hash)) json_response(false, [], 'Current password is incorrect.');
-    if (strlen($new) < 8) json_response(false, [], 'New password must be at least 8 characters.');
-    if ($new !== $confirm) json_response(false, [], 'New passwords do not match.');
-
-    $newHash = password_hash($new, PASSWORD_DEFAULT);
-    $db->prepare("UPDATE users SET password_hash=? WHERE id=?")->execute([$newHash, $user['id']]);
-    log_activity($user['id'], 'Changed password', 'profile');
-    json_response(true, [], 'Password changed successfully.');
-}
-
 if ($action === 'upload_picture') {
-    if (empty($_FILES['picture']) || $_FILES['picture']['error'] !== UPLOAD_ERR_OK) {
-        json_response(false, [], 'Please select an image to upload.');
-    }
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { http_response_code(405); json_response(false, [], 'Use POST to upload a profile picture.'); }
+    if (!csrf_verify($_POST['csrf_token'] ?? '')) { http_response_code(403); json_response(false, [], 'Your session form expired. Refresh the page and try again.'); }
+    if (empty($_FILES['picture'])) json_response(false, [], 'Please select an image to upload.');
     $allowed = ['image/jpeg','image/png','image/webp'];
     $file = $_FILES['picture'];
+    $uploadError = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($uploadError !== UPLOAD_ERR_OK) {
+        $messages = [
+            UPLOAD_ERR_INI_SIZE => 'The image exceeds the server upload limit.',
+            UPLOAD_ERR_FORM_SIZE => 'The image exceeds the form upload limit.',
+            UPLOAD_ERR_PARTIAL => 'The image upload was interrupted. Please try again.',
+            UPLOAD_ERR_NO_FILE => 'Please select an image to upload.',
+            UPLOAD_ERR_NO_TMP_DIR => 'The server upload folder is unavailable.',
+            UPLOAD_ERR_CANT_WRITE => 'The server could not write the uploaded image.',
+            UPLOAD_ERR_EXTENSION => 'The image upload was blocked by a server extension.',
+        ];
+        json_response(false, [], $messages[$uploadError] ?? 'The image could not be uploaded.');
+    }
+    if (!is_uploaded_file($file['tmp_name'])) json_response(false, [], 'The uploaded image could not be verified. Please select it again.');
 
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     $mimeType = finfo_file($finfo, $file['tmp_name']);
     finfo_close($finfo);
     if (!in_array($mimeType, $allowed, true)) json_response(false, [], 'Invalid file type. Only JPG, PNG, or WEBP images are allowed.');
+    if (@getimagesize($file['tmp_name']) === false) json_response(false, [], 'The selected file is not a valid image.');
 
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     $allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
@@ -302,31 +308,41 @@ if ($action === 'upload_picture') {
 
     if ($file['size'] > 5 * 1024 * 1024) json_response(false, [], 'Image must be under 5MB.');
 
-    // Delete old profile image if not default
-    $stmt = $db->prepare("SELECT profile_picture FROM users WHERE id=?");
-    $stmt->execute([$user['id']]);
-    $oldPic = $stmt->fetchColumn();
-    if ($oldPic && $oldPic !== 'assets/images/default-avatar.png') {
-        $oldPath = BASE_PATH . '/' . $oldPic;
-        if (file_exists($oldPath)) unlink($oldPath);
-    }
-
     $filename = 'user_' . $user['id'] . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
     $destRel = 'assets/images/profiles/' . $filename;
     $destAbs = BASE_PATH . '/' . $destRel;
 
     // Ensure directory exists
     $dir = dirname($destAbs);
-    if (!is_dir($dir)) mkdir($dir, 0755, true);
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) json_response(false, [], 'The profile image folder could not be created.');
+    if (!is_writable($dir)) json_response(false, [], 'The profile image folder is not writable. Contact the system administrator.');
 
     if (!move_uploaded_file($file['tmp_name'], $destAbs)) {
-        json_response(false, [], 'Failed to upload image. Please check directory permissions.');
+        json_response(false, [], 'The server could not save the uploaded image.');
     }
+    try {
+        $db->beginTransaction();
+        $stmt = $db->prepare("SELECT profile_picture FROM users WHERE id=? FOR UPDATE");
+        $stmt->execute([$user['id']]);
+        $oldPic = $stmt->fetchColumn();
+        $db->prepare("UPDATE users SET profile_picture=? WHERE id=?")->execute([$destRel, $user['id']]);
+        log_activity($user['id'], 'Updated profile picture', 'profile');
+        $db->commit();
+        $_SESSION['user']['profile_picture'] = $destRel;
 
-    $db->prepare("UPDATE users SET profile_picture=? WHERE id=?")->execute([$destRel, $user['id']]);
-    $_SESSION['user']['profile_picture'] = $destRel;
-    log_activity($user['id'], 'Updated profile picture', 'profile');
-    json_response(true, ['path' => APP_URL . '/' . $destRel], 'Profile picture updated successfully.');
+        $defaults = ['assets/images/default-avatar.png', 'assets/images/default-avatar.svg'];
+        if ($oldPic && !in_array($oldPic, $defaults, true) && str_starts_with($oldPic, 'assets/images/profiles/')) {
+            $oldPath = BASE_PATH . '/' . $oldPic;
+            if (is_file($oldPath) && realpath(dirname($oldPath)) === realpath($dir)) @unlink($oldPath);
+        }
+        json_response(true, ['path' => APP_URL . '/' . $destRel], 'Profile picture updated successfully.');
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        if (is_file($destAbs)) @unlink($destAbs);
+        error_log('Profile picture upload failed for user #' . (int)$user['id'] . ': ' . $e->getMessage());
+        http_response_code(500);
+        json_response(false, [], 'The profile picture could not be saved. Please try again.');
+    }
 }
 
 json_response(false, [], 'Unknown action');

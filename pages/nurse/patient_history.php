@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
 require_role('nurse');
-$pageTitle = 'Patient History';
+$pageTitle = 'Patient Clinic History';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -12,39 +12,49 @@ $pageTitle = 'Patient History';
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area page-enter">
+      <!-- Header & Quick Actions -->
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+          <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-clock-history text-success me-2"></i> Patient Clinic History</h5>
+          <small class="text-muted">Explore patient consultations, vitals, vaccinations, and comprehensive medical timeline.</small>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-warning fw-bold text-dark shadow-sm" onclick="openQrScannerModal()">
+            <i class="bi bi-qr-code-scan me-1"></i> Scan Patient QR
+          </button>
+        </div>
+      </div>
+
       <div class="row g-3">
         <div class="col-lg-4">
-          <div class="card p-3">
-            <h6 class="section-title mb-3"><i class="bi bi-clock-history text-success me-1"></i> Search Patient</h6>
+          <div class="card p-3 shadow-sm border-0">
+            <h6 class="section-title mb-3"><i class="bi bi-person-badge text-success me-1"></i> Search Patient</h6>
             <div class="mb-3">
               <label class="form-label small fw-semibold">Search Student</label>
               <input type="text" id="studentSearch" class="form-control" placeholder="Name or student number...">
-              <div id="searchResults" class="list-group mt-1"></div>
+              <div id="searchResults" class="list-group mt-1 shadow-sm" style="max-height: 200px; overflow-y: auto;"></div>
             </div>
             <div id="patientInfo" class="d-none">
-              <hr>
-              <h6 class="small fw-semibold">Patient Info</h6>
-              <p class="mb-1" id="pName"></p>
-              <p class="mb-1" id="pNumber"></p>
-              <p class="mb-1" id="pCourse"></p>
-            </div>
-            <div id="wellbeingCard" class="card border-success mt-3 d-none">
-              <div class="card-body p-3">
-                <div class="d-flex align-items-center gap-2">
-                  <i class="bi bi-file-earmark-medical text-success fs-4"></i>
-                  <div class="small">
-                    <div class="fw-semibold text-dark">Medical Health Profile</div>
-                    <div class="text-muted">Student's medical conditions, allergies, and health information.</div>
-                  </div>
-                </div>
-                <button class="btn btn-sm btn-outline-success w-100 mt-2" id="viewWellbeingBtn"><i class="bi bi-file-earmark-medical me-1"></i> View Medical Information</button>
+              <hr class="my-2">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="small fw-bold text-dark mb-0">Active Patient Profile</h6>
+                <button type="button" class="btn btn-sm btn-success fw-bold" id="openWorkspaceBtn">
+                  <i class="bi bi-person-workspace me-1"></i> Open Workspace
+                </button>
+              </div>
+              <div class="p-2 bg-light rounded border">
+                <p class="mb-1 small fw-bold text-dark" id="pName"></p>
+                <p class="mb-1 small text-muted" id="pNumber"></p>
+                <p class="mb-0 small text-muted" id="pCourse"></p>
               </div>
             </div>
           </div>
         </div>
         <div class="col-lg-8">
-          <div class="card p-3 mb-3" id="consultCard" style="display:none">
-            <h6 class="section-title mb-3">Consultation History</h6>
+          <div class="card p-3 mb-3 shadow-sm border-0" id="consultCard" style="display:none">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="section-title mb-0"><i class="bi bi-journal-medical text-success me-1"></i> Consultation History</h6>
+            </div>
             <div class="table-responsive">
               <table class="table table-hover align-middle" id="consultTable" style="width:100%">
                 <thead><tr><th>Date</th><th>Type</th><th>Complaint</th><th>Diagnosis</th><th>Treatment</th></tr></thead>
@@ -52,8 +62,8 @@ $pageTitle = 'Patient History';
               </table>
             </div>
           </div>
-          <div class="card p-3 mb-3" id="healthCard" style="display:none">
-            <h6 class="section-title mb-3">Health Monitoring</h6>
+          <div class="card p-3 mb-3 shadow-sm border-0" id="healthCard" style="display:none">
+            <h6 class="section-title mb-3"><i class="bi bi-heart-pulse-fill text-danger me-1"></i> Health Monitoring &amp; Vitals</h6>
             <div class="table-responsive">
               <table class="table table-hover align-middle" id="healthTable" style="width:100%">
                  <thead><tr><th>Date</th><th>BMI</th><th>Status</th><th>Record Type</th><th>BP</th><th>Heart Rate</th><th>Temp</th></tr></thead>
@@ -61,8 +71,8 @@ $pageTitle = 'Patient History';
               </table>
             </div>
           </div>
-          <div class="card p-3" id="vacCard" style="display:none">
-            <h6 class="section-title mb-3">Vaccination Record</h6>
+          <div class="card p-3 shadow-sm border-0" id="vacCard" style="display:none">
+            <h6 class="section-title mb-3"><i class="bi bi-shield-check text-primary me-1"></i> Vaccination Record</h6>
             <div class="table-responsive">
               <table class="table table-hover align-middle" id="vacTable" style="width:100%">
                 <thead><tr><th>Vaccine</th><th>Dose</th><th>Date Administered</th><th>Next Dose</th></tr></thead>
@@ -70,70 +80,64 @@ $pageTitle = 'Patient History';
               </table>
             </div>
           </div>
+          <div id="noHistoryPlaceholder" class="card p-5 text-center text-muted border-0 shadow-sm">
+            <i class="bi bi-search fs-1 mb-2 text-secondary"></i>
+            <h6>No Patient Selected</h6>
+            <p class="small text-muted mb-0">Search a student above or click [Scan Patient QR] to view complete medical timeline.</p>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Medical Health Detail Modal (Nurse view: Medical Information ONLY) -->
-<div class="modal fade" id="wellbeingModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow">
-      <div class="modal-header border-0 bg-success text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-file-earmark-medical me-2"></i> Student Medical Information</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" id="wellbeingBody"></div>
-      <div class="modal-footer border-0">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-      </div>
-    </div>
-  </div>
-</div>
-
+<?php include __DIR__ . '/../../includes/patient_workspace_modal.php'; ?>
+<?php include __DIR__ . '/../../includes/qr_scanner_modal.php'; ?>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 <script>
+let currentPatientId = null;
+
 $('#studentSearch').on('keyup', function () {
   const q = $(this).val();
   if (q.length < 2) { $('#searchResults').empty(); return; }
   $.get(APP_URL + '/api/students_api.php', { action: 'search', q }, function (res) {
     const $r = $('#searchResults').empty();
-    res.data.forEach(s => {
-      $r.append(`<button type="button" class="list-group-item list-group-item-action" data-id="${s.id}" data-name="${s.first_name} ${s.last_name} (${s.student_number})" data-course="${s.course||''}" data-number="${s.student_number||''}">${s.first_name} ${s.last_name} — ${s.student_number}</button>`);
+    (res.data || []).forEach(s => {
+      $r.append(`<button type="button" class="list-group-item list-group-item-action py-2" data-id="${s.id}" data-name="${escapeHtml(s.first_name + ' ' + s.last_name)}" data-course="${escapeHtml(s.course||'')}" data-number="${escapeHtml(s.student_number||'')}">${escapeHtml(s.first_name + ' ' + s.last_name)} — ${s.student_number}</button>`);
     });
   }, 'json');
 });
 
 $(document).on('click', '#searchResults button', function () {
   const id = $(this).data('id');
-  $('#pName').text('Name: ' + $(this).data('name'));
-  $('#pNumber').text('Student No: ' + $(this).data('number'));
+  $('#pName').text($(this).data('name'));
+  $('#pNumber').text('Student ID: ' + $(this).data('number'));
   $('#pCourse').text('Course: ' + $(this).data('course'));
   $('#patientInfo').removeClass('d-none');
   $('#searchResults').empty();
   $('#studentSearch').val('');
+  $('#openWorkspaceBtn').off('click').on('click', function() {
+    openPatientWorkspace(id);
+  });
   loadPatientHistory(id);
 });
 
-let currentPatientId = null;
 function loadPatientHistory(id) {
   currentPatientId = id;
-  // Check for medical health information
-  $.get(APP_URL + '/api/wellbeing.php', { action: 'get', student_id: id }, function (wb) {
-    if (wb.success && wb.exists) {
-      $('#wellbeingCard').removeClass('d-none');
-    } else {
-      $('#wellbeingCard').addClass('d-none');
-    }
-  }, 'json');
+  $('#noHistoryPlaceholder').hide();
 
   $.get(APP_URL + '/api/students_api.php', { action: 'patient_history', student_id: id }, function (res) {
     if (!res.success) return;
 
     if (res.consultations && res.consultations.length) {
       $('#consultCard').show();
-      const rows = res.consultations.map(c => [c.consultation_date, c.visit_type, c.chief_complaint, c.diagnosis || '—', c.treatment || '—']);
+      const rows = res.consultations.map(c => [
+        escapeHtml(c.consultation_date || '—'),
+        escapeHtml(c.visit_type || '—'),
+        escapeHtml(c.chief_complaint || '—'),
+        escapeHtml(c.diagnosis || '—'),
+        escapeHtml(c.treatment || '—')
+      ]);
       $('#consultTable').DataTable({ data: rows, columns:[{},{},{},{},{}], destroy:true, pageLength:5 });
     } else { $('#consultCard').hide(); }
 
@@ -141,39 +145,56 @@ function loadPatientHistory(id) {
       $('#healthCard').show();
       const rows = res.health_monitoring.map(h => {
         const typeLabel = h.record_type === 'nurse_assessment' ? 'Nurse Assessment' : 'Self-Recorded BMI';
-        return [h.recorded_at, h.bmi || '—', h.bmi_status || '—', typeLabel, h.blood_pressure || '—', h.heart_rate || '—', h.temperature || '—'];
+        return [
+          escapeHtml(h.recorded_at || '—'),
+          escapeHtml(h.bmi || '—'),
+          escapeHtml(h.bmi_status || '—'),
+          typeLabel,
+          escapeHtml(h.blood_pressure || '—'),
+          escapeHtml(h.heart_rate || '—'),
+          escapeHtml(h.temperature || '—')
+        ];
       });
       $('#healthTable').DataTable({ data: rows, columns:[{},{},{},{},{},{},{}], destroy:true, pageLength:5 });
     } else { $('#healthCard').hide(); }
 
     if (res.vaccinations && res.vaccinations.length) {
       $('#vacCard').show();
-      const rows = res.vaccinations.map(v => [v.vaccine_name, v.dose_number || '—', v.date_administered, v.next_dose_date || '—']);
+      const rows = res.vaccinations.map(v => [
+        escapeHtml(v.vaccine_name || '—'),
+        escapeHtml(v.dose_number || '—'),
+        escapeHtml(v.date_administered || '—'),
+        escapeHtml(v.next_dose_date || '—')
+      ]);
       $('#vacTable').DataTable({ data: rows, columns:[{},{},{},{}], destroy:true, pageLength:5 });
     } else { $('#vacCard').hide(); }
   }, 'json');
 }
 
-// -------- Medical Health Information (Nurse View: Medical Information ONLY) --------
-$('#viewWellbeingBtn').on('click', function () {
-  if (!currentPatientId) return;
-  $.get(APP_URL + '/api/wellbeing.php', { action: 'get', student_id: currentPatientId }, function (res) {
-    if (!res.success || !res.profile) { toastError('Unable to load medical information.'); return; }
-    const p = res.profile;
-    const field = (label, val) => `<div class="mb-3"><div class="text-muted small fw-medium">${label}</div><div class="fw-semibold text-dark">${val ? $('<div>').text(val).html() : '<span class="text-muted fst-italic">None reported</span>'}</div></div>`;
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
 
-    const html =
-      `<div class="alert alert-light border small mb-3"><i class="bi bi-shield-check text-success me-1"></i> Medically relevant health information provided for clinic care.</div>` +
-      `<h6 class="small fw-bold text-success mb-3"><i class="bi bi-heart-pulse-fill me-1"></i> Medical Information</h6>` +
-      field('Known Medical Conditions', p.known_medical_conditions) +
-      field('Allergies', p.allergies) +
-      field('Previous Serious Illnesses', p.previous_illnesses) +
-      field('Current Medications', p.current_medications) +
-      field('Other Important Health Information', p.other_medical_info);
-
-    $('#wellbeingBody').html(html);
-    new bootstrap.Modal(document.getElementById('wellbeingModal')).show();
-  }, 'json');
+$(function() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const initId = parseInt(urlParams.get('student_id') || urlParams.get('id') || '0', 10);
+  if (initId > 0) {
+    $.get(APP_URL + '/api/students_api.php', { action: 'get', id: initId }, function(res) {
+      if (res && res.success && res.data) {
+        const s = res.data;
+        $('#pName').text((s.first_name || '') + ' ' + (s.last_name || ''));
+        $('#pNumber').text('Student ID: ' + (s.student_number || '—'));
+        $('#pCourse').text('Course: ' + (s.course || '—'));
+        $('#patientInfo').removeClass('d-none');
+        $('#openWorkspaceBtn').off('click').on('click', function() {
+          openPatientWorkspace(initId);
+        });
+      }
+    }, 'json');
+    loadPatientHistory(initId);
+  }
 });
 </script>
 </body>

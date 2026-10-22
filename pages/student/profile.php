@@ -37,7 +37,7 @@ $pageTitle = 'My Profile';
       <div class="card p-3 mb-3">
         <div class="row g-3 align-items-center">
           <div class="col-auto text-center position-relative">
-            <img src="<?= APP_URL . '/' . e($userRecord['profile_picture']) ?>" id="profileAvatar" onerror="this.src='https://via.placeholder.com/100/0B6B3A/ffffff?text=ST'" class="rounded-circle border" width="100" height="100" style="object-fit:cover">
+            <img src="<?= APP_URL . '/' . e($userRecord['profile_picture']) ?>" id="profileAvatar" onerror="this.src='<?= asset_url('images/default-avatar.png') ?>'" class="rounded-circle border" width="100" height="100" style="object-fit:cover">
             <label for="pictureInput" class="btn btn-sm btn-primary rounded-circle position-absolute bottom-0 end-0" style="padding: 4px 8px;" title="Upload Profile Picture">
               <i class="bi bi-camera-fill"></i>
             </label>
@@ -246,8 +246,12 @@ $pageTitle = 'My Profile';
           toastError(res.message);
         }
       },
-      error: function () {
-        toastError('Failed to upload profile picture.');
+      error: function (xhr) {
+        const message = xhr.responseJSON && xhr.responseJSON.message
+          ? xhr.responseJSON.message
+          : 'Failed to upload profile picture. Refresh the page and try again.';
+        toastError(message);
+        $('#pictureInput').val('');
       }
     });
   });

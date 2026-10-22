@@ -8,7 +8,7 @@
  * ------------------------------------------------------------------
  */
 require_once __DIR__ . '/../../config/config.php';
-require_role('adviser');
+require_role('teacher');
 $db = getDB();
 $u = current_user();
 $pageTitle = 'My Advisory Class';

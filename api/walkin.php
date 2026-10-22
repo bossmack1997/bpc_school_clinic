@@ -1,12 +1,13 @@
 <?php
 /**
  * Walk-in Patient Management API
+ * BPC School Clinic Management System
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
  */
 
 require_once __DIR__ . '/../config/config.php';
 require_login();
-if (current_user()['role'] !== 'nurse' && current_user()['role'] !== 'admin') {
+if (current_user()['role'] !== 'nurse') {
     json_response(false, [], 'Access denied.');
 }
 header('Content-Type: application/json');
@@ -14,6 +15,7 @@ header('Content-Type: application/json');
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+require_once __DIR__ . '/../includes/queue_consultation.php';
 
 // ================================================================
 // Helper: Generate unique visit number
@@ -26,30 +28,11 @@ function generateVisitNumber($db) {
 }
 
 // ================================================================
-// Helper: Generate queue number
-// ================================================================
-function generateQueueNumber($db) {
-    $date = date('Ymd');
-    $stmt = $db->prepare("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE()");
-    $stmt->execute();
-    $count = (int)$stmt->fetchColumn();
-    return 'Q-' . $date . '-' . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
-}
-
-// ================================================================
 // Helper: Log visit action
 // ================================================================
 function logVisitAction($db, $walkInId, $action, $details, $userId) {
     $stmt = $db->prepare("INSERT INTO visit_logs (walk_in_id, action, details, performed_by) VALUES (?,?,?,?)");
     $stmt->execute([$walkInId, $action, $details, $userId]);
-}
-
-// ================================================================
-// HELPER: Get today's walk-in count for queue
-// ================================================================
-function getTodayQueueCount($db) {
-    $stmt = $db->query("SELECT COUNT(*) FROM walk_in_visits WHERE visit_date = CURDATE() AND status NOT IN ('cancelled')");
-    return (int)$stmt->fetchColumn();
 }
 
 // ================================================================
@@ -62,7 +45,7 @@ if ($action === 'search_students') {
     $like = '%' . $q . '%';
     $stmt = $db->prepare("
         SELECT s.id, s.student_number, s.course, s.year_level, s.section,
-               u.first_name, u.last_name, u.email, u.phone, u.profile_picture, u.gender, u.birthdate
+               u.first_name, u.last_name, u.email, u.phone, u.profile_picture, u.gender, COALESCE(u.date_of_birth, s.birthdate) AS birthdate
         FROM students s
         JOIN users u ON u.id = s.user_id
         WHERE s.student_number LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
@@ -104,7 +87,7 @@ if ($action === 'qr_checkin') {
     $stmt = $db->prepare("
         SELECT s.id, s.student_number, s.course, s.year_level, s.section,
                u.first_name, u.last_name, u.email, u.phone, u.profile_picture, u.gender,
-               TIMESTAMPDIFF(YEAR, u.birthdate, CURDATE()) AS age
+               TIMESTAMPDIFF(YEAR, COALESCE(u.date_of_birth, s.birthdate), CURDATE()) AS age
         FROM students s
         JOIN users u ON u.id = s.user_id
         WHERE s.id = ?
@@ -155,24 +138,39 @@ if ($action === 'save_visit') {
     // Begin transaction
     $db->beginTransaction();
     try {
+        if ($studentId) {
+            $studentLock = $db->prepare('SELECT id FROM students WHERE id = ? FOR UPDATE');
+            $studentLock->execute([$studentId]);
+            if (!$studentLock->fetchColumn()) throw new DomainException('Student not found.');
+            $active = $db->prepare("SELECT queue_number FROM queue_numbers WHERE student_id = ? AND created_at >= CURDATE() AND status IN ('waiting','called','serving') LIMIT 1");
+            $active->execute([$studentId]);
+            if ($existingQueue = $active->fetchColumn()) throw new DomainException('This patient already has an active queue ticket: ' . $existingQueue);
+        } elseif (trim($_POST['temp_full_name'] ?? '') === '') {
+            throw new DomainException('Select a student or enter the visitor name.');
+        }
+
         // Generate visit number
         $visitNumber = generateVisitNumber($db);
         
-        // Generate queue number
-        $queueNumber = generateQueueNumber($db);
-        $todayCount = getTodayQueueCount($db);
-        $estimatedWait = $todayCount * 15; // 15 minutes per patient
+        // Use unified queue API to generate queue number
+        $queueNumber = generate_queue_number($db);
+        $waitingCount = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
+        $estimatedWait = calculate_queue_wait_time($db, $waitingCount);
         
-        // Create queue entry
+        // Create queue entry using unified queue system
         $priority = $_POST['priority_level'] ?? 'normal';
         $fullName = $isTemp ? trim($_POST['temp_full_name'] ?? 'Walk-in Patient') : '';
         
         $qStmt = $db->prepare("
-            INSERT INTO queue_numbers (queue_number, student_id, full_name, visit_type, priority, status, estimated_wait_minutes)
-            VALUES (?, ?, ?, 'walk-in', ?, 'waiting', ?)
+            INSERT INTO queue_numbers (queue_number, student_id, full_name, visit_type, priority, status, estimated_wait_minutes, source, created_at)
+            VALUES (?, ?, ?, 'walk-in', ?, 'waiting', ?, 'walkin_module', NOW())
         ");
         $qStmt->execute([$queueNumber, $studentId, $fullName, $priority, $estimatedWait]);
         $queueId = $db->lastInsertId();
+        
+        if ($studentId) {
+            $db->prepare("UPDATE students SET last_checkin_at = NOW() WHERE id = ?")->execute([$studentId]);
+        }
         
         // Calculate BMI if height and weight provided
         $height = !empty($_POST['height_cm']) ? (float)$_POST['height_cm'] : null;
@@ -252,14 +250,15 @@ if ($action === 'save_visit') {
             'walk_in_id' => $walkInId,
             'visit_number' => $visitNumber,
             'queue_number' => $queueNumber,
+            'queue_id' => $queueId,
             'estimated_wait' => $estimatedWait,
             'bmi' => $bmi,
             'bmi_status' => $bmiStatus,
             'message' => "Walk-in visit #$visitNumber created. Queue: $queueNumber (Est. wait: {$estimatedWait}min)"
         ]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to save visit: ' . $e->getMessage());
+        json_response(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Failed to save this visit. Please try again.', 'walkin/save'));
     }
 }
 
@@ -290,6 +289,12 @@ if ($action === 'update_consultation') {
     
     $db->beginTransaction();
     try {
+        if ($visit['queue_id']) queue_consultation_lock($db, (int)$visit['queue_id']);
+        $locked = $db->prepare('SELECT * FROM walk_in_visits WHERE id = ? FOR UPDATE');
+        $locked->execute([$id]);
+        $visit = $locked->fetch(PDO::FETCH_ASSOC);
+        if (in_array($visit['status'], ['completed', 'cancelled'], true)) throw new DomainException('This visit is already closed.');
+
         $stmt = $db->prepare("
             UPDATE walk_in_visits SET
                 symptoms = ?, assessment = ?, diagnosis = ?, treatment = ?, recommendation = ?,
@@ -315,9 +320,9 @@ if ($action === 'update_consultation') {
         
         $db->commit();
         json_response(true, [], 'Consultation updated.');
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to update: ' . $e->getMessage());
+        json_response(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Failed to save the changes. Please try again.', 'walkin/update'));
     }
 }
 
@@ -336,16 +341,30 @@ if ($action === 'dispense_medicine') {
     if (!$walkInId || !$medicineId || $quantity <= 0) json_response(false, [], 'Invalid input.');
     
     // Check medicine stock
-    $stmt = $db->prepare("SELECT medicine_name, quantity FROM medicines WHERE id = ?");
+    $stmt = $db->prepare("SELECT medicine_name, quantity, expiration_date FROM medicines WHERE id = ?");
     $stmt->execute([$medicineId]);
     $medicine = $stmt->fetch();
     if (!$medicine) json_response(false, [], 'Medicine not found.');
+    if (!empty($medicine['expiration_date']) && $medicine['expiration_date'] < date('Y-m-d')) {
+        json_response(false, [], 'Expired medicine cannot be dispensed.');
+    }
     if ($medicine['quantity'] < $quantity) {
         json_response(false, [], "Insufficient stock! Only {$medicine['quantity']} {$medicine['medicine_name']} available.");
     }
     
     $db->beginTransaction();
     try {
+        $vStmt = $db->prepare('SELECT queue_id, status FROM walk_in_visits WHERE id = ?');
+        $vStmt->execute([$walkInId]);
+        $visit = $vStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$visit) throw new DomainException('Visit not found.');
+        if ($visit['queue_id']) queue_consultation_lock($db, (int)$visit['queue_id']);
+        if (in_array($visit['status'], ['completed', 'cancelled'], true)) throw new DomainException('This visit is already closed.');
+        $mStmt = $db->prepare("SELECT medicine_name, quantity FROM medicines WHERE id = ? AND is_archived = 0 AND (expiration_date IS NULL OR expiration_date >= CURDATE()) AND status NOT IN ('quarantined','unusable','recalled') FOR UPDATE");
+        $mStmt->execute([$medicineId]);
+        $medicine = $mStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$medicine || $quantity > (int)$medicine['quantity']) throw new DomainException('Insufficient usable medicine stock.');
+
         // Deduct stock
         $db->prepare("UPDATE medicines SET quantity = quantity - ? WHERE id = ?")
            ->execute([$quantity, $medicineId]);
@@ -365,13 +384,22 @@ if ($action === 'dispense_medicine') {
         log_activity($user['id'], 'Dispensed medicine', 'walkin', "{$quantity}x {$medicine['medicine_name']}");
         
         $db->commit();
+        if (isset($_POST['draft_row_index']) && !empty($visit['queue_id'])) {
+            $key = (int)$_POST['draft_row_index'];
+            $pending = &$_SESSION['queue_consultation_drafts'][$visit['queue_id']]['medicines'];
+            if (isset($pending[$key]) && (int)$pending[$key]['medicine_id'] === $medicineId && (int)$pending[$key]['quantity'] === $quantity) {
+                unset($pending[$key]); $pending = array_values($pending);
+            }
+            unset($pending);
+        }
+
         json_response(true, [
             'new_quantity' => $medicine['quantity'] - $quantity,
             'message' => "{$quantity}x {$medicine['medicine_name']} dispensed."
         ]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to dispense: ' . $e->getMessage());
+        json_response(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'The medicine could not be dispensed. Please try again.', 'walkin/dispense'));
     }
 }
 
@@ -390,6 +418,12 @@ if ($action === 'complete_visit') {
     
     $db->beginTransaction();
     try {
+        if ($visit['queue_id']) queue_consultation_lock($db, (int)$visit['queue_id']);
+        $locked = $db->prepare('SELECT * FROM walk_in_visits WHERE id = ? FOR UPDATE');
+        $locked->execute([$id]);
+        $visit = $locked->fetch(PDO::FETCH_ASSOC);
+        if (in_array($visit['status'], ['completed', 'cancelled'], true)) throw new DomainException('This visit is already closed.');
+
         $db->prepare("UPDATE walk_in_visits SET status = 'completed', consultation_ended_at = NOW() WHERE id = ?")
            ->execute([$id]);
         
@@ -416,6 +450,22 @@ if ($action === 'complete_visit') {
                 $visit['recommendation'],
                 $visit['follow_up_date']
             ]);
+            $consultationId = (int)$db->lastInsertId();
+
+            // The stock was deducted when medicine was dispensed. Link those
+            // existing transactions to this authoritative consultation record
+            // instead of deducting stock a second time.
+            $db->prepare("INSERT INTO consultation_medicines (consultation_id, medicine_id, quantity, dosage_instructions, dispensed_by)
+                SELECT ?, medicine_id, quantity, dosage_instructions, dispensed_by
+                FROM medicine_dispensing WHERE walk_in_id = ?")
+               ->execute([$consultationId, $id]);
+
+            $studentUser = $db->prepare('SELECT user_id FROM students WHERE id = ?');
+            $studentUser->execute([$visit['student_id']]);
+            if ($studentUserId = $studentUser->fetchColumn()) {
+                push_notification((int)$studentUserId, 'clinic', 'Clinic visit recorded',
+                    'Your clinic consultation has been recorded.', APP_URL . '/pages/student/medical_record.php');
+            }
         }
         
         logVisitAction($db, $id, 'completed', 'Visit completed.', $user['id']);
@@ -423,9 +473,9 @@ if ($action === 'complete_visit') {
         
         $db->commit();
         json_response(true, ['message' => 'Visit completed successfully.']);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to complete: ' . $e->getMessage());
+        json_response(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Failed to complete this visit. Please try again.', 'walkin/complete'));
     }
 }
 
@@ -435,31 +485,26 @@ if ($action === 'complete_visit') {
 if ($action === 'cancel_visit') {
     csrf_verify_or_die();
     $id = (int)($_POST['id'] ?? 0);
-    $stmt = $db->prepare("UPDATE walk_in_visits SET status = 'cancelled' WHERE id = ?");
-    $stmt->execute([$id]);
-    $stmt = $db->prepare("UPDATE queue_numbers SET status = 'cancelled' WHERE id = (SELECT queue_id FROM walk_in_visits WHERE id = ?)");
-    $stmt->execute([$id]);
-    json_response(true, [], 'Visit cancelled.');
-}
-
-// ================================================================
-// ACTION: List Today's Queue
-// ================================================================
-if ($action === 'queue_list') {
-    $stmt = $db->query("
-        SELECT q.*,
-               COALESCE(CONCAT(u.first_name, ' ', u.last_name), q.full_name) AS display_name,
-               s.student_number, s.course, s.year_level
-        FROM queue_numbers q
-        LEFT JOIN students s ON s.id = q.student_id
-        LEFT JOIN users u ON u.id = s.user_id
-        WHERE DATE(q.created_at) = CURDATE()
-        ORDER BY 
-            FIELD(q.priority, 'emergency', 'urgent', 'normal'),
-            FIELD(q.status, 'waiting', 'serving') DESC,
-            q.created_at ASC
-    ");
-    json_response(true, ['data' => $stmt->fetchAll()]);
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare('SELECT queue_id FROM walk_in_visits WHERE id = ?');
+        $stmt->execute([$id]);
+        $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$visit) throw new DomainException('Visit not found.');
+        if ($visit['queue_id']) queue_consultation_lock($db, (int)$visit['queue_id']);
+        $stmt = $db->prepare('SELECT status FROM walk_in_visits WHERE id = ? FOR UPDATE');
+        $stmt->execute([$id]);
+        if (in_array($stmt->fetchColumn(), ['completed', 'cancelled'], true)) throw new DomainException('This visit is already closed.');
+        $db->prepare("UPDATE walk_in_visits SET status = 'cancelled' WHERE id = ?")->execute([$id]);
+        if ($visit['queue_id']) $db->prepare("UPDATE queue_numbers SET status = 'cancelled' WHERE id = ?")->execute([$visit['queue_id']]);
+        logVisitAction($db, $id, 'cancelled', 'Visit cancelled.', $user['id']);
+        log_activity($user['id'], 'Cancelled walk-in visit', 'walkin', 'Visit #' . $id);
+        $db->commit();
+        json_response(true, [], 'Visit cancelled.');
+    } catch (Throwable $e) {
+        $db->rollBack();
+        json_response(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Unable to cancel this visit.', 'walkin/cancel'));
+    }
 }
 
 // ================================================================
@@ -519,7 +564,7 @@ if ($action === 'get_visit') {
         SELECT w.*, q.queue_number, q.status AS queue_status,
                COALESCE(CONCAT(u.first_name, ' ', u.last_name), w.temp_full_name) AS patient_name,
                s.student_number, s.course, s.year_level, s.section,
-               u.gender, TIMESTAMPDIFF(YEAR, u.birthdate, CURDATE()) AS age, u.email, u.phone, u.profile_picture,
+               u.gender, TIMESTAMPDIFF(YEAR, COALESCE(u.date_of_birth, s.birthdate), CURDATE()) AS age, u.email, u.phone, u.profile_picture,
                u2.first_name AS nurse_first, u2.last_name AS nurse_last
         FROM walk_in_visits w
         LEFT JOIN queue_numbers q ON q.id = w.queue_id
@@ -647,10 +692,24 @@ if ($action === 'generate_ai_summary') {
     $summary .= "\n**Recommendation:** {$recommendation}\n\n";
     $summary .= "*Note: This summary is for educational purposes only and does not constitute a medical diagnosis. Please consult a qualified healthcare professional for medical advice.*";
     
-    // Save the AI summary
-    $db->prepare("UPDATE walk_in_visits SET ai_summary = ? WHERE id = ?")->execute([$summary, $id]);
-    
-    json_response(true, ['summary' => $summary]);
+    // Serialize summary generation with other clinical writes and return its revision.
+    $db->beginTransaction();
+    try {
+        if ($visit['queue_id']) queue_consultation_lock($db, (int)$visit['queue_id']);
+        $lockedStmt = $db->prepare('SELECT * FROM walk_in_visits WHERE id = ? FOR UPDATE');
+        $lockedStmt->execute([$id]);
+        $lockedVisit = $lockedStmt->fetch(PDO::FETCH_ASSOC);
+        queue_consultation_check_version($lockedVisit);
+        if (queue_consultation_version($visit) !== queue_consultation_version($lockedVisit)) throw new DomainException('The consultation changed while generating the summary. Review the saved record.');
+        $db->prepare('UPDATE walk_in_visits SET ai_summary = ? WHERE id = ?')->execute([$summary, $id]);
+        $lockedVisit['ai_summary'] = $summary;
+        $db->commit();
+        json_response(true, ['summary' => $summary, 'draft_version' => queue_consultation_version($lockedVisit)]);
+    } catch (Throwable $e) {
+        $db->rollBack();
+        json_response(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Unable to generate summary.', 'walkin/summary'));
+    }
+
 }
 
 // ================================================================

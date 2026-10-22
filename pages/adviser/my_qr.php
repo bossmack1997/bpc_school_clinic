@@ -1,12 +1,12 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
-require_role('adviser');
+require_role('teacher');
 $u = current_user();
 $pageTitle = 'My Clinic QR';
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head><?php include __DIR__ . '/../../includes/head.php'; ?></head>
+<head><?php include __DIR__ . '/../../includes/head.php'; ?><link rel="stylesheet" href="<?= asset_url('css/patient-activity.css') . '?v=' . filemtime(__DIR__ . '/../../assets/css/patient-activity.css') ?>"></head>
 <body>
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
@@ -42,21 +42,16 @@ $pageTitle = 'My Clinic QR';
               <div class="col-md-6"><div class="text-muted">Email</div><div class="fw-semibold" id="tEmail">—</div></div>
               <div class="col-md-6"><div class="text-muted">QR Status</div><div class="fw-semibold" id="tStatus">—</div></div>
             </div>
-            <h6 class="section-title mt-4 mb-2"><i class="bi bi-clock-history me-1"></i> Scan History</h6>
-            <div class="table-responsive">
-              <table class="table table-sm table-hover align-middle mb-0" id="scanTable" style="width:100%">
-                <thead><tr><th>Time</th><th>Purpose</th><th>Scanner</th><th>Status</th></tr></thead>
-                <tbody></tbody>
-              </table>
-            </div>
           </div>
         </div>
       </div>
 
+      <?php $activityAutoLoad = true; include __DIR__ . '/../../includes/patient_activity_sections.php'; ?>
     </div>
   </div>
 </div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+<script src="<?= asset_url('js/patient-activity.js') . '?v=' . filemtime(__DIR__ . '/../../assets/js/patient-activity.js') ?>"></script>
 <script>
 $(function () {
   $.get(APP_URL + '/api/qr_codes.php', { action: 'teacher_qr' }, function (res) {
@@ -74,13 +69,6 @@ $(function () {
       new QRCode(document.getElementById('qrCanvas'), { text: qr.qr_data, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
     }
 
-    const rows = (res.scan_history || []).map(function (h) {
-      const st = h.status === 'success' ? '<span class="badge bg-success">Success</span>'
-        : h.status === 'duplicate' ? '<span class="badge bg-warning text-dark">Duplicate</span>'
-        : '<span class="badge bg-secondary">' + (h.status||'—') + '</span>';
-      return [h.scan_time || '—', h.purpose || 'check-in', h.scanner_name || '—', st];
-    });
-    $('#scanTable').DataTable({ data: rows, columns: [null,null,null,null], pageLength: 10, destroy: true });
   }, 'json');
 
   function getQrDataUrl() {
@@ -95,7 +83,7 @@ $(function () {
   $('#printQrBtn').on('click', function () {
     const img = getQrDataUrl(); if (!img) return;
     const w = window.open('', '_blank');
-    w.document.write('<html><head><title>Teacher QR</title></head><body style="text-align:center;font-family:Arial;padding:30px"><img src="'+img+'"><div style="margin-top:10px">BPC School Clinic — Teacher/Staff QR</div></body></html>');
+    w.document.write('<html><head><title>Teacher QR</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="<?= asset_url('css/patient-activity.css') . '?v=' . filemtime(__DIR__ . '/../../assets/css/patient-activity.css') ?>"></head><body style="text-align:center;font-family:Inter,Arial,sans-serif;padding:30px"><img src="'+img+'"><div style="margin-top:10px">BPC School Clinic — Teacher/Staff QR</div></body></html>');
     w.document.close(); w.focus(); setTimeout(function(){ w.print(); }, 300);
   });
 });

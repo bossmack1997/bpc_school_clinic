@@ -41,8 +41,8 @@ function setupBackgroundMessageHandler() {
 
     var options = {
       body: body,
-      icon: '/assets/images/icon-192x192.png',
-      badge: '/assets/images/badge-72x72.png',
+      icon: '/assets/icons/icon-192.png',
+      badge: '/assets/icons/icon-180.png',
       vibrate: [200, 100, 200],
       tag: 'sos-' + sosId,
       requireInteraction: true,

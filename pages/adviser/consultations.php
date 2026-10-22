@@ -1,59 +1,10 @@
 <?php
-require_once __DIR__ . '/../../config/config.php';
-require_role('adviser');
-$u = current_user();
-$pageTitle = 'My Consultations';
+require_once __DIR__.'/../../config/config.php';require_role('teacher');$db=getDB();$u=current_user();
+$stmt=$db->prepare('SELECT id,employee_id FROM teachers WHERE user_id=? LIMIT 1');$stmt->execute([$u['id']]);$teacher=$stmt->fetch();$records=[];
+if($teacher){$stmt=$db->prepare("SELECT c.id,c.consultation_date,c.visit_type,c.chief_complaint,c.diagnosis,c.treatment,c.prescription,c.remarks,c.follow_up_date,c.vital_signs,n.license_number,CONCAT(nu.first_name,' ',nu.last_name) nurse_name,GROUP_CONCAT(CONCAT(m.medicine_name,' × ',cm.quantity,IF(cm.dosage_instructions<>'',CONCAT(' (',cm.dosage_instructions,')'),'')) SEPARATOR '; ') medicines FROM consultations c LEFT JOIN nurses n ON n.id=c.nurse_id LEFT JOIN users nu ON nu.id=n.user_id LEFT JOIN consultation_medicines cm ON cm.consultation_id=c.id LEFT JOIN medicines m ON m.id=cm.medicine_id WHERE c.teacher_id=? AND c.patient_type='teacher' GROUP BY c.id ORDER BY c.consultation_date DESC");$stmt->execute([$teacher['id']]);$records=$stmt->fetchAll(PDO::FETCH_ASSOC);}
+$pageTitle='My Health Record';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head><?php include __DIR__ . '/../../includes/head.php'; ?></head>
-<body>
-<div class="app-wrapper">
-  <?php include __DIR__ . '/../../components/sidebar.php'; ?>
-  <div class="main-content">
-    <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area page-enter">
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-        <h5 class="section-title mb-0"><i class="bi bi-file-earmark-medical text-success me-1"></i> My Consultations</h5>
-        <a href="my_qr.php" class="btn btn-sm btn-outline-success"><i class="bi bi-qr-code-scan me-1"></i> My Clinic QR</a>
-      </div>
-
-      <div class="alert alert-light border d-flex align-items-center gap-2 mb-3" role="alert">
-        <i class="bi bi-info-circle-fill text-primary"></i>
-        <div class="small">As a clinic patient, you may receive consultations from the School Nurse. Only your own records are shown here.</div>
-      </div>
-
-      <div class="card p-3">
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0" id="consTable" style="width:100%">
-            <thead><tr><th>Date</th><th>Type</th><th>Chief Complaint</th><th>Treatment</th><th>Nurse</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <div id="consEmpty" class="text-center text-muted py-4" style="display:none;">No consultations recorded yet.</div>
-      </div>
-    </div>
-  </div>
-</div>
-<?php include __DIR__ . '/../../components/footer.php'; ?>
-<script>
-$(function () {
-  $.get(APP_URL + '/api/students_api.php', { action: 'my_consultations' }, function (res) {
-    if (!res.success) { toastError(res.message); return; }
-    const list = res.consultations || [];
-    if (!list.length) { $('#consEmpty').show(); return; }
-    const rows = list.map(function (c) {
-      return [
-        c.consultation_date ? c.consultation_date.replace(' ', ' · ') : '—',
-        '<span class="badge bg-secondary text-capitalize">' + (c.visit_type || 'consultation') + '</span>',
-        $('<div>').text(c.chief_complaint || '—').html(),
-        $('<div>').text(c.treatment || '—').html(),
-        c.license_number || '—'
-      ];
-    });
-    $('#consTable').DataTable({ data: rows, columns: [null,null,null,null,null], pageLength: 10, destroy: true });
-  }, 'json');
-});
-</script>
-</body>
-</html>
+<!doctype html><html lang="en"><head><?php include __DIR__.'/../../includes/head.php'; ?><style>.record-card{border:1px solid #e3ebe7;border-radius:16px;box-shadow:0 7px 20px rgba(17,66,43,.06)}.record-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.record-meta>div{background:#f7faf8;border-radius:10px;padding:11px}</style></head><body><div class="app-wrapper"><?php include __DIR__.'/../../components/sidebar.php'; ?><main class="main-content"><?php include __DIR__.'/../../components/navbar.php'; ?><div class="content-area page-enter" id="mainContent"><div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4"><div><h2 class="h4 mb-1">My Health Record</h2><p class="text-muted small mb-0">Private consultation history for faculty ID <?= e($teacher['employee_id']??'Not available') ?>.</p></div><a class="btn btn-success" href="queue.php"><i class="bi bi-plus-circle me-1"></i>Join Clinic Queue</a></div>
+<?php if(!$records): ?><section class="card record-card text-center p-5"><i class="bi bi-file-earmark-medical fs-1 text-muted"></i><h3 class="h5 mt-3">No consultation history</h3><p class="text-muted mb-0">Completed personal clinic consultations will appear here.</p></section><?php else: ?><div class="vstack gap-3"><?php foreach($records as $record): $vitals=json_decode((string)($record['vital_signs']??''),true)?:[]; ?><article class="card record-card p-4"><div class="d-flex justify-content-between flex-wrap gap-2 mb-3"><div><h3 class="h5 mb-1"><?= e($record['chief_complaint']?:'Clinic Consultation') ?></h3><div class="small text-muted"><?= e(format_datetime($record['consultation_date'])) ?> · <?= e(ucfirst($record['visit_type'])) ?></div></div><span class="badge bg-success-subtle text-success align-self-start">Completed</span></div><div class="record-meta mb-3"><div><span class="small text-muted d-block">Diagnosis</span><strong><?= e($record['diagnosis']?:'Not recorded') ?></strong></div><div><span class="small text-muted d-block">Treatment</span><strong><?= e($record['treatment']?:'Not recorded') ?></strong></div><div><span class="small text-muted d-block">Attending Nurse</span><strong><?= e($record['nurse_name']?:'Clinic Nurse') ?></strong></div><?php if($record['follow_up_date']): ?><div><span class="small text-muted d-block">Follow-up</span><strong><?= e(date('M j, Y',strtotime($record['follow_up_date']))) ?></strong></div><?php endif; ?></div>
+<?php if($vitals): ?><div class="small mb-2"><strong>Vital signs:</strong> <?= e(implode(' · ',array_filter([$vitals['temperature']??null,isset($vitals['blood_pressure'])?'BP '.$vitals['blood_pressure']:null,isset($vitals['heart_rate'])?'HR '.$vitals['heart_rate']:null,isset($vitals['oxygen_saturation'])?'O₂ '.$vitals['oxygen_saturation'].'%':null]))) ?></div><?php endif; ?><?php if($record['medicines']): ?><div class="small mb-2"><strong>Medication:</strong> <?= e($record['medicines']) ?></div><?php endif; ?><?php if($record['remarks']): ?><div class="small text-muted"><strong>Clinical summary:</strong> <?= e($record['remarks']) ?></div><?php endif; ?></article><?php endforeach; ?></div><?php endif; ?>
+</div></main></div><?php include __DIR__.'/../../components/footer.php'; ?></body></html>

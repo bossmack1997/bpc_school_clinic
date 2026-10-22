@@ -9,6 +9,7 @@
  * ------------------------------------------------------------------
  */
 ?>
+<?php include __DIR__ . '/global_sos.php'; ?>
 <!-- Global Scripts (single load source — no duplication) -->
 <!-- ================================================================== -->
 <script src="<?= asset_url('js/jquery.min.js') ?>"></script>
@@ -18,7 +19,12 @@
 <script src="<?= asset_url('js/sweetalert2.all.min.js') ?>"></script>
 <script src="<?= asset_url('js/chart.umd.min.js') ?>"></script>
 <script src="<?= asset_url('js/aos.js') ?>"></script>
-<script src="<?= asset_url('js/main.js') ?>"></script>
+<?php /* Shared loading / empty / error state helpers. Loaded here, before
+        page scripts and before main.js, so any list page can rely on
+        BPCState being defined. */ ?>
+<?= dbg_state_js() ?>
+<script src="<?= asset_url('js/main.js') . '?v=' . filemtime(__DIR__ . '/../assets/js/main.js') ?>"></script>
+<script src="<?= asset_url('js/ui-enhance.js') ?>"></script>
 <script src="<?= asset_url('js/pwa.js') ?>"></script>
 <?php if (getenv('FIREBASE_PROJECT_ID')): ?>
 <script src="<?= asset_url('js/firebase-notifications.js') ?>"></script>
@@ -51,7 +57,9 @@
 <!-- Single component include — one FAB, one widget, no duplicates.    -->
 <!-- ================================================================== -->
 <?php include __DIR__ . '/mica.php'; ?>
-<script src="<?= asset_url('js/mica.js') ?>"></script>
+<link rel="stylesheet" href="<?= asset_url('css/mica-inventory.css') ?>">
+<script src="<?= asset_url('js/mica-inventory.js') ?>"></script>
+<script src="<?= asset_url('js/mica.js') . '?v=' . filemtime(__DIR__ . '/../assets/js/mica.js') ?>"></script>
 <script>
 (function () {
   'use strict';

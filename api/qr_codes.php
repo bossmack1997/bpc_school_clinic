@@ -19,13 +19,34 @@ $db = getDB();
 $user = current_user();
 $role = $user['role'] ?? 'student';
 $action = $_REQUEST['action'] ?? '';
+if($role==='admin'&&!is_primary_admin($user))admin_access_denied('QR administration and clinical scanning are restricted to authorized clinic staff.');
+
+// Patient activity is authenticated and scoped separately from QR management.
+if (in_array($action, ['patient_scan_history', 'patient_visit_timeline', 'student_qr_timeline'], true)) {
+    require_login();
+    require_once __DIR__ . '/../includes/patient_activity.php';
+    header('Cache-Control: no-store');
+    try {
+        $scope = patient_activity_scope($db, current_user(), $_GET);
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? ($action === 'patient_scan_history' ? 5 : 10))));
+        $result = $action === 'patient_scan_history' ? patient_activity_scans($db,$scope,$offset,$limit) : patient_activity_timeline($db,$scope,$offset,$limit);
+        json_response(true, $result);
+    } catch (RuntimeException $e) {
+        if (in_array($e->getCode(), [400,403,404], true)) { http_response_code($e->getCode()); json_response(false, [], $e->getMessage()); }
+        error_log('Patient activity: '.$e->getMessage());
+        http_response_code(500); json_response(false, [], 'History could not be loaded. Please try again.');
+    }
+}
+$role = canonical_role($role);
+if ($role === 'teacher' && $action !== 'teacher_qr') json_response(false, [], 'Access denied.');
 
 // Students may only perform the "my_qr" action (their own permanent QR).
 // Nurse/Admin have full access to the management actions below.
 if ($role === 'student' && !in_array($action, ['my_qr', 'student_health_pass', 'student_qr_timeline', 'student_qr_notifications'])) {
     json_response(false, [], 'Access denied.');
 }
-if (!in_array($role, ['student', 'nurse', 'admin', 'adviser'], true)) {
+if (!in_array($role, ['student', 'nurse', 'admin', 'teacher'], true)) {
     json_response(false, [], 'Access denied.');
 }
 
@@ -217,7 +238,7 @@ if ($action === 'regenerate') {
         json_response(true, ['qr_data' => $built['payload']], 'QR code regenerated. Old QR codes will no longer be valid.');
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Failed to regenerate QR: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Failed to regenerate the QR code. Please try again.', 'qr/regenerate'));
     }
 }
 
@@ -336,7 +357,7 @@ if ($action === 'save_settings') {
         update_qr_settings($db, $settings, $user['id']);
         json_response(true, [], 'QR settings saved successfully.');
     } catch (Exception $e) {
-        json_response(false, [], 'Failed to save settings: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Failed to save the QR settings. Please try again.', 'qr/save_settings'));
     }
 }
 
@@ -438,6 +459,28 @@ if ($action === 'check_in') {
 
     // ---- Teacher/Staff patient check-in (separate, safe path) ----
     if ($patientType === 'teacher') {
+        $existingTicket = get_active_patient_queue_ticket($db, $teacherId, 'teacher');
+        if ($existingTicket) {
+            log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'existing_queue', $location, null, [
+                'queue_id'     => $existingTicket['id'],
+                'queue_number' => $existingTicket['queue_number'],
+                'visit_type'   => $existingTicket['visit_type'],
+            ], $scanMethod, $teacherId);
+            json_response(true, [
+                'queue_number'   => $existingTicket['queue_number'],
+                'queue_id'       => (int)$existingTicket['id'],
+                'already_queued' => true,
+                'student'        => [
+                    'id'             => $teacherId,
+                    'student_number' => $record['employee_id'] ?? 'STAFF',
+                    'name'           => trim(($record['first_name'] ?? '') . ' ' . ($record['last_name'] ?? '')),
+                    'course'         => $record['department'] ?? 'Staff',
+                    'year_level'     => '',
+                    'section'        => 'Teacher/Staff',
+                ],
+            ], 'Staff patient is already in queue (' . $existingTicket['queue_number'] . ').');
+        }
+
         if (is_duplicate_scan($db, $qrToken, 30)) {
             log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
             json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
@@ -451,9 +494,9 @@ if ($action === 'check_in') {
             ");
             $stmt->execute([$teacherId, $queueNumber, $visitType, $qrToken]);
             $queueId = $db->lastInsertId();
-            log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'success', $location, $teacherId, [
+            log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'success', $location, null, [
                 'queue_id' => $queueId, 'queue_number' => $queueNumber, 'visit_type' => $visitType,
-            ], $scanMethod);
+            ], $scanMethod, $teacherId);
             $db->commit();
 
             // Notify the teacher
@@ -483,12 +526,37 @@ if ($action === 'check_in') {
             ], 'Staff check-in successful. Queue number issued: ' . $queueNumber);
         } catch (Exception $e) {
             $db->rollBack();
-            json_response(false, [], 'Check-in failed: ' . $e->getMessage());
+            json_response(false, [], safe_api_error($e, 'Check-in failed. Please try again.', 'qr/checkin'));
         }
     }
 
-    if (is_duplicate_scan($db, $result['student']['qr_token'], 30)) {
-        log_qr_scan($db, $studentId, $result['student']['qr_token'], 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
+    $student = $result['record'] ?? $result['student'] ?? [];
+    $studentQrToken = $student['qr_token'] ?? $qrToken;
+
+    $existingTicket = get_active_patient_queue_ticket($db, $studentId, 'student');
+    if ($existingTicket) {
+        log_qr_scan($db, $studentId, $studentQrToken, 'check_in', $user['id'], 'existing_queue', $location, null, [
+            'queue_id'     => $existingTicket['id'],
+            'queue_number' => $existingTicket['queue_number'],
+            'visit_type'   => $existingTicket['visit_type'],
+        ], $scanMethod);
+        json_response(true, [
+            'queue_number'   => $existingTicket['queue_number'],
+            'queue_id'       => (int)$existingTicket['id'],
+            'already_queued' => true,
+            'student'        => [
+                'id'             => $studentId,
+                'student_number' => $student['student_number'] ?? '',
+                'name'           => trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? '')),
+                'course'         => $student['course'] ?? '',
+                'year_level'     => $student['year_level'] ?? '',
+                'section'        => $student['section'] ?? '',
+            ],
+        ], 'Student is already in queue (' . $existingTicket['queue_number'] . ').');
+    }
+
+    if (is_duplicate_scan($db, $studentQrToken, 30)) {
+        log_qr_scan($db, $studentId, $studentQrToken, 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
         json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
     }
 
@@ -501,10 +569,10 @@ if ($action === 'check_in') {
             INSERT INTO queue_numbers (student_id, queue_number, visit_type, qr_token, created_at)
             VALUES (?, ?, ?, ?, NOW())
         ");
-        $stmt->execute([$studentId, $queueNumber, $visitType, $result['student']['qr_token']]);
+        $stmt->execute([$studentId, $queueNumber, $visitType, $studentQrToken]);
         $queueId = $db->lastInsertId();
 
-        log_qr_scan($db, $studentId, $result['student']['qr_token'], 'check_in', $user['id'], 'success', $location, null, [
+        log_qr_scan($db, $studentId, $studentQrToken, 'check_in', $user['id'], 'success', $location, null, [
             'queue_id'     => $queueId,
             'queue_number' => $queueNumber,
             'visit_type'   => $visitType,
@@ -516,48 +584,51 @@ if ($action === 'check_in') {
         $db->commit();
 
         // Notify the student
-        push_notification(
-            $user['id'],
-            'qr_checkin',
-            'Check-in Successful',
-            'Your QR was scanned at the clinic. Queue number: ' . $queueNumber . '. Please proceed to the waiting area.',
-            APP_URL . '/pages/student/my_qr.php',
-            null, 'medium', $studentId
-        );
+        $studentUserId = (int)($student['user_id'] ?? 0);
+        if ($studentUserId > 0) {
+            push_notification(
+                $studentUserId,
+                'qr_checkin',
+                'Check-in Successful',
+                'Your QR was scanned at the clinic. Queue number: ' . $queueNumber . '. Please proceed to the waiting area.',
+                APP_URL . '/pages/student/my_qr.php',
+                null, 'medium', $studentId
+            );
+        }
 
         // Notify all nurses
         $nurseStmt = $db->query("SELECT user_id FROM nurses");
         $nurses = $nurseStmt->fetchAll();
+        $studentFullName = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? ''));
         foreach ($nurses as $nurse) {
             push_notification(
                 $nurse['user_id'],
                 'qr_checkin',
                 'Student Checked In',
-                $result['student']['first_name'] . ' ' . $result['student']['last_name'] .
-                ' (' . $result['student']['student_number'] . ') — Queue: ' . $queueNumber,
+                $studentFullName . ' (' . ($student['student_number'] ?? '') . ') — Queue: ' . $queueNumber,
                 APP_URL . '/pages/nurse/dashboard.php',
                 null, 'medium', $studentId
             );
         }
 
         // Audit log
-        log_activity($user['id'], 'QR Check-in', 'qr_checkin', "Student: {$result['student']['student_number']}, Queue: {$queueNumber}");
+        log_activity($user['id'], 'QR Check-in', 'qr_checkin', "Student: " . ($student['student_number'] ?? $studentId) . ", Queue: {$queueNumber}");
 
         json_response(true, [
             'queue_number' => $queueNumber,
             'queue_id'     => $queueId,
             'student'      => [
                 'id'             => $studentId,
-                'student_number' => $result['student']['student_number'],
-                'name'           => $result['student']['first_name'] . ' ' . $result['student']['last_name'],
-                'course'         => $result['student']['course'],
-                'year_level'     => $result['student']['year_level'],
-                'section'        => $result['student']['section'],
+                'student_number' => $student['student_number'] ?? '',
+                'name'           => $studentFullName,
+                'course'         => $student['course'] ?? '',
+                'year_level'     => $student['year_level'] ?? '',
+                'section'        => $student['section'] ?? '',
             ],
         ], 'Check-in successful. Queue number issued: ' . $queueNumber);
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Check-in failed: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Check-in failed. Please try again.', 'qr/checkin'));
     }
 }
 
@@ -688,10 +759,10 @@ if ($action === 'verify') {
 // TEACHER_QR — a teacher/staff member's own permanent QR (My Clinic)
 // ================================================================
 if ($action === 'teacher_qr') {
-    if (!in_array($role, ['adviser', 'admin', 'nurse'], true)) json_response(false, [], 'Access denied.');
+    if (!in_array($role, ['teacher', 'admin', 'nurse'], true)) json_response(false, [], 'Access denied.');
     // Resolve the teacher record for the current user (adviser) or a provided teacher_id (admin/nurse)
     $teacherId = 0;
-    if ($role === 'adviser') {
+    if ($role === 'teacher') {
         $stmt = $db->prepare("SELECT id FROM teachers WHERE user_id = ? LIMIT 1");
         $stmt->execute([$user['id']]);
         $teacherId = (int)$stmt->fetchColumn();
@@ -980,151 +1051,6 @@ if ($action === 'student_health_pass') {
     ]);
 }
 
-// ================================================================
-// STUDENT_QR_TIMELINE — chronological visit timeline after a QR scan.
-// Returns the full lifecycle: scanned → check-in → queue → consultation
-// → medicine → certificate → completed.
-// ================================================================
-if ($action === 'student_qr_timeline') {
-    $studentId = resolve_student_id($db, $user);
-    if ($studentId <= 0) {
-        if ($user['role'] === 'nurse' || $user['role'] === 'admin') {
-            $studentId = (int)($_GET['student_id'] ?? 0);
-        }
-        if ($studentId <= 0) json_response(false, [], 'No student record found.');
-    }
-
-$limit = min((int)($_GET['limit'] ?? 20), 100);
-    $events = [];
-
-    // 1. QR scan logs (check-in, appointment verify, etc.)
-    $scanRows = safe_fetch_all($db, "
-        SELECT scan_time, purpose, status, scan_location
-        FROM qr_scan_logs
-        WHERE student_id = ?
-        ORDER BY scan_time DESC
-        LIMIT ?
-    ", [$studentId, $limit], []);
-    foreach ($scanRows as $row) {
-        $events[] = [
-            'timestamp' => $row['scan_time'],
-            'type'      => 'scan',
-            'title'     => 'QR Scanned',
-            'detail'    => ucfirst($row['purpose']) . ' • ' . ucfirst($row['scan_location'] ?? ''),
-            'status'    => $row['status'],
-            'icon'      => '📱',
-        ];
-    }
-
-    // 2. Queue numbers (check-in / queue assigned)
-    $queueRows = safe_fetch_all($db, "
-        SELECT queue_number, visit_type, created_at, called_at, served_at, completed_at, status
-        FROM queue_numbers
-        WHERE student_id = ?
-        ORDER BY created_at DESC
-        LIMIT ?
-    ", [$studentId, $limit], []);
-    foreach ($queueRows as $row) {
-        $events[] = [
-            'timestamp' => $row['created_at'],
-            'type'      => 'queue',
-            'title'     => 'Queue Assigned',
-            'detail'    => $row['queue_number'] . ' (' . ucfirst($row['visit_type']) . ')',
-            'status'    => $row['status'],
-            'icon'      => '🔢',
-        ];
-        if (!empty($row['called_at'])) {
-            $events[] = [
-                'timestamp' => $row['called_at'],
-                'type'      => 'consultation',
-                'title'     => 'Consultation Started',
-                'detail'    => 'Queue ' . $row['queue_number'],
-                'status'    => 'serving',
-                'icon'      => '🩺',
-            ];
-        }
-        if (!empty($row['completed_at'])) {
-            $events[] = [
-                'timestamp' => $row['completed_at'],
-                'type'      => 'visit_completed',
-                'title'     => 'Visit Completed',
-                'detail'    => 'Queue ' . $row['queue_number'],
-                'status'    => 'completed',
-                'icon'      => '✅',
-            ];
-        }
-    }
-
-    // 3. Consultations
-    $consultRows = safe_fetch_all($db, "
-        SELECT consultation_date, visit_type, chief_complaint, diagnosis
-        FROM consultations
-        WHERE student_id = ?
-        ORDER BY consultation_date DESC
-        LIMIT ?
-    ", [$studentId, $limit], []);
-    foreach ($consultRows as $row) {
-        $events[] = [
-            'timestamp' => $row['consultation_date'],
-            'type'      => 'consultation',
-            'title'     => 'Consultation',
-            'detail'    => $row['chief_complaint'] . ($row['diagnosis'] ? ' → ' . $row['diagnosis'] : ''),
-            'status'    => 'completed',
-            'icon'      => '📋',
-        ];
-    }
-
-    // 4. Medicine dispensing
-    $medRows = safe_fetch_all($db, "
-        SELECT md.performed_at, m.medicine_name, md.quantity, u.first_name AS nurse_name
-        FROM medicine_dispensing md
-        JOIN medicines m ON m.id = md.medicine_id
-        LEFT JOIN users u ON u.id = md.dispensed_by
-        WHERE md.walk_in_id IN (
-            SELECT id FROM walk_in_visits WHERE student_id = ?
-        )
-        ORDER BY md.performed_at DESC
-        LIMIT ?
-    ", [$studentId, $limit], []);
-    foreach ($medRows as $row) {
-        $events[] = [
-            'timestamp' => $row['performed_at'],
-            'type'    => 'medicine',
-            'title'   => 'Medicine Dispensed',
-            'detail'  => $row['medicine_name'] . ' (' . $row['quantity'] . ')',
-            'status'  => 'completed',
-            'icon'    => '💊',
-        ];
-    }
-
-    // 5. Certificates issued
-    $certRows = safe_fetch_all($db, "
-        SELECT date_issued, certificate_type, purpose
-        FROM certificates
-        WHERE student_id = ?
-        ORDER BY date_issued DESC
-        LIMIT ?
-    ", [$studentId, $limit], []);
-    foreach ($certRows as $row) {
-        $events[] = [
-            'timestamp' => $row['date_issued'] . ' 00:00:00',
-            'type'      => 'certificate',
-            'title'     => 'Medical Certificate Issued',
-            'detail'    => $row['certificate_type'] . ($row['purpose'] ? ' — ' . $row['purpose'] : ''),
-            'status'    => 'completed',
-            'icon'      => '📄',
-        ];
-    }
-
-    // Sort chronologically (newest first)
-    usort($events, function ($a, $b) {
-        return strtotime($b['timestamp']) - strtotime($a['timestamp']);
-    });
-
-    json_response(true, ['timeline' => array_slice($events, 0, $limit)]);
-}
-
-// ================================================================
 // STUDENT_QR_NOTIFICATIONS — notifications related to the student's QR
 // scans (for the notification bell / history).
 // ================================================================
@@ -1264,7 +1190,7 @@ if ($action === 'smart_scan') {
     // Teacher/Staff smart scan: verify + (optional) check-in, no student-only workflow
     if ($patientType === 'teacher') {
         if (is_duplicate_scan($db, $qrToken, get_qr_setting($db, 'duplicate_scan_window', 30))) {
-            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'duplicate', $location, $teacherId, null, $scanMethod);
+            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'duplicate', $location, null, null, $scanMethod, $teacherId);
             json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
         }
         $studentPayload = [
@@ -1281,7 +1207,7 @@ if ($action === 'smart_scan') {
             'profile_picture'=> $student['profile_picture'] ?? '',
         ];
         if (!$performCheckIn) {
-            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'success', $location, $teacherId, ['scan_intent' => 'walk_in'], $scanMethod);
+            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'success', $location, null, ['scan_intent' => 'walk_in'], $scanMethod, $teacherId);
             json_response(true, ['student' => $studentPayload, 'workflow' => ['scenario' => 'walk_in'], 'purpose' => 'smart_scan']);
         }
         $queueNumber = generate_queue_number($db);
@@ -1290,7 +1216,7 @@ if ($action === 'smart_scan') {
             $stmt = $db->prepare("INSERT INTO queue_numbers (teacher_id, patient_type, queue_number, visit_type, qr_token, status, created_at) VALUES (?, 'teacher', ?, 'walk-in', ?, 'waiting', NOW())");
             $stmt->execute([$teacherId, $queueNumber, $qrToken]);
             $queueId = $db->lastInsertId();
-            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'success', $location, $teacherId, ['queue_id' => $queueId, 'queue_number' => $queueNumber, 'scan_intent' => 'walk_in'], $scanMethod);
+            log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'success', $location, null, ['queue_id' => $queueId, 'queue_number' => $queueNumber, 'scan_intent' => 'walk_in'], $scanMethod, $teacherId);
             $db->commit();
             if (!empty($student['user_id'])) {
                 push_notification($student['user_id'], 'qr_checkin', 'Check-in Successful',
@@ -1303,7 +1229,7 @@ if ($action === 'smart_scan') {
             json_response(true, ['queue_number' => $queueNumber, 'student' => ['name' => $studentPayload['name'], 'student_number' => $studentPayload['student_number']]]);
         } catch (Exception $e) {
             $db->rollBack();
-            json_response(false, [], 'Smart check-in failed: ' . $e->getMessage());
+            json_response(false, [], safe_api_error($e, 'Smart check-in failed. Please try again.', 'qr/smart_checkin'));
         }
     }
 
@@ -1398,7 +1324,7 @@ if ($action === 'smart_scan') {
         $db->commit();
     } catch (Exception $e) {
         $db->rollBack();
-        json_response(false, [], 'Smart check-in failed: ' . $e->getMessage());
+        json_response(false, [], safe_api_error($e, 'Smart check-in failed. Please try again.', 'qr/smart_checkin'));
     }
 
     // 5e. Notify the student

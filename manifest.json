@@ -1,7 +1,7 @@
 {
   "name": "AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement",
   "short_name": "BPC School Clinic",
-  "description": "AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement with digital health monitoring, appointments, and emergency assistance.",
+  "description": "AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement with digital health monitoring, consultations, and emergency assistance.",
   "start_url": "index.php",
   "scope": "./",
   "display": "standalone",
@@ -37,10 +37,10 @@
       "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Scheduled Services",
-      "short_name": "Appointments",
-      "description": "Book or check clinic appointments",
-      "url": "pages/student/appointments.php",
+      "name": "Live Clinic Queue",
+      "short_name": "Clinic Queue",
+      "description": "Check in and track live clinic queue",
+      "url": "pages/student/queue.php",
       "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]

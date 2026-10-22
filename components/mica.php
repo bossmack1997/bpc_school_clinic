@@ -38,11 +38,11 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
 <!-- ================================================================ -->
 <!-- SOS Emergency Modal (Global - used by MICA on every page)        -->
 <!-- ================================================================ -->
-<div class="modal fade" id="sosModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="sosModal" tabindex="-1" aria-hidden="true" aria-labelledby="sosModalTitle">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content border-0 rounded-4 shadow-lg">
-      <div class="modal-header border-0 bg-danger text-white rounded-top-4">
-        <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill me-2"></i>SOS Emergency</h5>
+    <div class="modal-content">
+      <div class="modal-header modal-header--danger">
+      <h5 class="modal-title" id="sosModalTitle"><?= bpc_icon('alert-triangle') ?> SOS Emergency</h5>
         <button class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form id="sosForm" novalidate>
@@ -71,11 +71,13 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
             <label class="form-label fw-semibold" for="emergencyDesc">Description <small class="text-muted">(optional)</small></label>
             <textarea class="form-control" name="description" id="emergencyDesc" rows="2" placeholder="Briefly describe what happened..."></textarea>
           </div>
+          <div class="mb-3"><label for="sosManualLocation" class="form-label">Location details (room, building, or landmark)</label><input id="sosManualLocation" class="form-control" maxlength="255" placeholder="Useful when GPS is unavailable or approximate"></div>
           <div id="locationStatus" class="alert alert-info small py-2 d-none">
             <i class="bi bi-geo-alt-fill me-1"></i> <span id="locationText">Acquiring high-accuracy GPS coordinates...</span>
           </div>
         </div>
         <div class="modal-footer border-0 justify-content-center gap-2">
+          <button class="btn btn-outline-secondary" type="button" id="sosHistoryBtn">My SOS history</button>
           <button class="btn btn-secondary px-4" type="button" data-bs-dismiss="modal">Cancel</button>
           <button class="btn btn-danger px-4" type="submit" id="sosSubmitBtn">
             <i class="bi bi-exclamation-triangle-fill me-1"></i> Activate SOS
@@ -92,20 +94,23 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
 <div id="studentActiveSosBanner" class="sos-floating-widget collapsed" style="display:none;" aria-live="assertive">
   <!-- Collapsed Bar (Default Minimal State) -->
   <div class="sos-widget-bar" id="sosWidgetBar">
-    <div class="sos-widget-left" id="sosToggleArea">
+    <button type="button" class="sos-widget-left sos-toggle-area" id="sosToggleArea" aria-label="Open emergency alert details" aria-controls="sosWidgetDetails" aria-expanded="false">
       <span class="sos-pulse-dot"></span>
       <span class="sos-widget-title">
         <i class="bi bi-shield-fill-exclamation text-danger me-1"></i>
         <strong>Emergency Active</strong>
         <span class="sos-badge-pill"><i class="bi bi-broadcast me-1"></i>GPS Sharing</span>
       </span>
-    </div>
+    </button>
     <div class="sos-widget-actions">
       <button type="button" class="btn btn-sm btn-outline-danger sos-quick-cancel-btn" id="btnCancelActiveSosQuick" title="Cancel Emergency">
         <i class="bi bi-x-circle me-1"></i> Cancel
       </button>
       <button type="button" class="sos-expand-toggle-btn" id="sosExpandToggle" aria-label="Toggle Details" title="Expand / Collapse Details">
         <i class="bi bi-chevron-up" id="sosExpandIcon"></i>
+      </button>
+      <button type="button" class="sos-minimize-toggle-btn" id="sosMinimizeToggle" aria-label="Minimize emergency alert" title="Minimize emergency alert" aria-expanded="true">
+        <i class="bi bi-dash-lg" aria-hidden="true"></i>
       </button>
     </div>
   </div>
@@ -140,6 +145,7 @@ window.MICA_USER = {
   firstName: '<?= $micaFirstName ?>',
   fullName: '<?= $micaFullName ?>',
   role: '<?= $micaRole ?>',
+  inventoryAllowed: <?= can_view_inventory($micaUser)?'true':'false' ?>,
 };
 
 window.MICA_CONFIG = {
@@ -171,8 +177,8 @@ window.getLocation = function (forceFresh) {
     // Use recently acquired fresh location (< 15s) if available and not forced
     if (!forceFresh && window.__MICA_SOS_LOCATION__ && (Date.now() - window.__MICA_SOS_LOC_TIME__ < 15000)) {
       if (statusText && window.__MICA_SOS_LOCATION__.lat) {
-        statusText.textContent = '📍 GPS ready: ' + window.__MICA_SOS_LOCATION__.lat.toFixed(5) + ', ' + window.__MICA_SOS_LOCATION__.lng.toFixed(5);
-        if (statusBox) statusBox.className = 'alert alert-success small py-2';
+        statusText.textContent = 'GPS estimate: ' + window.__MICA_SOS_LOCATION__.lat.toFixed(5) + ', ' + window.__MICA_SOS_LOCATION__.lng.toFixed(5) + '. ' + bpcSosAccuracyLabel(window.__MICA_SOS_LOCATION__.accuracy);
+        if (statusBox) statusBox.className = 'alert alert-warning small py-2';
       }
       resolve(window.__MICA_SOS_LOCATION__);
       return;
@@ -209,8 +215,8 @@ window.getLocation = function (forceFresh) {
         var lng = pos.coords.longitude;
         var acc = pos.coords.accuracy ? (Math.round(pos.coords.accuracy) + 'm') : null;
         if (statusText) {
-          statusText.textContent = '📍 GPS acquired: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + (acc ? ' (±' + acc + ')' : '');
-          if (statusBox) statusBox.className = 'alert alert-success small py-2';
+          statusText.textContent = 'GPS acquired: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + (acc ? ' (±' + acc + ')' : '');
+          if (statusBox) statusBox.className = 'alert alert-warning small py-2';
         }
         finish({ lat: lat, lng: lng, accuracy: acc });
       },
@@ -235,8 +241,8 @@ window.getLocation = function (forceFresh) {
             var lng2 = pos2.coords.longitude;
             var acc2 = pos2.coords.accuracy ? (Math.round(pos2.coords.accuracy) + 'm') : null;
             if (statusText) {
-              statusText.textContent = '📍 Location acquired: ' + lat2.toFixed(5) + ', ' + lng2.toFixed(5) + (acc2 ? ' (±' + acc2 + ')' : '');
-              if (statusBox) statusBox.className = 'alert alert-success small py-2';
+              statusText.textContent = 'Location acquired: ' + lat2.toFixed(5) + ', ' + lng2.toFixed(5) + (acc2 ? ' (±' + acc2 + ')' : '');
+              if (statusBox) statusBox.className = 'alert alert-warning small py-2';
             }
             finish({ lat: lat2, lng: lng2, accuracy: acc2 });
           },
@@ -265,6 +271,7 @@ $(document).on('shown.bs.modal', '#sosModal', function () {
 
 // Start Continuous Real-Time Tracking for active SOS
 window.startSosLocationTracking = function (emergencyId, initialLat, initialLng, initialAcc) {
+  document.body.classList.add('has-active-sos-banner');
   window.__ACTIVE_SOS_ID__ = emergencyId;
   window.__SOS_LAST_UPDATE_TIME__ = Date.now();
   window.__SOS_LAST_LAT__ = initialLat;
@@ -272,6 +279,11 @@ window.startSosLocationTracking = function (emergencyId, initialLat, initialLng,
 
   var $banner = $('#studentActiveSosBanner');
   if ($banner.length) {
+    // Keep the active-status control compact on every viewport. Expanding it
+    // only changes the display; the SOS request and GPS watch remain active.
+    $banner.addClass('is-minimized');
+    $('#sosMinimizeToggle').attr({ 'aria-label': 'View active emergency details', title: 'View active emergency details', 'aria-expanded': 'false' })
+      .find('i').removeClass('bi-dash-lg bi-plus-lg').addClass('bi-shield-fill-exclamation');
     $banner.fadeIn(300);
     updateBannerCoords(initialLat, initialLng, initialAcc);
   }
@@ -333,6 +345,7 @@ window.startSosLocationTracking = function (emergencyId, initialLat, initialLng,
 
 // Stop Continuous Real-Time Tracking
 window.stopSosLocationTracking = function (title, msg) {
+  document.body.classList.remove('has-active-sos-banner');
   if (window.__SOS_WATCH_ID__ !== null) {
     navigator.geolocation.clearWatch(window.__SOS_WATCH_ID__);
     window.__SOS_WATCH_ID__ = null;
@@ -346,7 +359,7 @@ window.stopSosLocationTracking = function (title, msg) {
 
 function updateBannerCoords(lat, lng, acc) {
   if (lat !== null && lat !== undefined && lng !== null && lng !== undefined) {
-    $('#sosCurrentCoords').html('<strong>' + Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6) + '</strong>' + (acc ? ' (±' + acc + ')' : ''));
+    $('#sosCurrentCoords').html('<strong>' + Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6) + '</strong>' + (acc ? ' (' + escapeHtml(bpcSosAccuracyLabel(acc)) + ')' : ' (Accuracy unknown)'));
   } else {
     $('#sosCurrentCoords').html('<span class="text-warning">GPS location unavailable</span>');
   }
@@ -355,11 +368,14 @@ function updateBannerCoords(lat, lng, acc) {
 
 // Auto-check active SOS status on student pages
 function checkStudentActiveSos() {
-  if (window.MICA_USER && window.MICA_USER.role === 'student') {
+  if (window.MICA_USER && ['student','teacher'].includes(window.MICA_USER.role)) {
     $.get(APP_URL + '/api/emergencies.php', { action: 'active_sos' }, function (res) {
       if (res && res.success && res.has_active_sos && res.emergency) {
         var emg = res.emergency;
-        window.startSosLocationTracking(emg.id, emg.latitude, emg.longitude, emg.location_accuracy);
+        if (window.__ACTIVE_SOS_ID__ !== emg.id) window.startSosLocationTracking(emg.id, emg.latitude, emg.longitude, emg.location_accuracy);
+        $('#sosLastUpdatedText').text('Status: '+emg.status);
+      } else if (res && res.success && window.__ACTIVE_SOS_ID__) {
+        window.stopSosLocationTracking('SOS closed', 'The emergency is no longer active.');
       }
     }, 'json');
   }
@@ -369,14 +385,42 @@ function checkStudentActiveSos() {
 $(document).on('click', '#sosExpandToggle, #sosToggleArea', function (e) {
   e.stopPropagation();
   var $widget = $('#studentActiveSosBanner');
+  if ($widget.hasClass('is-minimized')) {
+    $widget.removeClass('is-minimized');
+    $('#sosMinimizeToggle').attr({ 'aria-label': 'Minimize emergency alert', title: 'Minimize emergency alert', 'aria-expanded': 'true' })
+      .find('i').removeClass('bi-shield-fill-exclamation bi-plus-lg').addClass('bi-dash-lg');
+  }
   var isExpanded = $widget.hasClass('expanded');
   if (isExpanded) {
     $widget.removeClass('expanded').addClass('collapsed');
     $('#sosExpandIcon').removeClass('bi-chevron-down').addClass('bi-chevron-up');
+    $('#sosToggleArea').attr('aria-expanded', 'false');
   } else {
     $widget.removeClass('collapsed').addClass('expanded');
     $('#sosExpandIcon').removeClass('bi-chevron-up').addClass('bi-chevron-down');
+    $('#sosToggleArea').attr('aria-expanded', 'true');
   }
+});
+
+// Minimize only the visual banner. The active SOS request and GPS tracking continue.
+$(document).on('click', '#sosMinimizeToggle', function (e) {
+  e.stopPropagation();
+  var $widget = $('#studentActiveSosBanner');
+  var minimized = !$widget.hasClass('is-minimized');
+  $widget.toggleClass('is-minimized', minimized);
+  if (minimized) {
+    $widget.removeClass('expanded').addClass('collapsed');
+    $('#sosExpandIcon').removeClass('bi-chevron-down').addClass('bi-chevron-up');
+    $('#sosToggleArea').attr('aria-expanded', 'false');
+  }
+  $(this)
+    .attr('aria-label', minimized ? 'View active emergency details' : 'Minimize emergency alert')
+    .attr('title', minimized ? 'View active emergency details' : 'Minimize emergency alert')
+    .attr('aria-expanded', minimized ? 'false' : 'true')
+    .find('i')
+    .toggleClass('bi-dash-lg', !minimized)
+    .toggleClass('bi-shield-fill-exclamation', minimized)
+    .removeClass('bi-plus-lg');
 });
 
 // Cancel Active SOS handler (shared by quick-cancel and full cancel buttons)
@@ -392,13 +436,17 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#dc3545',
+    input: 'text',
+    inputLabel: 'Reason for cancellation',
+    inputValidator: function(value) { if (!value || !value.trim()) return 'Enter a reason.'; },
     confirmButtonText: 'Yes, Cancel Emergency'
   }).then(function (result) {
     if (result.isConfirmed) {
       $.post(APP_URL + '/api/emergencies.php', {
         action: 'cancel_sos',
         emergency_id: emgId,
-        csrf_token: csrf
+        csrf_token: csrf,
+        reason: result.value || 'Cancelled by reporting user'
       }, function (res) {
         if (res && res.success) {
           window.stopSosLocationTracking('Emergency Cancelled', 'Your emergency request has been cancelled. Location sharing has stopped.');
@@ -422,6 +470,7 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
     }
 
     var submitBtn = document.getElementById('sosSubmitBtn');
+    if (submitBtn.disabled) return;
     var originalText = submitBtn.innerHTML;
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Acquiring GPS & Sending...';
     submitBtn.disabled = true;
@@ -438,6 +487,7 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
         action: 'sos',
         emergency_type: type,
         description: desc,
+        location: document.getElementById('sosManualLocation').value.trim(),
         latitude: lat,
         longitude: lng,
         accuracy: acc,
@@ -448,31 +498,30 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
 
         var modalEl = document.getElementById('sosModal');
         if (modalEl) {
-          var bsModal = bootstrap.Modal.getInstance(modalEl);
-          if (bsModal) bsModal.hide();
+          BPCModal.hide(modalEl);
         }
 
         if (res && res.success) {
           var emgId = res.emergency_id;
           Swal.fire({
             icon: 'success',
-            title: '🚨 SOS Activated!',
+            title: 'SOS Activated!',
             html: (res.message || 'Your emergency request has been sent to the School Clinic.') +
-                  (lat ? '<br><small class="text-success mt-2 d-block">📍 GPS Coordinates transmitted. Live tracking started.</small>' : '<br><small class="text-warning mt-2 d-block">⚠️ Sent without exact GPS location.</small>'),
+                  (lat ? '<br><small class="text-success mt-2 d-block">GPS coordinates transmitted. Live tracking started.</small>' : '<br><small class="text-warning mt-2 d-block">Sent without exact GPS location.</small>'),
             timer: 5000,
             timerProgressBar: true
           });
 
           // Start continuous real-time location tracking
-          window.startSosLocationTracking(emgId, lat, lng, acc);
+          if (res.tracking_active !== false) window.startSosLocationTracking(emgId, res.latitude, res.longitude, acc);
         } else {
           Swal.fire({ icon: 'error', title: 'SOS Failed', text: (res && res.message) || 'Failed to send SOS. Please try again.' });
         }
         window.__MICA_SOS_LOCATION__ = null;
-      }, 'json').fail(function () {
+      }, 'json').fail(function (xhr) {
         submitBtn.innerHTML = originalText;
         submitBtn.disabled = false;
-        Swal.fire({ icon: 'error', title: 'Connection Error', text: 'Failed to send SOS. Please contact the clinic directly.' });
+        Swal.fire({ icon: 'error', title: 'Connection Error', text: (xhr.responseJSON && xhr.responseJSON.message) || (xhr.status ? 'Server error (HTTP ' + xhr.status + '). Check your SOS status before retrying.' : 'Connection lost. Check your SOS status before retrying, or contact the clinic directly.') });
       });
     });
   }
@@ -482,6 +531,18 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
 
   $(document).ready(function () {
     checkStudentActiveSos();
+    setInterval(function(){if(!document.hidden)checkStudentActiveSos();},12000);
   });
 })();
+</script>
+
+<script>
+$(document).on('click','#sosHistoryBtn',function(){
+  var button=this;button.disabled=true;
+  $.get(APP_URL+'/api/emergencies.php',{action:'list',history:1},function(res){
+    if(!res.success){Swal.fire('SOS history',res.message,'error');return;}
+    var rows=(res.data||[]).map(function(row){return '<tr><td>'+escapeHtml(String(row.id))+'</td><td>'+escapeHtml(row.emergency_type)+'</td><td>'+escapeHtml(row.status)+'</td><td>'+escapeHtml(row.created_at)+'</td></tr>';}).join('');
+    Swal.fire({title:'My SOS history',html:'<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Reference</th><th>Emergency</th><th>Status</th><th>Reported</th></tr></thead><tbody>'+rows+'</tbody></table></div>',width:750});
+  },'json').fail(function(xhr){Swal.fire('SOS history',(xhr.responseJSON&&xhr.responseJSON.message)||'Unable to load history. Try again.','error');}).always(function(){button.disabled=false;});
+});
 </script>

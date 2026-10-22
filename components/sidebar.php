@@ -1,52 +1,41 @@
- <?php
+<?php
 /**
  * components/sidebar.php
  * ------------------------------------------------------------------
- * SINGLE role-aware sidebar for the entire BPC Clinic system.
- * Replaces includes/sidebar_admin.php, includes/sidebar_nurse.php,
- * includes/sidebar_student.php — one source of truth, no duplication.
+ * Single role-aware sidebar for every authenticated page.
  *
- * The active page is highlighted automatically using the current
- * script filename. The layout is responsive: desktop collapse,
- * mobile off-canvas (controlled by assets/js/main.js).
+ * Icons are inline SVG (bpc_icon) so navigation never depends on an
+ * icon webfont or CDN. Items only link to pages that exist for the
+ * current role — no decorative, non-functional entries.
  * ------------------------------------------------------------------
  */
 
 $sbUser   = current_user();
 $sbRole   = $sbUser['role'] ?? 'student';
 $sbCur    = basename($_SERVER['SCRIPT_NAME']);
+$sbTabs   = $_GET['tab'] ?? null;
 
 /**
- * Per-role navigation definition.
- * Each item: [section, icon, label, file, badge(optional)]
+ * Build one sidebar entry.
+ * [ icon, label, file, type ] — type: link | logout | sos
  */
 $sbNav = [
     'admin' => [
         'sections' => [
-            'Dashboard' => [
-                ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
+            'Overview' => [
+                ['dashboard', 'Dashboard', 'dashboard.php'],
+                ['alert-triangle', 'Emergency Oversight', 'emergencies.php'],
             ],
-            'User & Academics' => [
-                ['person-badge-fill', 'User Management', 'users.php'],
-                ['hourglass-split', 'Pending Accounts', 'pending_accounts.php'],
-                ['layers-fill', 'Courses & Sections', 'sections.php'],
+            'Management' => [
+                ['users', 'People Directory', 'users.php'],
+                ['shield-lock', 'Admin Accounts', 'admin_accounts.php'],
             ],
-            'Clinic Operations' => [
-                ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
-                ['file-earmark-bar-graph-fill', 'Reports', 'reports.php'],
-                ['graph-up', 'Health Analytics', 'analytics.php'],
-            ],
-            'System & Logs' => [
-                ['clock-history', 'Audit Logs', 'activity_logs.php'],
-                ['gear-fill', 'System Settings', 'settings.php'],
-            ],
-            'Communication' => [
-                ['megaphone-fill', 'Announcements', 'announcements.php'],
-                ['bell-fill', 'Notifications', 'notifications.php'],
+            'Settings' => [
+                ['settings', 'Settings', 'settings.php'],
             ],
             'Account' => [
-                ['person-circle', 'Profile', 'profile.php'],
-                ['box-arrow-right', 'Logout', null, 'logout'],
+                ['user', 'My Profile', 'profile.php'],
+                ['logout', 'Logout', null, 'logout'],
             ],
         ],
         'brand' => 'System Administrator',
@@ -54,156 +43,222 @@ $sbNav = [
 
     'nurse' => [
         'sections' => [
-            'Dashboard' => [
-                ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
+            'Overview' => [
+                ['dashboard', 'Dashboard', 'dashboard.php'],
             ],
-            'Patient Care' => [
-                ['hospital-fill', 'Today\'s Patients', 'patients_today.php'],
-                ['person-walking', 'Clinic Visits / Walk-in', 'walkin.php'],
-                ['calendar-check-fill', 'Appointments', 'appointments.php'],
-                ['file-earmark-medical-fill', 'Medical Records', 'medical_records.php'],
-                ['clock-history', 'Patient History', 'patient_history.php'],
+            'Clinic Operations' => [
+                ['list', 'Clinic Queue', 'queue.php'],
             ],
-            'Clinic Services' => [
-                ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
-                ['capsule', 'Medicine Dispensing', 'dispensing.php'],
-                ['capsule-pill', 'Medicine Inventory', 'inventory.php'],
-                ['file-medical-fill', 'Medical Certificates', 'certificates.php'],
+            'Communication' => [
+                ['chat', 'Messages', 'messages.php'],
             ],
-            'QR Check-in' => [
-                ['qr-code-scan', 'QR Scanner', 'qr_scanner.php'],
-                ['qr-code', 'QR Management', 'qr_management.php'],
-            ],
-            'Reports & Communication' => [
-                ['file-earmark-bar-graph-fill', 'Reports', 'reports.php'],
-                ['megaphone-fill', 'Announcements', 'announcements.php'],
-                ['bell-fill', 'Notifications', 'notifications.php'],
+            'Settings' => [
+                ['settings', 'Settings', 'settings.php'],
             ],
             'Account' => [
-                ['person-circle', 'Profile', 'profile.php'],
-                ['box-arrow-right', 'Logout', null, 'logout'],
+                ['user', 'Profile', 'profile.php'],
+                ['logout', 'Logout', null, 'logout'],
             ],
         ],
-        'brand' => 'Nurse Station',
+        'brand' => 'Clinic Nurse',
     ],
 
     'student' => [
         'sections' => [
-            'Dashboard' => [
-                ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
+            'Overview' => [
+                ['dashboard', 'Dashboard', 'dashboard.php'],
             ],
-            'My Health' => [
-                ['qr-code', 'My Clinic QR', 'my_qr.php'],
-                ['file-earmark-medical-fill', 'My Medical Records', 'medical_record.php'],
-                ['heart-pulse-fill', 'Health Monitoring', 'health_monitoring.php'],
-                ['shield-check', 'Vaccination Record', 'vaccination.php'],
-            ],
-            'Clinic Services' => [
-                ['calendar-check-fill', 'Book Appointment', 'appointments.php'],
-                ['file-medical-fill', 'Medical Certificate', 'certificates.php'],
-            ],
-            'AI Assistance' => [
-                ['robot', 'Ask MICA', '../ai_assistant.php'],
+            'Health Services' => [
+                ['list', 'Clinic Queue', 'queue.php'],
+                ['file-medical', 'Health Record', 'medical_record.php'],
             ],
             'Communication' => [
-                ['megaphone-fill', 'Clinic Announcements', 'announcements.php'],
-                ['bell-fill', 'Notifications', 'notifications.php'],
+                ['chat', 'Messages', 'messages.php'],
             ],
             'Account' => [
-                ['person-circle', 'My Profile', 'profile.php'],
-                ['box-arrow-right', 'Logout', null, 'logout'],
+                ['settings', 'Settings', 'settings.php'],
+                ['user', 'My Profile', 'profile.php'],
+                ['logout', 'Logout', null, 'logout'],
             ],
         ],
-        'brand' => 'Student Portal',
+        'brand' => 'Student',
     ],
 
-    'adviser' => [
+    'teacher' => [
         'sections' => [
-            'Dashboard' => [
-                ['grid-1x2-fill', 'Dashboard', 'dashboard.php'],
+            'Overview' => [
+                ['dashboard', 'Dashboard', 'dashboard.php'],
             ],
-            'Advisory Class' => [
-                ['people-fill', 'My Advisory Students', 'students.php'],
-                ['exclamation-triangle-fill', 'Emergency Reports', 'emergencies.php'],
-                ['file-earmark-medical-fill', 'Clinic Coordination', 'consultations.php'],
+            'Teacher Management' => [
+                ['users', 'My Students', 'students.php'],
             ],
-            'My Clinic' => [
-                ['qr-code', 'My Staff QR', 'my_qr.php'],
+            'Personal Clinic Services' => [
+                ['list', 'Clinic Queue', 'queue.php'],
+                ['file-medical', 'My Health Record', 'consultations.php'],
             ],
             'Communication' => [
-                ['megaphone-fill', 'Clinic Announcements', 'announcements.php'],
-                ['bell-fill', 'Notifications', 'notifications.php'],
+                ['chat', 'Messages', 'messages.php'],
             ],
             'Account' => [
-                ['person-circle', 'Profile', 'profile.php'],
-                ['box-arrow-right', 'Logout', null, 'logout'],
+                ['settings', 'Settings', 'settings.php'],
+                ['user', 'Profile', 'profile.php'],
+                ['logout', 'Logout', null, 'logout'],
             ],
         ],
-        'brand' => 'Adviser Portal',
+        'brand' => 'Teacher / Adviser',
     ],
 ];
 
+$sbProfile=permission_profile($sbUser);
+if($sbProfile==='mis')$sbNav['admin']=['brand'=>'MIS / System Administrator','sections'=>[
+ 'System Administration'=>[
+     ['dashboard','Dashboard','dashboard.php'],
+     ['users','People Management','users.php'],
+     ['shield-lock','Administrator Management','admin_accounts.php'],
+     ['activity','System Monitoring','system_monitoring.php'],
+     ['shield-check','Security Center','security.php'],
+     ['clock','Activity & Audit Logs','activity_logs.php'],
+     ['database','Backup & Recovery','backups.php'],
+     ['settings','System Settings','settings.php']
+ ],
+ 'Account'=>[
+     ['user','My Profile','profile.php'],
+     ['logout','Logout',null,'logout']
+ ]
+]];
+if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Administrator','sections'=>[
+ 'Clinical Overview'=>[
+     ['dashboard','Dashboard','dashboard.php'],
+     ['activity','Clinic Monitoring','clinic_monitoring.php'],
+ ],
+ 'Patient Care'=>[
+     ['users','Patient Records','patients.php'],
+     ['file-medical','Consultations','consultations.php'],
+ ],
+ 'Clinical Supervision'=>[
+     ['pill','Medicine Oversight','inventory.php'],
+     ['alert-triangle','Emergency Oversight','emergencies.php'],
+     ['file-medical','Clinical Reports','reports.php']
+ ],
+ 'Communication'=>[
+     ['chat','Messages','messages.php'],
+     ['sparkles','MICA AI','../ai_assistant.php']
+ ],
+ 'Account'=>[
+     ['user','My Profile','profile.php'],
+     ['settings','Settings','settings.php'],
+     ['logout','Logout',null,'logout']
+ ]
+]];
 $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
+if($sbRole==='nurse')$sbMenus['sections']['Clinic Operations'][]=['pill','Medicine Inventory','inventory.php'];
+if ($sbRole === 'admin' && $sbProfile!=='doctor') {
+    $settingsVisible=is_primary_admin($sbUser)||has_admin_permission('manage_settings',$sbUser)||has_admin_permission('manage_security',$sbUser)||has_admin_permission('view_audit_logs',$sbUser);
+    $rules=[
+        'users.php'=>has_admin_permission('manage_users',$sbUser)||has_admin_permission('approve_users',$sbUser),
+        'admin_accounts.php'=>is_primary_admin($sbUser),
+        'system_monitoring.php'=>has_admin_permission('system_manage',$sbUser),
+        'emergencies.php'=>has_admin_permission('view_emergencies',$sbUser),
+        'settings.php'=>$settingsVisible,
+        'security.php'=>has_admin_permission('manage_security',$sbUser),
+        'backups.php'=>has_admin_permission('backups_manage',$sbUser),
+        'activity_logs.php'=>has_admin_permission('view_audit_logs',$sbUser),
+    ];
+    foreach($sbMenus['sections'] as $section=>$items){
+        $sbMenus['sections'][$section]=array_values(array_filter($items,fn($item)=>!isset($rules[$item[2]??''])||$rules[$item[2]]));
+        if(!$sbMenus['sections'][$section])unset($sbMenus['sections'][$section]);
+    }
+}
+
 ?>
 
-<aside class="sidebar" id="sidebar">
-  <!-- Brand -->
+<a class="skip-link" href="#mainContent">Skip to main content</a>
+
+<aside class="sidebar" id="sidebar" aria-label="Primary navigation">
   <div class="brand">
     <div class="brand-logo">
-      <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo">
+      <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="" width="38" height="38">
     </div>
     <div class="brand-text">
       BPC School Clinic
-      <small><?= e($sbMenus['brand']) ?></small>
+      <small>Healthcare Management System</small>
     </div>
   </div>
 
-  <!-- Collapse Toggle (Desktop)
-  <button class="sidebar-toggle-collapse" title="Toggle Sidebar">
-    <i class="bi bi-chevron-left"></i>
-  </button>
--->
-  <!-- Navigation -->
+  <div class="sidebar-role">
+    <span class="sidebar-role__label">Signed in as</span>
+    <span class="sidebar-role__value"><?= e($sbMenus['brand']) ?></span>
+  </div>
+
   <nav class="sidebar-nav">
     <?php foreach ($sbMenus['sections'] as $sbSection => $sbItems): ?>
       <div class="nav-section-label"><?= e($sbSection) ?></div>
-      <?php foreach ($sbItems as $sbItem): ?>
-<?php
-        $sbIcon   = $sbItem[0];
-        $sbLabel  = $sbItem[1];
-        $sbFile   = $sbItem[2];
-        $sbType   = $sbItem[3] ?? 'link';
-        $sbActive = $sbFile && $sbCur === $sbFile ? 'active' : '';
-        $sbClass  = $sbType === 'logout' ? 'nav-link logout-link' : 'nav-link';
-        // Absolute, role-prefixed URL — works from role subdirectories AND
-        // the consolidated pages/ai_assistant.php at the pages/ root.
-        $sbHref   = $sbType === 'logout' ? '#' : APP_URL . '/pages/' . $sbRole . '/' . $sbFile;
-        $sbExtra  = $sbType === 'logout' ? ' data-logout-url="' . APP_URL . '/auth/logout.php"' : '';
-        ?>
-        <a class="<?= $sbClass ?> <?= $sbActive ?>" href="<?= $sbHref ?>"<?= $sbExtra ?>>
-          <i class="bi bi-<?= $sbIcon ?>"></i><span> <?= e($sbLabel) ?></span>
+      <?php foreach ($sbItems as $sbItem):
+        $sbIcon     = $sbItem[0];
+        $sbLabel    = $sbItem[1];
+        $sbFile     = $sbItem[2];
+        $sbType     = $sbItem[3] ?? 'link';
+        $sbFileBase = $sbFile ? explode('?', (string)$sbFile)[0] : '';
+        $sbTabQuery = (strpos((string)$sbFile, 'tab=') !== false) ? explode('tab=', (string)$sbFile)[1] : null;
+
+        $sbActive = false;
+        if ($sbFileBase && $sbCur === $sbFileBase) {
+            if ($sbTabQuery !== null) {
+                $sbActive = ((string)$sbTabs === $sbTabQuery);
+            } else {
+                $sbActive = ($sbTabs === null || $sbTabs === '');
+            }
+        }
+
+        // Settings owns every admin settings tab, regardless of its query string.
+        if ($sbRole === 'admin' && $sbFileBase === 'settings.php' && $sbCur === 'settings.php') {
+            $sbActive = true;
+        }
+
+        $activeClass = $sbActive ? 'active' : '';
+        $sbClass     = $sbType === 'logout' ? 'nav-link logout-link' : 'nav-link';
+        $sbDirectory = $sbProfile==='doctor'?'doctor':($sbRole === 'teacher' ? 'adviser' : $sbRole);
+
+        if ($sbType === 'sos') {
+            $sbHref   = '#';
+            $sbExtra  = ' data-action="open-sos"';
+            $sbAria   = '';
+        } else {
+            $sbHref   = $sbType === 'logout' ? '#' : APP_URL . '/pages/' . $sbDirectory . '/' . $sbFile;
+            $sbExtra  = $sbType === 'logout' ? ' data-logout-url="' . APP_URL . '/auth/logout.php"' : '';
+            $sbAria   = $sbActive ? ' aria-current="page"' : '';
+        }
+      ?>
+        <a class="<?= $sbClass ?> <?= $activeClass ?>" href="<?= $sbHref ?>"<?= $sbExtra ?><?= $sbAria ?>>
+          <?= bpc_icon($sbIcon, 'nav-ico') ?><span><?= e($sbLabel) ?></span>
         </a>
       <?php endforeach; ?>
     <?php endforeach; ?>
   </nav>
 
-  <!-- Footer -->
   <div class="sidebar-footer">
     <div class="info-item">
-      <i class="bi bi-geo-alt-fill"></i>
+      <?= bpc_icon('building') ?>
       <span>Bulacan Polytechnic College</span>
     </div>
     <div class="info-item">
-      <i class="bi bi-telephone-fill"></i>
+      <?= bpc_icon('phone') ?>
       <span>09639958414</span>
     </div>
     <div class="info-item">
-      <i class="bi bi-envelope-fill"></i>
+      <?= bpc_icon('mail') ?>
       <span>clinic@bpc.edu.ph</span>
     </div>
     <div class="copyright">
-      &copy; 2026 Bulacan Polytechnic College
+      &copy; <?= date('Y') ?> Bulacan Polytechnic College
     </div>
   </div>
+
+  <button type="button" class="sidebar-toggle-collapse d-none d-xl-flex"
+          aria-label="Collapse sidebar" title="Collapse sidebar"
+          data-bs-toggle="tooltip" data-bs-placement="right">
+    <?= bpc_icon('chevron-left') ?>
+  </button>
 </aside>
 
+<div class="app-scrim" id="sidebarScrim" aria-hidden="true"></div>

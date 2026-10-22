@@ -1,3 +1,42 @@
-<IfModule mod_headers.c>
-    Header always set Permissions-Policy "geolocation=(self), microphone=(self), camera=(self)"
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(?:config|database|includes|scratch|setup|storage)(?:/|$) - [F,L,NC]
 </IfModule>
+
+Options -Indexes
+
+# Block hidden/private configuration and dependency manifests.
+<FilesMatch "(^\.|^(?:composer\.(?:json|lock)|phpunit\.xml|package(?:-lock)?\.json)$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Deny direct HTTP access to diagnostic, scratch and test artefacts.
+# These may live in the web root during development but must never be
+# served, because they can print database rows, credentials or stack
+# traces to an anonymous visitor.
+<FilesMatch "\.(sql|log|ini|env|bak|old|orig|md)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Common debug / profiling prefixes
+<FilesMatch "^(debug|test|temp|check|dump|probe|trace)[-_].*\.(php|js)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

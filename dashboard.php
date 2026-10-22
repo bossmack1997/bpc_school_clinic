@@ -7,4 +7,5 @@ header('Pragma: no-cache');
 header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
 
 require_login();
-redirect(dashboard_url_for(current_user()['role']));
+$currentUser = current_user();
+redirect(dashboard_url_for($currentUser['role'] ?? 'student'));

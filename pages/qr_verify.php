@@ -35,6 +35,10 @@ if ($qrData) {
   <link rel="stylesheet" href="<?= asset_url('css/sweetalert2.min.css') ?>">
   <!-- App styles -->
   <link href="<?= asset_url('css/style.css') ?>" rel="stylesheet">
+  <link rel="stylesheet" href="<?= asset_url('css/design-system.css') ?>">
+  <link rel="stylesheet" href="<?= asset_url('css/components.css') ?>">
+  <link rel="stylesheet" href="<?= asset_url('css/responsive.css') ?>">
+  <link rel="stylesheet" href="<?= asset_url('css/theme.css') ?>">
   <script src="<?= asset_url('js/qrcode.min.js') ?>"></script>
   <script src="<?= asset_url('js/html5-qrcode.min.js') ?>"></script>
   <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
@@ -46,8 +50,8 @@ if ($qrData) {
       <div class="card shadow-sm border-0">
         <div class="card-body text-center py-4">
           <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Logo" style="height:48px;">
-          <h5 class="fw-bold mb-1 mt-2">BPC School Clinic</h5>
-          <p class="text-muted small">QR Certificate Verification</p>
+          <h1 class="fw-bold mb-1 mt-2">QR Certificate Verification</h1>
+          <p class="text-muted small">BPC School Clinic</p>
 
           <?php if ($verificationError): ?>
             <div class="alert alert-danger mt-3">
