@@ -16,8 +16,15 @@ function app_url($path = '') {
     return $path === '' ? $base : $base . '/' . $path;
 }
 
-function asset_url($path) {
-    return app_url('assets/' . ltrim((string)$path, '/'));
+function asset_url($path, $version = false) {
+    $path = ltrim((string)$path, '/');
+    $url = app_url('assets/' . $path);
+    // Content hashes survive deployment timestamp changes and invalidate CDN/browser caches.
+    if ($version && preg_match('/\.(css|js)$/i', $path) && !str_contains($path, '..')) {
+        $file = __DIR__ . '/../assets/' . $path;
+        if (is_file($file)) $url .= '?v=' . substr(hash_file('sha256', $file), 0, 12);
+    }
+    return $url;
 }
 
 function redirect($path) {

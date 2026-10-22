@@ -38,21 +38,21 @@ window.FIREBASE_CONFIG = {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <!-- Bootstrap 5 -->
-<link rel="stylesheet" href="<?= asset_url('css/bootstrap.min.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/bootstrap.min.css', true) ?>">
 <!-- Bootstrap Icons -->
-<link rel="stylesheet" href="<?= asset_url('css/bootstrap-icons.min.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/bootstrap-icons.min.css', true) ?>">
 <!-- DataTables -->
-<link rel="stylesheet" href="<?= asset_url('css/dataTables.bootstrap5.min.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/dataTables.bootstrap5.min.css', true) ?>">
 <!-- QR Code + SheetJS (Excel import) — vendored locally for offline reliability -->
-<script src="<?= asset_url('js/qrcode.min.js') ?>"></script>
-<script src="<?= asset_url('js/html5-qrcode.min.js') ?>"></script>
-<script src="<?= asset_url('js/xlsx.full.min.js') ?>"></script>
+<script src="<?= asset_url('js/qrcode.min.js', true) ?>"></script>
+<script src="<?= asset_url('js/html5-qrcode.min.js', true) ?>"></script>
+<script src="<?= asset_url('js/xlsx.full.min.js', true) ?>"></script>
 <!-- SweetAlert2 -->
-<link rel="stylesheet" href="<?= asset_url('css/sweetalert2.min.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/sweetalert2.min.css', true) ?>">
 <!-- AOS Animation -->
-<link rel="stylesheet" href="<?= asset_url('css/aos.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/aos.css', true) ?>">
 <!-- Legacy page styles (landing / auth / kiosk) — superseded on app pages -->
-<link rel="stylesheet" href="<?= asset_url('css/style.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/style.css', true) ?>">
 
 <!-- ================================================================
      UNIFIED DESIGN SYSTEM
@@ -63,21 +63,21 @@ window.FIREBASE_CONFIG = {
        components.css      one component vocabulary for all roles
        responsive.css      one breakpoint contract for all pages
      ================================================================ -->
-<link rel="stylesheet" href="<?= asset_url('css/design-system.css') ?>">
-<link rel="stylesheet" href="<?= asset_url('css/components.css') ?>">
-<link rel="stylesheet" href="<?= asset_url('css/responsive.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/design-system.css', true) ?>">
+<link rel="stylesheet" href="<?= asset_url('css/components.css', true) ?>">
+<link rel="stylesheet" href="<?= asset_url('css/responsive.css', true) ?>">
 
 <!-- MICA Voice AI Assistant styles -->
-<link rel="stylesheet" href="<?= asset_url('css/mica.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/mica.css', true) ?>">
 <?php if (!empty($loadRegistrationStyles)): ?>
-<link rel="stylesheet" href="<?= asset_url('css/registration.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/registration.css', true) ?>">
 <?php endif; ?>
-<link rel="stylesheet" href="<?= asset_url('css/theme.css') ?>">
-<link rel="stylesheet" href="<?= asset_url('css/dashboard-unified.css') ?>">
-<link rel="stylesheet" href="<?= asset_url('css/notifications-header.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/theme.css', true) ?>">
+<link rel="stylesheet" href="<?= asset_url('css/dashboard-unified.css', true) ?>">
+<link rel="stylesheet" href="<?= asset_url('css/notifications-header.css', true) ?>">
 <!-- Deliberately last: cross-role accessibility and responsive safeguards. -->
-<link rel="stylesheet" href="<?= asset_url('css/ui-overrides.css') . '?v=' . filemtime(__DIR__ . '/../assets/css/ui-overrides.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/ui-overrides.css', true) ?>">
 
 <script>const APP_URL = "<?= APP_URL ?>";</script>
 <!-- Moment.js for real-time clock -->
-<script src="<?= asset_url('js/moment.min.js') ?>"></script>
+<script src="<?= asset_url('js/moment.min.js', true) ?>"></script>

@@ -99,7 +99,13 @@ body:has(.messenger-container) .messenger-container {
 }
 @media (max-width:767px) {
   body.clinic-messages-page .unified-messages-page .messenger-container { height:var(--messenger-available-height,calc(100dvh - var(--header-height,64px) - 24px))!important; }
-  .clinic-messages-page .messenger-header { flex-wrap:nowrap; }
+  .clinic-messages-page .messenger-header { flex-wrap:wrap; }
+  .clinic-messages-page .messenger-header-info { flex:1 1 140px; }
+  .clinic-messages-page .messenger-header > .d-flex:last-child { flex-wrap:wrap; gap:6px; }
+  .clinic-messages-page .messenger-container #messageInput { font-size:16px; }
+  .clinic-messages-page .message-bubble-line { flex-wrap:wrap; }
+  .clinic-messages-page .message-actions { flex-wrap:wrap; }
+  body.clinic-messages-page .messenger-container #chatMain { height:100% !important; min-height:0; }
   .clinic-messages-page .messenger-header-info { gap:6px; }
   .clinic-messages-page .messenger-header .messenger-avatar { width:34px!important; height:34px!important; }
   .clinic-messages-page .messenger-header .btn { padding:6px; font-size:11px; }

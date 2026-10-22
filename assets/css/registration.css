@@ -5,6 +5,38 @@
    - Tablet / mobile: single column, page scrolls naturally.
    ===================================================================== */
 
+html.registration-page {
+  --clinic-heading: #123f32;
+  --clinic-text: #243b35;
+  --clinic-secondary: #526a63;
+  --clinic-muted: #64748b;
+  --clinic-primary: #087548;
+  --clinic-primary-dark: #065c3a;
+  --clinic-border: #d7e5df;
+  --clinic-surface: #fff;
+  --clinic-soft-bg: #f2f8f5;
+  --clinic-error: #b42318;
+}
+body.registration-page { color: var(--clinic-text); }
+.registration-page .auth-card--register #formHeaderTitle,
+.registration-page .auth-card--register .auth-side__title { color: var(--clinic-heading); }
+.registration-page .auth-card--register #formHeaderSub,
+.registration-page .auth-card--register .auth-side__subtitle,
+.registration-page .reg-section-header__sub,
+.registration-page .form-text,
+.registration-page .pw-hint-text { color: var(--clinic-secondary); }
+.registration-page .reg-section-header__title,
+.registration-page .reg-role-btn__text strong { color: var(--clinic-heading); }
+.registration-page .form-label { color: var(--clinic-text); }
+.registration-page .auth-card--register .form-control,
+.registration-page .auth-card--register .form-select { color: #172b25; border-color: var(--clinic-border); }
+.registration-page .auth-card--register .form-control::placeholder { color: var(--clinic-muted); opacity: 1; }
+.registration-page .auth-login-link,
+.registration-page .auth-login-link span { color: var(--clinic-primary-dark); }
+.registration-page .field-error,
+.registration-page .invalid-feedback,
+.registration-page .req-star { color: var(--clinic-error); }
+
 .auth-wrapper--register {
   min-height: 100vh;
   min-height: 100dvh;
@@ -543,9 +575,30 @@
 
 /* Tablet & below: single column, natural page scroll */
 @media (max-width: 991.98px) {
+  /* The shared auth shell uses overflow:hidden for compact login cards.
+     Registration becomes taller than the viewport here, so the document —
+     not a nested panel — must own vertical scrolling. */
+  html.registration-page,
+  body.registration-page {
+    width: 100%;
+    min-height: 100%;
+    height: auto;
+    overflow-x: clip;
+    overflow-y: auto;
+    overscroll-behavior-y: auto;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
   .auth-wrapper--register {
+    position: relative;
+    width: 100%;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
     padding: 16px 12px 24px;
     align-items: flex-start;
+    overflow: visible;
+    touch-action: pan-y;
   }
   .auth-card--register {
     width: min(100%, 720px);
@@ -557,9 +610,14 @@
   }
   .auth-card--register .auth-side { display: none; }
   .auth-card--register .auth-form-side {
+    min-height: 0;
+    max-height: none;
     height: auto;
     padding: 20px var(--reg-pad) 0;
-    overflow: visible;
+    overflow-x: clip;
+    overflow-y: visible;
+    overscroll-behavior: auto;
+    touch-action: pan-y;
     border-radius: 22px;
   }
   .reg-actions {
@@ -571,6 +629,7 @@
     padding-right: 0;
     margin-left: 0;
     margin-right: 0;
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -622,6 +681,15 @@
   .reg-file-box .form-control { height: auto; font-size: 0.9rem; }
   #submitBtn { height: 50px; font-size: 1rem; }
   .reg-certify-box .form-check-label { font-size: 0.78rem; }
+}
+
+@supports not (overflow: clip) {
+  @media (max-width: 991.98px) {
+    html.registration-page,
+    body.registration-page,
+    .auth-wrapper--register,
+    .auth-card--register .auth-form-side { overflow-x: hidden; }
+  }
 }
 
 /* Very narrow phones */

@@ -14,7 +14,7 @@
     <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
       <div class="modal-header bg-success text-white py-3">
         <h5 id="patientQrScannerModalTitle" class="modal-title fw-bold"><i class="bi bi-qr-code-scan me-2"></i> Scan Patient QR</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="stopQrScannerCamera()"></button>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close scanner" onclick="stopQrScannerCamera()"></button>
       </div>
       <div class="modal-body p-4 text-center bg-light">
         <div id="modalQrVideoContainer" class="position-relative border rounded-3 overflow-hidden bg-dark mx-auto" style="width: 100%; max-width: 380px; height: 280px;">
@@ -70,7 +70,10 @@ async function startQrScannerCamera() {
       modalHtml5QrCode = new Html5Qrcode('modalQrReader');
     }
 
-    const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+    const config = { fps: 10, qrbox: (width, height) => {
+      const side = Math.min(220, Math.floor(Math.min(width, height) * 0.8));
+      return { width: side, height: side };
+    } };
     await modalHtml5QrCode.start(
       { facingMode: 'environment' },
       config,

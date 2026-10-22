@@ -311,12 +311,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $pageTitle = 'Create an Account';
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="registration-page">
 <head>
 <?php $loadRegistrationStyles = true; ?>
 <?php include __DIR__ . '/../includes/head.php'; ?>
 </head>
-<body>
+<body class="registration-page">
 <div class="auth-wrapper auth-wrapper--register">
   <div class="auth-card auth-card--register" data-aos="fade-up" data-aos-duration="700">
     <!-- Left Branded Sidebar -->
