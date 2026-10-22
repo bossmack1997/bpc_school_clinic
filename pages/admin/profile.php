@@ -9,7 +9,9 @@ $userStmt = $db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
 $userStmt->execute([$u['id']]);
 $userRecord = $userStmt->fetch() ?: $u;
 
-$pageTitle = 'My Profile';
+$isDoctorSettings = permission_profile($u, $db) === 'doctor'
+    && basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'settings.php';
+$pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -29,7 +31,7 @@ $pageTitle = 'My Profile';
       <div class="card p-3 mb-3">
         <div class="row g-3 align-items-center">
           <div class="col-auto text-center position-relative">
-            <img src="<?= APP_URL . '/' . e($userRecord['profile_picture']) ?>" id="profileAvatar" onerror="this.src='<?= asset_url('images/default-avatar.png') ?>'" class="rounded-circle border" width="100" height="100" style="object-fit:cover">
+            <img src="<?= !empty($userRecord['profile_picture']) ? APP_URL . '/' . e($userRecord['profile_picture']) : asset_url('images/default-avatar.png') ?>" id="profileAvatar" onerror="this.src='<?= asset_url('images/default-avatar.png') ?>'" class="rounded-circle border" width="100" height="100" style="object-fit:cover" alt="Profile picture of <?= e($userRecord['first_name'] . ' ' . $userRecord['last_name']) ?>">
             <label for="pictureInput" class="btn btn-sm btn-primary rounded-circle position-absolute bottom-0 end-0" style="padding: 4px 8px;" title="Upload Profile Picture">
               <i class="bi bi-camera-fill"></i>
             </label>
@@ -47,96 +49,63 @@ $pageTitle = 'My Profile';
         </div>
       </div>
 
-      <div class="row g-3">
-        <!-- Left Column: Personal Information & Password -->
-        <div class="col-lg-7">
-          <!-- Personal Information Form -->
-          <div class="card p-3 mb-3">
-            <h6 class="section-title mb-3"><i class="bi bi-person-vcard text-success me-1"></i> Personal Information</h6>
-            <form id="infoForm">
-              <div class="row g-2">
-                <div class="col-md-4">
-                  <label class="form-label small fw-semibold">First Name *</label>
-                  <input type="text" class="form-control" name="first_name" required value="<?= e($userRecord['first_name']) ?>">
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label small fw-semibold">Middle Name</label>
-                  <input type="text" class="form-control" name="middle_name" value="<?= e($userRecord['middle_name'] ?? '') ?>">
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label small fw-semibold">Last Name *</label>
-                  <input type="text" class="form-control" name="last_name" required value="<?= e($userRecord['last_name']) ?>">
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label small fw-semibold">Email Address *</label>
-                  <input type="email" class="form-control" name="email" required value="<?= e($userRecord['email']) ?>">
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label small fw-semibold">Contact Number</label>
-                  <input type="text" class="form-control" name="phone" value="<?= e($userRecord['phone'] ?? '') ?>" placeholder="e.g. 09123456789">
-                </div>
-              </div>
-              <button class="btn btn-primary mt-3 w-100 fw-semibold" type="submit" id="saveInfoBtn">
-                <i class="bi bi-check-lg me-1"></i> Save Personal Info
-              </button>
-            </form>
-          </div>
-
-          <!-- Password Settings Form -->
-          <div class="card p-3">
-            <h6 class="section-title mb-3"><i class="bi bi-shield-lock text-success me-1"></i> Password Settings</h6>
-            <form id="pwForm">
-              <div class="row g-2">
-                <div class="col-12">
-                  <label class="form-label small fw-semibold">Current Password *</label>
-                  <input type="password" class="form-control" name="current_password" required>
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label small fw-semibold">New Password *</label>
-                  <input type="password" class="form-control" name="new_password" minlength="8" required>
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label small fw-semibold">Confirm New Password *</label>
-                  <input type="password" class="form-control" name="confirm_password" minlength="8" required>
-                </div>
-              </div>
-              <button class="btn btn-outline-primary mt-3 w-100 fw-semibold" type="submit" id="savePwBtn">
-                <i class="bi bi-key me-1"></i> Update Password
-              </button>
-            </form>
-          </div>
-        </div>
-
-        <!-- Right Column: Professional Information & Role Permissions -->
-        <div class="col-lg-5">
-          <!-- Professional Information Card -->
-          <div class="card p-3 mb-3">
-            <h6 class="section-title mb-3"><i class="bi bi-briefcase-fill text-success me-1"></i> Professional Information</h6>
-            <div class="row g-2 small">
-              <div class="col-6"><div class="text-muted">Role</div><div class="fw-bold text-success">System Administrator</div></div>
-              <div class="col-6"><div class="text-muted">Department</div><div class="fw-bold text-dark">Clinic Management &amp; IT</div></div>
-              <div class="col-6"><div class="text-muted">Account Status</div><div><span class="badge bg-success">Active</span></div></div>
-              <div class="col-6"><div class="text-muted">Username</div><div class="fw-bold text-dark"><?= e($userRecord['username']) ?></div></div>
+      <div class="row g-3 align-items-stretch">
+        <div class="col-lg-6">
+          <section class="card p-4 h-100">
+            <h2 class="h6 section-title mb-3"><i class="bi bi-briefcase-fill text-success me-1"></i> Professional Information</h2>
+            <div class="row g-3 small">
+              <div class="col-sm-6"><div class="text-muted">Role</div><div class="fw-bold text-success">System Administrator</div></div>
+              <div class="col-sm-6"><div class="text-muted">Department</div><div class="fw-bold text-dark">Clinic Management &amp; IT</div></div>
+              <div class="col-sm-6"><div class="text-muted">Account Status</div><span class="badge bg-success">Active</span></div>
+              <div class="col-sm-6"><div class="text-muted">Username</div><div class="fw-bold text-dark"><?= e($userRecord['username']) ?></div></div>
             </div>
-            <div class="alert alert-light border mt-3 mb-0 py-2 small">
+            <div class="alert alert-light border mt-4 mb-0 py-2 small">
               <i class="bi bi-info-circle text-primary me-1"></i>
-              <span>Administrator privileges and security policies are managed at the root system configuration level.</span>
+              Administrator privileges and security policies are managed at the root system configuration level.
             </div>
-          </div>
-
-          <!-- Role Permissions Card -->
-          <div class="card p-3">
-            <h6 class="section-title mb-3"><i class="bi bi-shield-check text-success me-1"></i> Role Permissions</h6>
+          </section>
+        </div>
+        <div class="col-lg-6">
+          <section class="card p-4 h-100">
+            <h2 class="h6 section-title mb-3"><i class="bi bi-shield-check text-success me-1"></i> Role Permissions</h2>
             <ul class="small mb-0 text-muted ps-3">
-              <li class="mb-1">Manage user accounts, role access &amp; staff registrations.</li>
-              <li class="mb-1">Access clinic performance analytics, reports &amp; logs.</li>
-              <li class="mb-1">Configure QR scanner settings &amp; system parameters.</li>
-              <li class="mb-1">Publish and manage campus-wide clinic announcements.</li>
-              <li>Monitor security audit trails, database backups &amp; activity.</li>
+              <li class="mb-2">Manage user accounts, role access, and staff registrations.</li>
+              <li class="mb-2">Access clinic performance analytics, reports, and logs.</li>
+              <li class="mb-2">Configure QR scanner settings and system parameters.</li>
+              <li class="mb-2">Publish and manage campus-wide clinic announcements.</li>
+              <li>Monitor security audit trails, database backups, and activity.</li>
             </ul>
-          </div>
+          </section>
         </div>
       </div>
+
+      <?php if ($isDoctorSettings): ?>
+      <div class="row g-3 mt-1">
+        <div class="col-xl-7">
+          <section class="card p-4 h-100">
+            <h2 class="h6 section-title mb-3"><i class="bi bi-person-vcard text-success me-1"></i> Personal Information</h2>
+            <form id="infoForm"><div class="row g-3">
+              <div class="col-md-4"><label class="form-label" for="doctor-first-name">First Name</label><input id="doctor-first-name" class="form-control" name="first_name" maxlength="60" required value="<?= e($userRecord['first_name'] ?? '') ?>"></div>
+              <div class="col-md-4"><label class="form-label" for="doctor-middle-name">Middle Name</label><input id="doctor-middle-name" class="form-control" name="middle_name" maxlength="60" value="<?= e($userRecord['middle_name'] ?? '') ?>"></div>
+              <div class="col-md-4"><label class="form-label" for="doctor-last-name">Last Name</label><input id="doctor-last-name" class="form-control" name="last_name" maxlength="60" required value="<?= e($userRecord['last_name'] ?? '') ?>"></div>
+              <div class="col-md-6"><label class="form-label" for="doctor-email">Email Address</label><input id="doctor-email" type="email" class="form-control" name="email" maxlength="150" required value="<?= e($userRecord['email'] ?? '') ?>"></div>
+              <div class="col-md-6"><label class="form-label" for="doctor-phone">Contact Number</label><input id="doctor-phone" type="tel" class="form-control" name="phone" maxlength="30" value="<?= e($userRecord['phone'] ?? '') ?>"></div>
+            </div><button class="btn btn-success mt-3" type="submit"><i class="bi bi-check-circle me-1"></i>Save Personal Information</button></form>
+          </section>
+        </div>
+        <div class="col-xl-5">
+          <section class="card p-4 h-100">
+            <h2 class="h6 section-title mb-2"><i class="bi bi-shield-lock text-success me-1"></i> Password Settings</h2>
+            <p class="small text-muted">Use at least 8 characters with uppercase, lowercase, a number, and a symbol.</p>
+            <form id="pwForm"><div class="row g-3">
+              <div class="col-12"><label class="form-label" for="doctor-current-password">Current Password</label><input id="doctor-current-password" type="password" class="form-control" name="current_password" autocomplete="current-password" required></div>
+              <div class="col-md-6"><label class="form-label" for="doctor-new-password">New Password</label><input id="doctor-new-password" type="password" class="form-control" name="new_password" autocomplete="new-password" minlength="8" maxlength="72" required></div>
+              <div class="col-md-6"><label class="form-label" for="doctor-confirm-password">Confirm Password</label><input id="doctor-confirm-password" type="password" class="form-control" name="confirm_password" autocomplete="new-password" minlength="8" maxlength="72" required></div>
+            </div><button class="btn btn-outline-success mt-3" type="submit"><i class="bi bi-key me-1"></i>Update Password</button></form>
+          </section>
+        </div>
+      </div>
+      <?php endif; ?>
 
     </div>
   </div>
@@ -146,27 +115,6 @@ $pageTitle = 'My Profile';
 (function () {
   'use strict';
   const csrfToken = $('meta[name="csrf-token"]').attr('content');
-
-  // Personal Info Form Submit
-  $('#infoForm').on('submit', function (e) {
-    e.preventDefault();
-    const btn = $('#saveInfoBtn');
-    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Saving...');
-
-    const data = $(this).serialize() + '&action=update_info&csrf_token=' + csrfToken;
-    $.post(APP_URL + '/api/profile.php', data, function (res) {
-      btn.prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i> Save Personal Info');
-      if (res.success) {
-        toastSuccess(res.message);
-        setTimeout(function () { location.reload(); }, 1000);
-      } else {
-        toastError(res.message);
-      }
-    }, 'json').fail(function () {
-      btn.prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i> Save Personal Info');
-      toastError('Failed to update profile.');
-    });
-  });
 
   // Profile Picture Upload
   $('#pictureInput').on('change', function () {
@@ -204,38 +152,29 @@ $pageTitle = 'My Profile';
     });
   });
 
-  // Password Form Submit
-  $('#pwForm').on('submit', function (e) {
-    e.preventDefault();
-    const btn = $('#savePwBtn');
-    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Updating...');
-
-    const fd = new FormData(this);
-    fd.append('action', 'change_password');
-    fd.append('csrf_token', csrfToken);
-
-    $.ajax({
-      url: APP_URL + '/api/profile.php',
-      type: 'POST',
-      data: fd,
-      processData: false,
-      contentType: false,
-      dataType: 'json',
-      success: function (res) {
-        btn.prop('disabled', false).html('<i class="bi bi-key me-1"></i> Update Password');
-        if (res.success) {
-          toastSuccess(res.message);
-          document.getElementById('pwForm').reset();
-        } else {
-          toastError(res.message);
-        }
-      },
-      error: function () {
-        btn.prop('disabled', false).html('<i class="bi bi-key me-1"></i> Update Password');
-        toastError('Failed to update password.');
+  function bindAccountForm(selector, action) {
+    $(selector).on('submit', function (event) {
+      event.preventDefault();
+      const form = this;
+      if (action === 'change_password' && form.new_password.value !== form.confirm_password.value) {
+        toastError('New passwords do not match.');
+        form.confirm_password.focus();
+        return;
       }
+      const button = $(form).find('[type="submit"]');
+      button.prop('disabled', true);
+      const data = new FormData(form);
+      data.append('action', action);
+      data.append('csrf_token', csrfToken);
+      $.ajax({url: APP_URL + '/api/profile.php', type:'POST', data:data, processData:false, contentType:false, dataType:'json'})
+        .done(function (res) { if (!res.success) { toastError(res.message); return; } toastSuccess(res.message); if (action === 'change_password') form.reset(); else setTimeout(function () { location.reload(); }, 700); })
+        .fail(function (xhr) { toastError(xhr.responseJSON?.message || 'Unable to save changes.'); })
+        .always(function () { button.prop('disabled', false); });
     });
-  });
+  }
+  bindAccountForm('#infoForm', 'update_info');
+  bindAccountForm('#pwForm', 'change_password');
+
 })();
 </script>
 </body>

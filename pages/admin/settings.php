@@ -3,7 +3,7 @@
  * pages/admin/settings.php
  * =====================================================================
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
- * System Settings — Institutional Configuration Only
+ * System Settings â€” Institutional Configuration Only
  * =====================================================================
  */
 
@@ -14,7 +14,7 @@ $u = current_user();
 $pageTitle = 'System Settings';
 
 $requestedTab = $_GET['tab'] ?? null;
-$activeTab = in_array($requestedTab, ['general', 'policies', 'integrations', 'maintenance'], true) ? $requestedTab : null;
+$activeTab = in_array($requestedTab, ['general', 'personal', 'password', 'policies', 'integrations', 'maintenance'], true) ? $requestedTab : null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $activeTab = match ($_POST['action'] ?? '') {
         'update_general_settings' => 'general',
@@ -25,6 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $settingsAccess = [
     'general'      => has_admin_permission('manage_settings', $u, $db),
+    'personal'     => permission_profile($u, $db) === 'mis',
+    'password'     => permission_profile($u, $db) === 'mis',
     'policies'     => has_admin_permission('manage_security', $u, $db),
     'integrations' => has_admin_permission('manage_settings', $u, $db),
     'maintenance'  => is_primary_admin($u),
@@ -38,6 +40,10 @@ if ($activeTab !== null && empty($settingsAccess[$activeTab])) {
 if ($activeTab === null) {
     $activeTab = array_key_first(array_filter($settingsAccess));
 }
+
+$userStmt = $db->prepare('SELECT first_name,middle_name,last_name,email,phone FROM users WHERE id=? LIMIT 1');
+$userStmt->execute([(int)$u['id']]);
+$userRecord = $userStmt->fetch(PDO::FETCH_ASSOC) ?: $u;
 
 // -------------------------------------------------------------
 // POST Request Actions (Settings Update)
@@ -260,6 +266,59 @@ $lastBackup = $db->query("SELECT status, filename, created_at FROM system_backup
         </details>
         <?php endif; ?>
 
+        <?php if ($settingsAccess['personal']): ?>
+        <details class="settings-menu__item" name="admin-settings" <?= $activeTab === 'personal' ? 'open' : '' ?>>
+          <summary class="settings-menu__toggle" id="settingsHeading-personal" aria-controls="settingsPanel-personal">
+            <span class="settings-menu__icon"><i class="bi bi-person-vcard" aria-hidden="true"></i></span>
+            <span class="settings-menu__label"><span class="settings-menu__title">Personal Information</span><span class="settings-menu__description">Update your MIS administrator name, email address, and contact number.</span></span>
+            <i class="bi bi-chevron-right settings-menu__chevron" aria-hidden="true"></i>
+          </summary>
+          <div id="settingsPanel-personal" role="region" aria-labelledby="settingsHeading-personal">
+            <div class="settings-menu__body">
+              <div class="card p-4 shadow-sm border-0 rounded-3">
+                <h2 class="h6 fw-bold text-dark mb-3"><i class="bi bi-person-check text-success me-1"></i> Administrator Personal Information</h2>
+                <form id="adminInfoForm" novalidate>
+                  <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label small fw-semibold" for="admin-first-name">First Name</label><input id="admin-first-name" type="text" class="form-control" name="first_name" maxlength="60" required value="<?= e($userRecord['first_name'] ?? '') ?>"></div>
+                    <div class="col-md-4"><label class="form-label small fw-semibold" for="admin-middle-name">Middle Name</label><input id="admin-middle-name" type="text" class="form-control" name="middle_name" maxlength="60" value="<?= e($userRecord['middle_name'] ?? '') ?>"></div>
+                    <div class="col-md-4"><label class="form-label small fw-semibold" for="admin-last-name">Last Name</label><input id="admin-last-name" type="text" class="form-control" name="last_name" maxlength="60" required value="<?= e($userRecord['last_name'] ?? '') ?>"></div>
+                    <div class="col-md-6"><label class="form-label small fw-semibold" for="admin-email">Email Address</label><input id="admin-email" type="email" class="form-control" name="email" maxlength="150" required value="<?= e($userRecord['email'] ?? '') ?>"></div>
+                    <div class="col-md-6"><label class="form-label small fw-semibold" for="admin-phone">Contact Number</label><input id="admin-phone" type="tel" class="form-control" name="phone" maxlength="30" autocomplete="tel" value="<?= e($userRecord['phone'] ?? '') ?>"></div>
+                  </div>
+                  <div class="mt-4 pt-3 border-top"><button class="btn btn-success" type="submit"><i class="bi bi-check-circle me-1"></i>Save Personal Information</button></div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </details>
+        <?php endif; ?>
+
+        <?php if ($settingsAccess['password']): ?>
+        <details class="settings-menu__item" name="admin-settings" <?= $activeTab === 'password' ? 'open' : '' ?>>
+          <summary class="settings-menu__toggle" id="settingsHeading-password" aria-controls="settingsPanel-password">
+            <span class="settings-menu__icon"><i class="bi bi-key" aria-hidden="true"></i></span>
+            <span class="settings-menu__label"><span class="settings-menu__title">Password &amp; Security</span><span class="settings-menu__description">Change your own password after verifying the current password.</span></span>
+            <i class="bi bi-chevron-right settings-menu__chevron" aria-hidden="true"></i>
+          </summary>
+          <div id="settingsPanel-password" role="region" aria-labelledby="settingsHeading-password">
+            <div class="settings-menu__body">
+              <div class="card p-4 shadow-sm border-0 rounded-3">
+                <h2 class="h6 fw-bold text-dark mb-2"><i class="bi bi-shield-lock text-success me-1"></i> Password Settings</h2>
+                <p class="small text-muted mb-3">Use at least 8 characters with uppercase, lowercase, a number, and a special character.</p>
+                <form id="adminPasswordForm" novalidate>
+                  <div class="row g-3">
+                    <div class="col-12"><label class="form-label small fw-semibold" for="admin-current-password">Current Password</label><input id="admin-current-password" type="password" class="form-control" name="current_password" autocomplete="current-password" required></div>
+                    <div class="col-md-6"><label class="form-label small fw-semibold" for="admin-new-password">New Password</label><input id="admin-new-password" type="password" class="form-control" name="new_password" autocomplete="new-password" minlength="8" maxlength="72" required></div>
+                    <div class="col-md-6"><label class="form-label small fw-semibold" for="admin-confirm-password">Confirm New Password</label><input id="admin-confirm-password" type="password" class="form-control" name="confirm_password" autocomplete="new-password" minlength="8" maxlength="72" required></div>
+                  </div>
+                  <div class="mt-4 pt-3 border-top"><button class="btn btn-outline-success" type="submit"><i class="bi bi-key me-1"></i>Update Password</button></div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </details>
+        <?php endif; ?>
+
         <?php if ($settingsAccess['policies']): ?>
         <details class="settings-menu__item" name="admin-settings" <?= $activeTab === 'policies' ? 'open' : '' ?>>
           <summary class="settings-menu__toggle" id="settingsHeading-policies" aria-controls="settingsPanel-policies">
@@ -379,11 +438,11 @@ $lastBackup = $db->query("SELECT status, filename, created_at FROM system_backup
                     <div class="dbg-stat p-3 shadow-sm border-0 rounded-3">
                       <div class="text-muted small fw-semibold text-uppercase">Last Backup</div>
                       <h3 class="fw-bold text-dark mt-2 mb-1">
-                        <?= $lastBackup ? e($lastBackup['filename'] ?? '—') : '—' ?>
+                        <?= $lastBackup ? e($lastBackup['filename'] ?? 'â€”') : 'â€”' ?>
                       </h3>
                       <div class="small text-muted">
                         <?= $lastBackup ? e($lastBackup['status']) : 'No backup recorded.' ?>
-                        <?= $lastBackup && !empty($lastBackup['created_at']) ? ' · ' . e(format_datetime($lastBackup['created_at'])) : '' ?>
+                        <?= $lastBackup && !empty($lastBackup['created_at']) ? ' Â· ' . e(format_datetime($lastBackup['created_at'])) : '' ?>
                       </div>
                     </div>
                   </div>
@@ -405,5 +464,48 @@ $lastBackup = $db->query("SELECT status, filename, created_at FROM system_backup
   </div>
 </div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+<script>
+(function () {
+  'use strict';
+  const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  async function submitAdminSettings(form, action) {
+    if (form.dataset.saving === 'true') return;
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    if (action === 'change_password') {
+      const next = form.elements.new_password.value;
+      const confirmation = form.elements.confirm_password.value;
+      if (next !== confirmation) { toastError('New passwords do not match.'); form.elements.confirm_password.focus(); return; }
+    }
+    const button = form.querySelector('[type="submit"]');
+    const original = button.innerHTML;
+    form.dataset.saving = 'true';
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Savingâ€¦';
+    try {
+      const data = new FormData(form);
+      data.append('action', action);
+      data.append('csrf_token', token);
+      const response = await fetch(APP_URL + '/api/profile.php', {method:'POST', credentials:'same-origin', headers:{'Accept':'application/json'}, body:data});
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Unable to save changes.');
+      toastSuccess(result.message);
+      if (action === 'change_password') form.reset();
+      else setTimeout(function () { window.location.href = 'settings.php?tab=personal'; }, 700);
+    } catch (error) {
+      toastError(error.message || 'Unable to save changes. Please try again.');
+    } finally {
+      delete form.dataset.saving;
+      button.disabled = false;
+      button.innerHTML = original;
+    }
+  }
+
+  const infoForm = document.getElementById('adminInfoForm');
+  if (infoForm) infoForm.addEventListener('submit', function (event) { event.preventDefault(); submitAdminSettings(infoForm, 'update_info'); });
+  const passwordForm = document.getElementById('adminPasswordForm');
+  if (passwordForm) passwordForm.addEventListener('submit', function (event) { event.preventDefault(); submitAdminSettings(passwordForm, 'change_password'); });
+})();
+</script>
 </body>
 </html>

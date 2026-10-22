@@ -21,22 +21,28 @@ if ($action === 'save_account_settings' || $action === 'change_password') {
 if ($action === 'update_info') {
     if (!csrf_verify($_POST['csrf_token'] ?? '')) { http_response_code(403); json_response(false, [], 'Your session form expired. Refresh the page and try again.'); }
     $firstName = trim($_POST['first_name'] ?? '');
+    $middleName = trim($_POST['middle_name'] ?? '');
     $lastName  = trim($_POST['last_name'] ?? '');
     $phone     = trim($_POST['phone'] ?? '');
     $email     = trim($_POST['email'] ?? '');
 
-    if (!$firstName || !$lastName || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    if (!$firstName || !$lastName || !filter_var($email, FILTER_VALIDATE_EMAIL)
+        || mb_strlen($firstName) > 60 || mb_strlen($middleName) > 60 || mb_strlen($lastName) > 60) {
         json_response(false, [], 'Please provide a valid name and email.');
+    }
+    if ($phone !== '' && !preg_match('/^[+0-9() .-]{7,30}$/', $phone)) {
+        json_response(false, [], 'Please provide a valid contact number.');
     }
 
     $stmt = $db->prepare("SELECT id FROM users WHERE email=? AND id<>?");
     $stmt->execute([$email, $user['id']]);
     if ($stmt->fetch()) json_response(false, [], 'That email is already used by another account.');
 
-    $db->prepare("UPDATE users SET first_name=?, last_name=?, phone=?, email=? WHERE id=?")
-       ->execute([$firstName, $lastName, $phone, $email, $user['id']]);
+    $db->prepare("UPDATE users SET first_name=?, middle_name=?, last_name=?, phone=?, email=? WHERE id=?")
+       ->execute([$firstName, $middleName ?: null, $lastName, $phone, $email, $user['id']]);
 
     $_SESSION['user']['first_name'] = $firstName;
+    $_SESSION['user']['middle_name'] = $middleName;
     $_SESSION['user']['last_name'] = $lastName;
     $_SESSION['user']['email'] = $email;
     $_SESSION['user']['phone'] = $phone;
