@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/ai/MICARegistrationValidator.php';
 require_once __DIR__ . '/../includes/mail.php';
+require_once __DIR__ . '/../includes/account_monitoring.php';
 
 // Prevent caching of authentication pages
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -90,6 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $selectedRole = $role;
+    $_POST['role'] = $role;
+    $_POST['account_type'] = $role;
 
     // Common fields
     $firstName   = trim($_POST['first_name'] ?? '');
@@ -118,6 +121,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = $validation['reason'] ?: 'Registration rejected based on automated credential validation.';
     }
 
+    if ($errors) {
+        $kind=preg_match('/already|duplicate/i',implode(' ',$errors))?'duplicate_indicator':(preg_match('/identity|ownership|eligib|roster/i',implode(' ',$errors))?'identity_failure':'invalid_registration');
+        AccountMonitoringService::event($db,$kind,$email?:$username,'Registration rejected by deterministic validation.');
+    }
     if (!$errors) {
         try {
             $db->beginTransaction();
@@ -279,19 +286,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 log_activity($userId, 'Initiated administrator registration (pending OTP verification)', 'auth', 'Administrator: ' . $username);
             }
 
-            // If account decision is 'review', pre-queue AI action item for administrators
-            if ($decision === 'review') {
-                $validator->logReviewAction($userId, $validation);
-            }
+            // Account decision is 'review'; MICA Hub scan reconciles pending_review
+            // alerts against live AccountMonitoringService counts on the next scan.
 
             // Dispatch One-Time Password to authorized email
             $fullName = trim($firstName . ' ' . $lastName);
-            send_registration_otp_email($email, $otpCode, $fullName, $role);
+            // Email is dispatched only after the account transaction commits.
 
             // Store session verification reference
             $_SESSION['pending_verification_user_id'] = $userId;
 
             $db->commit();
+            if(!send_registration_otp_email($email,$otpCode,$fullName,$role))set_flash('warning','Your account was saved, but the verification email could not be delivered. Retry using Resend Code or contact clinic support.');
             redirect('verify_registration.php');
 
         } catch (Exception $e) {
@@ -315,42 +321,31 @@ $pageTitle = 'Create an Account';
   <div class="auth-card auth-card--register" data-aos="fade-up" data-aos-duration="700">
     <!-- Left Branded Sidebar -->
     <div class="auth-side" id="authSideBanner">
-      <div class="auth-icon mb-3">
-        <img class="auth-logo" src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo">
-      </div>
-      <div class="mb-3">
-        <span class="badge bg-white text-dark py-1.5 px-3 rounded-pill fw-semibold shadow-xs" style="color:var(--primary)!important; font-size:0.75rem;">
-          <i class="bi bi-shield-check me-1 text-success"></i> Official Clinic Portal
-        </span>
-      </div>
-      <h1 class="mb-2" id="sideTitle">Join BPC School Clinic</h1>
-      <p class="mb-4 text-white-50 small" id="sideDesc">Register as a student to access clinic consultations, track your medical history, and get your clinic QR code.</p>
-
-      <div class="auth-side__features mb-4">
-        <div class="d-flex align-items-center gap-2 mb-2.5 text-white-75 small">
-          <i class="bi bi-check2-circle text-success fs-6"></i>
-          <span>Digital walk-in &amp; queue tracking</span>
+      <div class="auth-side__brand">
+        <div class="auth-icon">
+          <img class="auth-logo" src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="BPC Clinic Logo">
         </div>
-        <div class="d-flex align-items-center gap-2 mb-2.5 text-white-75 small">
-          <i class="bi bi-check2-circle text-success fs-6"></i>
-          <span>Confidential health &amp; allergy records</span>
-        </div>
-        <div class="d-flex align-items-center gap-2 mb-2.5 text-white-75 small">
-          <i class="bi bi-check2-circle text-success fs-6"></i>
-          <span>Emergency SOS alerts &amp; referrals</span>
-        </div>
-        <div class="d-flex align-items-center gap-2 mb-2.5 text-white-75 small">
-          <i class="bi bi-check2-circle text-success fs-6"></i>
-          <span>Automated MICA health assistant</span>
+        <div class="auth-side__brand-copy">
+          <div class="auth-side__brand-name">BPC Clinic System</div>
+          <div class="auth-side__brand-tag">Healthy Students, Brighter Future</div>
         </div>
       </div>
 
-      <div class="p-3 rounded-3 bg-white bg-opacity-10 small mt-auto border border-white border-opacity-10">
-        <div class="d-flex align-items-center gap-2 text-white fw-semibold mb-1">
-          <i class="bi bi-lock-fill text-warning"></i> Data Privacy Notice
+      <h1 class="auth-side__title" id="sideTitle">Create Your Account</h1>
+      <p class="auth-side__subtitle" id="sideDesc">Join the BPC Clinic System and be part of a healthier and safer campus community. Register now to access clinic services, view your records, and more.</p>
+
+      <div class="auth-side__feature-list">
+        <div class="auth-side__feature-item">
+          <span class="auth-side__feature-icon"><i class="bi bi-shield-check"></i></span>
+          <span>Quality Healthcare</span>
         </div>
-        <div class="text-white-50" style="font-size:0.75rem;line-height:1.45;">
-          All personal and medical data submitted is strictly confidential and protected in accordance with the Data Privacy Act of 2012 (RA 10173).
+        <div class="auth-side__feature-item">
+          <span class="auth-side__feature-icon"><i class="bi bi-heart-pulse"></i></span>
+          <span>Safe Environment</span>
+        </div>
+        <div class="auth-side__feature-item">
+          <span class="auth-side__feature-icon"><i class="bi bi-people"></i></span>
+          <span>Trusted by BPC</span>
         </div>
       </div>
     </div>
@@ -367,14 +362,14 @@ $pageTitle = 'Create an Account';
       </div>
 
       <!-- Page Title & Subtitle -->
-      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+      <div class="auth-form-header">
         <div>
-          <h4 class="mb-1 fw-bold text-dark" id="formHeaderTitle">STUDENT REGISTRATION</h4>
+          <h4 class="mb-1 fw-bold text-dark" id="formHeaderTitle">Student Registration</h4>
           <p class="text-muted mb-0 small" id="formHeaderSub">Please complete all required fields below to create your account.</p>
         </div>
-        <span class="badge bg-light text-secondary border px-2.5 py-1.5 rounded-pill small">
-          <span class="text-danger fw-bold">*</span> Required fields
-        </span>
+        <a href="login.php" class="btn btn-light btn-sm auth-login-link">
+          Already have an account? <span>Login</span>
+        </a>
       </div>
       <div class="reg-progress" role="progressbar" aria-label="Registration form completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="regProgressFill"></span></div>
 
@@ -396,15 +391,15 @@ $pageTitle = 'Create an Account';
           <div class="reg-role-selector" id="roleSelectorGroup" role="radiogroup" aria-label="Account Type">
             <button type="button" class="reg-role-btn <?= $selectedRole === 'student' ? 'is-active' : '' ?>" data-role="student" role="radio" aria-checked="<?= $selectedRole === 'student' ? 'true' : 'false' ?>">
               <span class="reg-role-btn__icon"><i class="bi bi-mortarboard-fill"></i></span>
-              <span>Student</span>
+              <span class="reg-role-btn__text"><strong>Student</strong><small>For BPC students</small></span>
             </button>
             <button type="button" class="reg-role-btn <?= $selectedRole === 'teacher' ? 'is-active' : '' ?>" data-role="teacher" role="radio" aria-checked="<?= $selectedRole === 'teacher' ? 'true' : 'false' ?>">
               <span class="reg-role-btn__icon"><i class="bi bi-person-workspace"></i></span>
-              <span>Teacher</span>
+              <span class="reg-role-btn__text"><strong>Teacher / Adviser</strong><small>For faculty and advisers</small></span>
             </button>
             <button type="button" class="reg-role-btn <?= $selectedRole === 'nurse' ? 'is-active' : '' ?>" data-role="nurse" role="radio" aria-checked="<?= $selectedRole === 'nurse' ? 'true' : 'false' ?>">
               <span class="reg-role-btn__icon"><i class="bi bi-person-badge-fill"></i></span>
-              <span>Nurse</span>
+              <span class="reg-role-btn__text"><strong>Nurse / Staff</strong><small>For clinic staff and nurses</small></span>
             </button>
           </div>
           <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole) ?>">
@@ -419,20 +414,20 @@ $pageTitle = 'Create an Account';
           </div>
 
           <div class="row g-2.5 mb-2">
-            <div class="col-md-4">
+            <div class="col-12 col-sm-6 col-xl-4">
               <label class="form-label" for="firstNameInput">First Name <span class="req-star">*</span></label>
               <input type="text" name="first_name" id="firstNameInput" class="form-control" required maxlength="80" autocomplete="given-name" value="<?= e($old['first_name'] ?? '') ?>" placeholder="e.g. Juan">
             </div>
-            <div class="col-md-4">
+            <div class="col-12 col-sm-6 col-xl-4">
               <label class="form-label" for="middleNameInput">Middle Name</label>
               <input type="text" name="middle_name" id="middleNameInput" class="form-control" maxlength="80" autocomplete="additional-name" value="<?= e($old['middle_name'] ?? '') ?>" placeholder="Optional">
             </div>
-            <div class="col-md-4">
+            <div class="col-12 col-sm-6 col-xl-4">
               <label class="form-label" for="lastNameInput">Last Name <span class="req-star">*</span></label>
               <input type="text" name="last_name" id="lastNameInput" class="form-control" required maxlength="80" autocomplete="family-name" value="<?= e($old['last_name'] ?? '') ?>" placeholder="e.g. Dela Cruz">
             </div>
 
-            <div class="col-md-4 role-field field-gender field-student field-nurse field-teacher">
+            <div class="col-12 col-sm-6 col-xl-4 role-field field-gender field-student field-nurse field-teacher">
               <label class="form-label" for="genderInput" id="genderLabel">Gender</label>
               <select name="gender" id="genderInput" class="form-select" autocomplete="sex">
                 <option value="">Select Gender</option>
@@ -441,11 +436,11 @@ $pageTitle = 'Create an Account';
                 <?php endforeach; ?>
               </select>
             </div>
-            <div class="col-md-4 role-field field-dob field-student field-nurse field-teacher">
+            <div class="col-12 col-sm-6 col-xl-4 role-field field-dob field-student field-nurse field-teacher">
               <label class="form-label" for="dobInput" id="dobLabel">Date of Birth</label>
               <input type="date" name="date_of_birth" id="dobInput" class="form-control" max="<?= date('Y-m-d') ?>" autocomplete="bday" value="<?= e($old['date_of_birth'] ?? '') ?>">
             </div>
-            <div class="col-md-4 role-field field-contact field-student field-teacher field-nurse field-admin">
+            <div class="col-12 col-sm-6 col-xl-4 role-field field-contact field-student field-teacher field-nurse field-admin">
               <label class="form-label" for="contactInput" id="contactLabel">Contact Number <span class="req-star">*</span></label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-telephone"></i></span>
@@ -464,14 +459,14 @@ $pageTitle = 'Create an Account';
           </div>
 
           <div class="row g-2.5 mb-2">
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="studentNumberInput">Student Number <span class="req-star">*</span></label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-hash"></i></span>
                 <input type="text" name="student_number" id="studentNumberInput" class="form-control" placeholder="e.g. 2024-00123" value="<?= e($old['student_number'] ?? '') ?>">
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="studentCourseInput">Course / Program <span class="req-star">*</span></label>
               <select name="course" id="studentCourseInput" class="form-select">
                 <option value="">Select Course</option>
@@ -481,7 +476,7 @@ $pageTitle = 'Create an Account';
                 <option value="BSAIS" <?= (($old['course'] ?? '') === 'BSAIS') ? 'selected' : '' ?>>BSAIS (Accounting Info Systems)</option>
               </select>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="studentYearInput">Year Level <span class="req-star">*</span></label>
               <select name="year_level" id="studentYearInput" class="form-select">
                 <option value="">Select Year Level</option>
@@ -490,7 +485,7 @@ $pageTitle = 'Create an Account';
                 <?php endforeach; ?>
               </select>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="studentSectionInput">Section <span class="req-star">*</span></label>
               <select name="section" id="studentSectionInput" class="form-select">
                 <option value="">Select Section</option>
@@ -499,21 +494,21 @@ $pageTitle = 'Create an Account';
                 <?php endforeach; ?>
               </select>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="emergPersonInput">Emergency Contact Person</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-person-heart"></i></span>
                 <input type="text" name="emergency_contact_name" id="emergPersonInput" class="form-control" placeholder="Parent / Guardian full name" value="<?= e($old['emergency_contact_name'] ?? '') ?>">
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="emergNumberInput">Emergency Contact Number</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-telephone-plus"></i></span>
                 <input type="tel" name="emergency_contact_number" id="emergNumberInput" class="form-control" placeholder="e.g. 09171234567" value="<?= e($old['emergency_contact_number'] ?? '') ?>">
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="bloodTypeInput">Blood Type (Optional)</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-droplet-half text-danger"></i></span>
@@ -525,7 +520,7 @@ $pageTitle = 'Create an Account';
                 </select>
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="allergiesInput">Known Allergies / Medical Notes</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-bandaid"></i></span>
@@ -544,29 +539,29 @@ $pageTitle = 'Create an Account';
           </div>
 
           <div class="row g-2.5 mb-2">
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="teacherEmployeeIdInput">Teacher Employee ID <span class="req-star">*</span></label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-card-text"></i></span>
                 <input type="text" name="employee_id" id="teacherEmployeeIdInput" class="form-control" maxlength="50" placeholder="e.g. TCH-2026-001" value="<?= e($old['employee_id'] ?? '') ?>">
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="teacherDepartmentInput">Department / Faculty</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-building"></i></span>
                 <input type="text" name="department" id="teacherDepartmentInput" class="form-control" maxlength="100" placeholder="e.g. College of Computer Studies" value="<?= e($old['department'] ?? '') ?>">
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="teacherEmergencyNameInput">Emergency Contact Person</label>
               <input type="text" name="teacher_emergency_contact_name" id="teacherEmergencyNameInput" class="form-control" maxlength="120" value="<?= e($old['teacher_emergency_contact_name'] ?? '') ?>" autocomplete="off">
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="teacherEmergencyNumberInput">Emergency Contact Number</label>
               <input type="tel" name="teacher_emergency_contact_number" id="teacherEmergencyNumberInput" class="form-control" maxlength="11" inputmode="numeric" placeholder="09XXXXXXXXX" value="<?= e($old['teacher_emergency_contact_number'] ?? '') ?>">
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="teacherBloodTypeInput">Blood Type</label>
               <select name="teacher_blood_type" id="teacherBloodTypeInput" class="form-select">
                 <option value="">Select Blood Type</option>
@@ -575,7 +570,7 @@ $pageTitle = 'Create an Account';
                 <?php endforeach; ?>
               </select>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="teacherAllergiesInput">Allergies / Medical Notes</label>
               <input type="text" name="teacher_allergies" id="teacherAllergiesInput" class="form-control" maxlength="1000" value="<?= e($old['teacher_allergies'] ?? '') ?>" placeholder="None, or list known allergies">
             </div>
@@ -624,29 +619,29 @@ $pageTitle = 'Create an Account';
           </div>
 
           <div class="row g-2.5 mb-2">
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="nurseEmployeeIdInput">Nurse / Employee ID <span class="req-star">*</span></label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-card-text"></i></span>
                 <input type="text" name="employee_id" id="nurseEmployeeIdInput" class="form-control" maxlength="50" placeholder="e.g. NURSE-2026-001" value="<?= e($old['employee_id'] ?? '') ?>">
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="nurseLicenseInput">PRC License Number</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-award"></i></span>
                 <input type="text" name="license_number" id="nurseLicenseInput" class="form-control" placeholder="e.g. 0123456 (Optional)" value="<?= e($old['license_number'] ?? '') ?>">
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="nursePositionInput">Position</label>
               <input type="text" name="nurse_position" id="nursePositionInput" class="form-control" maxlength="120" placeholder="e.g. School Nurse" value="<?= e($old['nurse_position'] ?? '') ?>">
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="nurseEmergencyNameInput">Emergency Contact Person</label>
               <input type="text" name="nurse_emergency_contact_name" id="nurseEmergencyNameInput" class="form-control" maxlength="120" value="<?= e($old['nurse_emergency_contact_name'] ?? '') ?>">
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="nurseEmergencyNumberInput">Emergency Contact Number</label>
               <input type="tel" name="nurse_emergency_contact_number" id="nurseEmergencyNumberInput" class="form-control" maxlength="11" inputmode="numeric" placeholder="09XXXXXXXXX" value="<?= e($old['nurse_emergency_contact_number'] ?? '') ?>">
             </div>
@@ -660,7 +655,7 @@ $pageTitle = 'Create an Account';
             <h6 class="reg-section-header__title">Administrative Office</h6>
           </div>
           <div class="row g-2.5 mb-2">
-            <div class="col-md-12">
+            <div class="col-12">
               <label class="form-label">Administrative Department / Unit</label>
               <input type="text" name="admin_office" class="form-control" placeholder="e.g. Clinic Administration, MIS Office" value="<?= e($old['admin_office'] ?? '') ?>">
             </div>
@@ -676,7 +671,7 @@ $pageTitle = 'Create an Account';
           </div>
 
           <div class="row g-2.5 mb-2">
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="emailInput">Institutional / Personal Email <span class="req-star">*</span></label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-envelope"></i></span>
@@ -684,7 +679,7 @@ $pageTitle = 'Create an Account';
               </div>
               <div class="form-text small text-muted">A 6-digit OTP will be dispatched to this address.</div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="usernameInput">Username <span class="req-star">*</span></label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-at"></i></span>
@@ -692,7 +687,7 @@ $pageTitle = 'Create an Account';
               </div>
               <div class="form-text small text-muted">Letters, numbers, underscores only (3-50 chars).</div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="regPw">Password <span class="req-star">*</span></label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-lock"></i></span>
@@ -707,7 +702,7 @@ $pageTitle = 'Create an Account';
               <div class="pw-strength mt-2" role="progressbar" aria-label="Password strength" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><span id="pwStrengthFill"></span></div>
               <div id="pwStrengthText" class="form-text" aria-live="polite">Password strength: not entered</div>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="regConfirmPw">Confirm Password <span class="req-star">*</span></label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
@@ -732,14 +727,14 @@ $pageTitle = 'Create an Account';
           </div>
 
           <div class="row g-2.5 mb-2">
-            <div class="col-md-6">
+            <div class="col-12 col-sm-6">
               <label class="form-label" for="profilePicInput">Profile Picture</label>
               <div class="reg-file-box">
                 <input type="file" name="profile_picture" id="profilePicInput" class="form-control form-control-sm" accept="image/jpeg,image/png,image/webp">
                 <div class="form-text small text-muted mt-1"><i class="bi bi-image me-1"></i>JPG, PNG, or WebP photo (square recommended).</div>
               </div>
             </div>
-            <div class="col-md-6 role-field field-valid_id field-student field-nurse field-teacher">
+            <div class="col-12 col-sm-6 role-field field-valid_id field-student field-nurse field-teacher">
               <label class="form-label" for="validIdInput" id="validIdLabel">Valid ID / School ID <span class="req-star">*</span></label>
               <div class="reg-file-box">
                 <input type="file" name="valid_id" id="validIdInput" class="form-control form-control-sm" accept="image/jpeg,image/png,image/webp,application/pdf">
@@ -749,6 +744,7 @@ $pageTitle = 'Create an Account';
           </div>
         </div>
 
+        <div class="reg-actions">
         <!-- Section 5: Certification -->
         <div class="reg-certify-box">
           <input class="form-check-input" type="checkbox" name="certify" id="certify" required>
@@ -758,16 +754,10 @@ $pageTitle = 'Create an Account';
         </div>
 
         <!-- Submit Button -->
-        <button type="submit" class="btn btn-primary w-100 mt-4 mb-3 py-2.5 fw-semibold shadow-sm" id="submitBtn">
+        <button type="submit" class="btn btn-primary w-100 fw-semibold" id="submitBtn">
           <span class="btn-text">Create Student Account</span>
           <span class="spinner-border spinner-border-sm d-none ms-2" role="status" aria-hidden="true"></span>
         </button>
-
-        <!-- Back to Login Navigation -->
-        <div class="text-center pt-3 border-top">
-          <p class="small text-muted mb-0">
-            Already have an account? <a href="login.php" class="text-primary fw-semibold text-decoration-none"><i class="bi bi-box-arrow-in-right me-1"></i>Sign In</a>
-          </p>
         </div>
       </form>
     </div>
@@ -854,7 +844,7 @@ $pageTitle = 'Create an Account';
     const sideTitleEl = document.getElementById('sideTitle');
     const sideDescEl = document.getElementById('sideDesc');
 
-    if (titleEl) titleEl.textContent = meta.title.toUpperCase();
+    if (titleEl) titleEl.textContent = meta.title;
     if (sideTitleEl) sideTitleEl.textContent = meta.sideTitle;
     if (sideDescEl) sideDescEl.textContent = meta.sideDesc;
     if (btnText) btnText.textContent = meta.btnText;

@@ -14,7 +14,8 @@ define('APP_SHORT_NAME', 'BPC School Clinic');
 // .env Loader — environment variables for secrets & API keys
 // Reads BASE_PATH/.env if it exists. Never commit .env to git.
 // ============================================================
-$__envFile = BASE_PATH . '/.env';
+$__configuredEnvFile = trim((string)(getenv('APP_ENV_FILE') ?: ''));
+$__envFile = $__configuredEnvFile !== '' ? $__configuredEnvFile : BASE_PATH . '/.env';
 if (is_file($__envFile)) {
     $__lines = file($__envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     if ($__lines !== false) {
@@ -36,8 +37,17 @@ if (is_file($__envFile)) {
 // ============================================================
 // Environment detection
 // ============================================================
-$__appEnv = getenv('APP_ENV') ?: 'production';
-if ($__appEnv === 'local' || $__appEnv === 'development' || $__appEnv === 'dev') {
+$__configuredAppEnv = strtolower(trim((string)(getenv('APP_ENV') ?: '')));
+$hostForEnvironment = strtolower((string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
+$isLoopbackRequest = preg_match('/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/', $hostForEnvironment) === 1;
+$isXamppRuntime = PHP_OS_FAMILY === 'Windows' && str_contains(strtolower(str_replace('\\', '/', BASE_PATH)), '/xampp/htdocs/');
+$forceProduction = filter_var(getenv('APP_FORCE_PRODUCTION') ?: false, FILTER_VALIDATE_BOOL);
+if (!$forceProduction && ($isLoopbackRequest || $isXamppRuntime)) {
+    $__configuredAppEnv = 'local';
+} elseif ($__configuredAppEnv === '') {
+    $__configuredAppEnv = 'production';
+}
+if ($__configuredAppEnv === 'local' || $__configuredAppEnv === 'development' || $__configuredAppEnv === 'dev') {
     define('APP_ENV', 'local');
 } else {
     define('APP_ENV', 'production');
@@ -71,7 +81,11 @@ define('REMEMBER_ME_DAYS', 30);
 // Resolve the public base URL dynamically so the application works from
 // XAMPP, local dev servers, and subdirectory deployments without hard-coding
 // a single hostname/path.
-$__appUrlFromEnv = getenv('APP_URL');
+$__appUrlFromEnv = trim((string)(getenv('APP_URL') ?: ''));
+if ($__appUrlFromEnv !== '' && !filter_var($__appUrlFromEnv, FILTER_VALIDATE_URL)) {
+    error_log('APP_URL is invalid; refusing configured value.');
+    $__appUrlFromEnv = '';
+}
 if (empty($__appUrlFromEnv)) {
     $scheme = 'http';
     if ((!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')) {
@@ -94,7 +108,12 @@ if (empty($__appUrlFromEnv)) {
     $__appUrlFromEnv = $scheme . '://' . $host . $webBase;
 }
 
-define('APP_URL', trim($__appUrlFromEnv, '/'));
+define('APP_URL', rtrim($__appUrlFromEnv, '/'));
+if (APP_ENV === 'production' && !str_starts_with(strtolower(APP_URL), 'https://')) {
+    error_log('Production APP_URL must be an HTTPS URL.');
+    http_response_code(503);
+    exit('The production application URL is not configured securely.');
+}
 
 // ============================================================
 // Load AI Configuration (must be loaded early so AI constants
@@ -107,6 +126,7 @@ require_once BASE_PATH . '/includes/functions.php';
 require_once BASE_PATH . '/includes/csrf.php';
 require_once BASE_PATH . '/includes/security.php';
 require_once BASE_PATH . '/includes/auth.php';
+require_once BASE_PATH . '/includes/permission_profiles.php';
 require_once BASE_PATH . '/includes/mail.php';
 require_once BASE_PATH . '/includes/icons.php';
 require_once BASE_PATH . '/includes/dashboard_ui.php';
@@ -123,3 +143,6 @@ if (function_exists('send_security_headers')) {
 
 set_error_handler('handle_error');
 set_exception_handler('handle_exception');
+
+// Defense in depth for legacy endpoints with independent role comparisons.
+enforce_profile_route();

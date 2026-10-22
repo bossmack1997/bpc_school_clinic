@@ -1,240 +1,64 @@
 <?php
-/**
- * pages/admin/emergencies.php
- * =====================================================================
- * Admin Emergency Oversight — Full Crisis Center for Active Emergencies
- * Shows all active/ongoing SOS emergencies with live tracking, status updates,
- * and full resolution workflow for system administrators.
- * =====================================================================
- */
 require_once __DIR__ . '/../../config/config.php';
-require_role('admin');
-$db = getDB();
-$u = current_user();
-$pageTitle = 'Emergency Oversight Center';
+require_admin_permission('view_emergencies');
+$u=current_user();
+$pageTitle='Emergency Oversight Center';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <?php include __DIR__ . '/../../includes/head.php'; ?>
+<link rel="stylesheet" href="<?= asset_url('css/emergency-oversight.css') ?>?v=<?= filemtime(__DIR__.'/../../assets/css/emergency-oversight.css') ?>">
 </head>
 <body>
 <div class="app-wrapper">
-  <?php include __DIR__ . '/../../components/sidebar.php'; ?>
-  <div class="main-content">
-    <?php include __DIR__ . '/../../components/navbar.php'; ?>
-    <div class="content-area page-enter">
-
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-        <h6 class="section-title mb-0"><i class="bi bi-exclamation-triangle-fill text-danger me-1"></i> Emergency Oversight Center</h6>
-        <button class="btn btn-sm btn-outline-secondary" onclick="loadEmergencies()">Refresh</button>
-      </div>
-
-      <div class="mb-3">
-        <div class="row g-3">
-          <div class="col-sm-3">
-            <div class="card p-3 text-center border-0 bg-white">
-              <div class="fw-bold fs-4 text-danger" id="statActive">—</div>
-              <div class="small text-muted">Active Emergencies</div>
-            </div>
-          </div>
-          <div class="col-sm-3">
-            <div class="card p-3 text-center border-0 bg-white">
-              <div class="fw-bold fs-4 text-warning" id="statResponding">—</div>
-              <div class="small text-muted">Responding</div>
-            </div>
-          </div>
-          <div class="col-sm-3">
-            <div class="card p-3 text-center border-0 bg-white">
-              <div class="fw-bold fs-4 text-success" id="statResolved">—div>
-              <div class="small text-muted">Resolved (24h)</div>
-            </div>
-          </div>
-          <div class="col-sm-3">
-            <div class="card p-3 text-center border-0 bg-white">
-              <div class="fw-bold fs-4 text-secondary" id="statTotal">—</div>
-              <div class="small text-muted">Total (24h)</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card shadow-sm border-0 rounded-3 bg-white">
-        <div class="card-body p-0">
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0" id="emgTable">
-              <thead class="table-light">
-                <tr>
-                  <th>Student</th>
-                  <th>Type</th>
-                  <th>Location</th>
-                  <th>Source</th>
-                  <th>Status</th>
-                  <th>Reported</th>
-                  <th class="text-end">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td colspan="7" class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm me-1"></span> Loading emergencies...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
+<?php include __DIR__ . '/../../components/sidebar.php'; ?>
+<div class="main-content">
+<?php include __DIR__ . '/../../components/navbar.php'; ?>
+<main class="content-area eo-page" id="emergencyOversight" data-endpoint="<?= e(APP_URL.'/api/emergencies.php') ?>">
+  <header class="eo-heading">
+    <div><div class="eo-eyebrow">ADMINISTRATION / EMERGENCY MONITORING</div><h1>Emergency Oversight Center</h1><p>Monitor incoming reports, review nurse response progress, and inspect emergency history.</p></div>
+    <div class="eo-refresh"><span id="eoUpdated" class="small text-muted">Connecting to clinic records</span><button type="button" class="btn btn-outline-secondary" id="eoRefresh"><i class="bi bi-arrow-clockwise me-2" aria-hidden="true"></i>Refresh</button></div>
+  </header>
+  <section class="row g-3 eo-summary" aria-label="Emergency summary, all records">
+    <?php foreach([
+        ['active','Active Emergencies','Awaiting response or acknowledged','exclamation-triangle','red'],
+        ['responding','Responding','Currently being handled','activity','orange'],
+        ['resolved','Resolved','All-time resolved reports','check-circle','green'],
+        ['total','Total Emergency Reports','All-time, including closed reports','clipboard-data','neutral'],
+    ] as [$key,$label,$hint,$icon,$tone]): ?>
+    <div class="col-12 col-md-6 col-xl-3"><article class="eo-stat eo-stat--<?= $tone ?>"><div class="eo-stat-top"><h2><?= e($label) ?></h2><span class="eo-stat-icon"><i class="bi bi-<?= $icon ?>" aria-hidden="true"></i></span></div><div class="eo-stat-value" data-stat="<?= $key ?>">&mdash;</div><p><?= e($hint) ?></p></article></div>
+    <?php endforeach; ?>
+  </section>
+  <div id="eoError" class="alert alert-danger d-none mt-3" role="alert"></div>
+  <section class="eo-panel" aria-label="Emergency reports">
+    <div class="eo-panel-heading"><div><h2>Emergency reports</h2><p>Live clinic records · newest reports first</p></div><span class="eo-live-label"><span aria-hidden="true"></span>Updates every 15 seconds</span></div>
+    <div class="eo-tabs" role="tablist" aria-label="Emergency report categories">
+      <button class="eo-tab active" type="button" role="tab" aria-selected="true" aria-controls="eoResults" id="eoTabActive" data-tab="active">Active Emergencies <span data-count="active">&mdash;</span></button>
+      <button class="eo-tab" type="button" role="tab" aria-selected="false" aria-controls="eoResults" id="eoTabResponding" tabindex="-1" data-tab="responding">Responding <span data-count="responding">&mdash;</span></button>
+      <button class="eo-tab" type="button" role="tab" aria-selected="false" aria-controls="eoResults" id="eoTabHistory" tabindex="-1" data-tab="history">Emergency History <span data-count="history">&mdash;</span></button>
     </div>
-  </div>
-</div>
-
-<!-- Resolve Modal -->
-<div class="modal fade" id="resolveModal" tabindex="-1" aria-hidden="true" aria-labelledby="resolveModalTitle">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content border-0 shadow">
-      <form method="POST">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="update_status">
-        <input type="hidden" name="emergency_id" id="resolveEmgId">
-        <input type="hidden" name="op" value="resolve">
-<div class="modal-header">
-            <h6 class="modal-title" id="resolveModalTitle"><?= bpc_icon('check-circle') ?> Resolve Emergency</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <p class="app-muted mb-2">Mark emergency <strong id="resolveEmgTitle">&mdash;</strong> as resolved.</p>
-            <label class="form-label" for="resolutionNotes">Resolution Notes</label>
-            <textarea name="resolution_notes" id="resolutionNotes" class="form-control" rows="3" placeholder="e.g. Student arrived at clinic, condition stable."></textarea>
-          </div>
-        <div class="modal-footer border-0">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-success">Confirm Resolution</button>
-        </div>
-      </form>
+    <form id="eoFilters" class="eo-filters" role="search" aria-label="Filter emergency reports">
+      <div class="eo-search"><label for="eoSearch">Search reports</label><div class="eo-search-input"><i class="bi bi-search" aria-hidden="true"></i><input class="form-control" type="search" id="eoSearch" maxlength="120" placeholder="Patient, reporter, ID, or emergency type" autocomplete="off"></div></div>
+      <div><label for="eoStatus">Status</label><select class="form-select" id="eoStatus"><option value="">All statuses</option></select></div>
+      <div><label for="eoRole">Reporter role</label><select class="form-select" id="eoRole"><option value="">All roles</option><option value="student">Student</option><option value="teacher">Teacher</option><option value="nurse">Nurse</option><option value="admin">Administration</option></select></div>
+      <div><label for="eoFrom">Reported from</label><input class="form-control" type="date" id="eoFrom"></div>
+      <div><label for="eoTo">Reported through</label><input class="form-control" type="date" id="eoTo"></div>
+      <div class="eo-filter-buttons"><button class="btn btn-success" type="submit">Apply filters</button><button class="btn btn-outline-secondary" type="button" id="eoClear">Clear</button></div>
+    </form>
+    <div class="eo-results-heading"><p id="eoResultsLabel" class="mb-0" aria-live="polite">Loading active emergencies…</p><div><label for="eoPageSize">Rows per page</label><select id="eoPageSize" class="form-select form-select-sm"><option>10</option><option>25</option><option>50</option></select></div></div>
+    <div id="eoResults" role="tabpanel" aria-labelledby="eoTabActive" aria-busy="true" tabindex="0">
+      <div class="eo-table-wrap"><table class="table eo-table"><caption class="visually-hidden">Emergency reports, sorted by most recent first</caption><thead><tr><th scope="col">Patient / Reporter</th><th scope="col">Emergency Type</th><th scope="col">Location</th><th scope="col">Status</th><th scope="col">Reported At</th><th scope="col">Actions</th></tr></thead><tbody id="eoRows"></tbody></table></div>
+      <div id="eoMobileCards" class="eo-mobile-cards"></div>
+      <div id="eoEmpty" class="eo-empty" hidden><i class="bi bi-shield-check" aria-hidden="true"></i><h3 id="eoEmptyTitle">No active emergencies</h3><p id="eoEmptyText">New emergency reports will appear here automatically.</p></div>
     </div>
-  </div>
+    <footer class="eo-pagination"><p id="eoRange" class="mb-0">Loading reports…</p><nav aria-label="Emergency report pages"><button type="button" class="btn btn-outline-secondary btn-sm" id="eoPrevious" disabled>Previous</button><span id="eoPageLabel">Page 1</span><button type="button" class="btn btn-outline-secondary btn-sm" id="eoNext" disabled>Next</button></nav></footer>
+  </section>
+</main>
 </div>
-
+</div>
+<div class="modal fade eo-detail-modal" id="eoDetailModal" tabindex="-1" aria-labelledby="eoDetailTitle" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><div><div class="eo-eyebrow" id="eoReference">EMERGENCY REPORT</div><h2 class="modal-title fs-5" id="eoDetailTitle">Emergency details</h2></div><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close emergency details"></button></div><div class="modal-body" id="eoDetailBody"></div><div class="modal-footer"><div id="eoDetailActions" class="d-flex flex-wrap gap-2 me-auto"></div><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Close</button></div></div></div></div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
-<script>
-const csrfToken = $('meta[name="csrf-token"]').attr('content');
-/* Emergency severity maps onto the shared status palette. Severity is also
-   carried by the label text, never by colour alone. */
-const emgStatusTone = {
-  new: 'danger',
-  active: 'danger',
-  acknowledged: 'warning',
-  responding: 'info',
-  responded: 'warning',
-  resolved: 'success',
-  cancelled: 'neutral',
-  false_alarm: 'neutral'
-};
-const emgStatusLabels = {
-  new: 'New', active: 'New', acknowledged: 'Acknowledged', responding: 'Responding',
-  responded: 'Responded', resolved: 'Resolved', cancelled: 'Cancelled', false_alarm: 'False Alarm'
-};
-
-function loadEmergencies() {
-  $.get(APP_URL + '/api/emergencies.php', { action: 'list' }, function (res) {
-    if (!res.success) {
-      BPCState.tableError('#emgTable tbody', 7, 'Unable to load emergencies. Please try again.', loadEmergencies);
-      return;
-    }
-    const data = res.data || [];
-    let active = 0, responding = 0, resolved = 0;
-
-    const rows = data.map(e => {
-      const status = e.status || 'new';
-      if (['new', 'active', 'acknowledged', 'responding', 'responded'].includes(status)) {
-        active++;
-        if (status === 'responding' || status === 'responded') responding++;
-      }
-      if (status === 'resolved') {
-        resolved++;
-        active--;
-      }
-
-      const studentName = e.first_name ? (e.first_name + ' ' + e.last_name) : ('Student #' + (e.student_id || '—'));
-      const badge = `<span class="app-badge app-badge--${emgStatusTone[status] || 'neutral'}"><span class="spinner-border spinner-border-sm d-none" id="spinner-${e.id}"></span>${emgStatusLabels[status] || status}</span>`;
-      const location = e.location || (e.latitude ? 'GPS: ' + e.latitude + ', ' + e.longitude : '—');
-      const source = e.source === 'sos' ? 'Student SOS' : (e.source === 'adviser' ? 'Adviser Report' : e.source || '—');
-      const reported = e.created_at ? new Date(e.created_at).toLocaleString() : '—';
-
-      // Actions
-      let actions = '';
-      if (['new', 'active'].includes(status)) {
-        actions = `<button class="btn btn-sm btn-outline-warning" onclick="updateStatus(${e.id}, 'acknowledge')"><i class="bi bi-flag"></i> Acknowledge</button>`;
-      } else if (status === 'acknowledged') {
-        actions = `<button class="btn btn-sm btn-outline-info" onclick="updateStatus(${e.id}, 'respond')"><i class="bi bi-ambulance"></i> Respond</button>`;
-      } else if (['responding', 'responded'].includes(status)) {
-        actions = `<button class="btn btn-sm btn-outline-success" onclick="openResolveModal(${e.id}, '${studentName}')"><i class="bi bi-check-lg"></i> Resolve</button>`;
-      }
-      if (!['resolved', 'cancelled', 'false_alarm'].includes(status)) {
-        if (actions) actions += ' ';
-        actions += `<button class="btn btn-sm btn-outline-secondary" onclick="updateStatus(${e.id}, 'cancel')" title="Cancel"><i class="bi bi-x-lg"></i></button>`;
-      }
-
-      return [badge, studentName, e.emergency_type || 'Emergency', `<span class="app-mono">${location}</span>`, source, `<span class="app-card__meta">${reported}</span>`, actions];
-    });
-
-    $('#statActive').text(active);
-    $('#statResponding').text(responding);
-    $('#statResolved').text(resolved);
-    $('#statTotal').text(data.length);
-
-    const tbody = $('#emgTable tbody');
-    tbody.empty();
-    if (rows.length === 0) {
-      BPCState.tableEmpty('#emgTable tbody', 7, { icon: 'shield-check', title: 'No active emergencies', desc: 'Nothing needs attention right now. New SOS reports appear here the moment a student submits one.' });
-    } else {
-      rows.forEach(r => {
-        tbody.append('<tr>' + r.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>');
-      });
-    }
-  }, 'json').fail(function () {
-    BPCState.tableError('#emgTable tbody', 7, 'Unable to reach the server. Please try again.', loadEmergencies);
-  });
-}
-
-function updateStatus(id, op) {
-  $.post(APP_URL + '/api/emergencies.php', { action: 'update_status', emergency_id: id, op: op, csrf_token: csrfToken }, function (res) {
-    if (res.success) {
-      toastSuccess(res.message);
-      loadEmergencies();
-    } else {
-      toastError(res.message);
-    }
-  }, 'json');
-}
-
-function openResolveModal(id, title) {
-  document.getElementById('resolveEmgId').value = id;
-  document.getElementById('resolveEmgTitle').textContent = title;
-  BPCModal.show('resolveModal');
-}
-
-$('#resolveModal form').on('submit', function (e) {
-  e.preventDefault();
-  const id = document.getElementById('resolveEmgId').value;
-  const btn = $(this).find('button[type="submit"]');
-  btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Resolving...');
-
-  $.post(APP_URL + '/api/emergencies.php', $(this).serialize() + '&csrf_token=' + csrfToken, function (res) {
-    if (res.success) {
-      toastSuccess(res.message);
-      BPCModal.hide('resolveModal');
-      loadEmergencies();
-    } else {
-      toastError(res.message);
-    }
-    btn.prop('disabled', false).html('Confirm Resolution');
-  }, 'json').fail(function () {
-    toastError('Connection error.');
-    btn.prop('disabled', false).html('Confirm Resolution');
-  });
-});
-
-loadEmergencies();
-setInterval(loadEmergencies, 10000);
-</script>
+<script src="<?= asset_url('js/emergency-oversight.js') ?>?v=<?= filemtime(__DIR__.'/../../assets/js/emergency-oversight.js') ?>"></script>
 </body>
 </html>

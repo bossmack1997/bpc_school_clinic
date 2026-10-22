@@ -11,10 +11,11 @@ function current_user() {
 
     try {
         $db = getDB();
-        $stmt = $db->prepare("SELECT id, role, status, admin_type FROM users WHERE id = ? LIMIT 1");
+        $stmt = $db->prepare("SELECT id, role, status, admin_type, credential_version, username, email, first_name, last_name, phone, profile_picture FROM users WHERE id = ? LIMIT 1");
         $stmt->execute([(int)$user['id']]);
         $dbUser = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        if ($dbUser && isset($_SESSION['credential_version']) && (int)$_SESSION['credential_version'] !== (int)$dbUser['credential_version']) return null;
         if (!$dbUser || ($dbUser['status'] ?? '') !== 'active' || !is_supported_role($dbUser['role'] ?? '')) {
             return null;
         }
@@ -34,7 +35,7 @@ function current_user() {
         return $_SESSION['user'];
     } catch (Throwable $e) {
         error_log('current_user verification failed: ' . $e->getMessage());
-        return $_SESSION['user'] ?? null;
+        return null;
     }
 }
 
@@ -177,46 +178,49 @@ function is_primary_admin(?array $user = null): bool {
  * Co-Administrators are verified against the admin_permissions table.
  */
 function has_admin_permission(string $permission, ?array $user = null, ?PDO $db = null): bool {
-    $user = $user ?? current_user();
-    if (!$user || canonical_role($user['role'] ?? '') !== 'admin') {
-        return false;
-    }
-    // Primary Admin always has all permissions
-    if (is_primary_admin($user)) {
-        return true;
-    }
-    $db = $db ?? getDB();
-    $userId = (int)($user['id'] ?? 0);
-    if ($userId <= 0) return false;
-
-    try {
-        $stmt = $db->prepare("SELECT COUNT(*) FROM admin_permissions WHERE user_id = ? AND permission_key = ?");
-        $stmt->execute([$userId, $permission]);
-        return ((int)$stmt->fetchColumn()) > 0;
-    } catch (Throwable $e) {
-        error_log("has_admin_permission error: " . $e->getMessage());
-        return false;
-    }
+    return has_permission($permission,$user,$db);
 }
 
 /**
  * Enforce a specific admin permission, throwing 403 or redirecting if unauthorized.
  */
+function admin_access_denied(string $message = 'Access denied: this module is not assigned to your account.'): never {
+    http_response_code(403);
+    if (is_api_request()) json_response(false, ['error_code'=>'ADMIN_PERMISSION_DENIED'], $message);
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!doctype html><html lang="en"><meta charset="utf-8"><title>Access denied</title><h1>Access denied</h1><p>'.htmlspecialchars($message,ENT_QUOTES,'UTF-8').'</p><p><a href="'.htmlspecialchars(APP_URL.'/pages/admin/dashboard.php',ENT_QUOTES,'UTF-8').'">Return to dashboard</a></p></html>';
+    exit;
+}
 function require_admin_permission(string $permission): void {
     require_role('admin');
-    if (!has_admin_permission($permission)) {
-        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
-            http_response_code(403);
-            echo json_encode(['success' => false, 'message' => "Access denied: missing '{$permission}' permission."]);
-            exit;
-        }
-        set_flash('danger', 'Access denied: you do not have permission for this action.');
-        redirect(APP_URL . '/pages/admin/dashboard.php');
-        exit;
-    }
+    if (!has_admin_permission($permission)) admin_access_denied();
+}
+function require_primary_admin(): void {
+    require_role('admin');
+    if (!is_primary_admin()) admin_access_denied('Only the Primary Administrator can manage privileged accounts or permissions.');
+}
+function admin_can_view_emergencies(?array $user = null): bool {
+    $user=$user??current_user();
+    return $user && ($user['role']==='nurse'||($user['role']==='admin'&&has_admin_permission('view_emergencies',$user)));
+}
+function admin_can_respond_sos(?array $user = null): bool {
+    $user=$user??current_user();
+    return $user && ($user['role']==='nurse');
+}
+
+/** Inventory delegation is deliberately independent of Primary Admin's general bypass. */
+function can_view_inventory(?array $user=null, ?PDO $db=null): bool {
+    $user=$user??current_user();
+    return $user && has_permission('inventory_oversight',$user,$db);
+}
+function require_inventory_access(bool $manage=false): void {
+    require_role(['nurse','admin']);
+    $user=current_user();
+    if($manage ? $user['role']!=='nurse' : !can_view_inventory($user))admin_access_denied($manage?'Only nurses can manage medicine stock.':'Inventory data requires authorized clinic or delegated oversight access.');
 }
 
 function login_user(array $userRow) {
+    $_SESSION['credential_version'] = (int)($userRow['credential_version'] ?? 0);
     $_SESSION['user'] = [
         'id'         => (int)$userRow['id'],
         'role'       => canonical_role($userRow['role']),
@@ -334,6 +338,18 @@ function attempt_remember_me_login() {
 /** Returns the dashboard URL for a given role */
 function dashboard_url_for($role) {
     $role = canonical_role($role);
+    if ($role === 'admin') {
+        $sessionUser = $_SESSION['user'] ?? null;
+        if (is_array($sessionUser) && !empty($sessionUser['id'])) {
+            try {
+                if (permission_profile($sessionUser) === 'doctor') {
+                    return APP_URL . '/pages/doctor/dashboard.php';
+                }
+            } catch (Throwable $e) {
+                error_log('Dashboard profile resolution failed: ' . $e->getMessage());
+            }
+        }
+    }
     return match ($role) {
         'admin'   => APP_URL . '/pages/admin/dashboard.php',
         'nurse'   => APP_URL . '/pages/nurse/dashboard.php',

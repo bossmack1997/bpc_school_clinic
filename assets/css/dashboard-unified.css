@@ -78,6 +78,104 @@
 .sidebar-toggle-collapse { right: 10px; left: auto; transform: none; }
 .sidebar.collapsed .sidebar-toggle-collapse { right: 10px; left: auto; transform: rotate(180deg); }
 
+/* ================================================================
+   Shared welcome banner — Student / Teacher / Nurse / Administrator
+   ================================================================ */
+.dbg-welcome-banner {
+  background: linear-gradient(135deg, var(--primary-dark, #08683d), var(--primary, #0c9a5b));
+  border-radius: var(--radius-lg, 16px);
+  padding: clamp(16px, 2vw, 24px);
+  color: #fff;
+  box-shadow: 0 12px 30px rgba(8, 104, 61, 0.16);
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.dbg-wb-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+.dbg-wb-text { min-width: 0; flex: 1 1 auto; }
+.dbg-wb-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0 0 6px;
+  display: block;
+}
+.dbg-wb-title {
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.25;
+  color: #fff;
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+.dbg-wb-sub {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #e8f5ee;
+  margin: 0;
+}
+.dbg-wb-status { flex: 0 0 auto; }
+.dbg-wb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+.dbg-wb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dbg-wb-dot--open { background: #20c875; box-shadow: 0 0 0 5px rgba(32, 200, 117, 0.14); }
+.dbg-wb-dot--closed { background: #dc3545; box-shadow: 0 0 0 5px rgba(220, 53, 69, 0.12); }
+.dbg-wb-hours {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+/* Prevent global heading/link styles from overriding banner text colors */
+.dbg-welcome-banner { color: #fff; }
+.dbg-welcome-banner h2, .dbg-welcome-banner h2 a { color: #fff !important; }
+.dbg-welcome-banner p { color: #e8f5ee !important; }
+.dbg-welcome-banner .dbg-wb-eyebrow { color: rgba(255, 255, 255, 0.85) !important; }
+.dbg-welcome-banner .dbg-wb-chip { color: #fff !important; }
+.dbg-welcome-banner .dbg-wb-status-text { color: #fff !important; }
+.dbg-welcome-banner .dbg-wb-hours { color: rgba(255, 255, 255, 0.8) !important; }
+.dbg-welcome-banner a { color: #fff; text-decoration: underline; }
+
+.clinic-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.clinic-dot.open { background: #20c875; box-shadow: 0 0 0 5px rgba(32, 200, 117, 0.14); }
+.clinic-dot.closed { background: #dc3545; box-shadow: 0 0 0 5px rgba(220, 53, 69, 0.12); }
+
+.dbg-service-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #e9f8f0;
+  color: #087443;
+  font-size: 1.25rem;
+  flex: 0 0 44px;
+}
+
 .dbg-search {
   position: relative;
   display: block;
@@ -143,6 +241,7 @@
   display: block;
   width: 100%;
   height: 100%;
+  
   flex: 0 0 100%;
   object-fit: cover;
   border-radius: inherit;
@@ -204,6 +303,34 @@
   .content-area:has(.adm-greet) {
     padding: 12px 12px calc(90px + env(safe-area-inset-bottom, 0px));
   }
+  .dbg-hero,
+  .adm-greet {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 0;
+    margin-bottom: 12px;
+    padding: 14px;
+    box-sizing: border-box;
+    gap: 10px;
+    overflow-wrap: anywhere;
+  }
+  .dbg-hero__inner { align-items: flex-start; gap: 10px; }
+  .dbg-hero__text,
+  .adm-greet__text { flex: 1 1 100%; width: 100%; min-width: 0; }
+  .dbg-hero__title,
+  .adm-greet__title {
+    font-size: clamp(1.05rem, 4.6vw, 1.25rem);
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .dbg-hero__desc,
+  .adm-greet__sub { font-size: .8rem; line-height: 1.45; }
+  .dbg-hero__meta { gap: 8px 12px; margin-top: 10px; }
+  .dbg-hero__chip { min-width: 0; white-space: normal; }
+  .dbg-hero__aside,
+  .adm-greet__aside { min-width: 0; flex-wrap: wrap; }
+
   .dbg-stats.dbg-stats--2,
   .dbg-stats.dbg-stats--3,
   .dbg-stats.dbg-stats--4,
@@ -250,4 +377,50 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dbg-stat, .adm-stat, .dbg-action { transition: none !important; }
+
+  
+}
+
+/* Admin dashboard: full-width overview, priority alerts, then clinic activity. */
+.adm-page > .adm-greet {
+  padding: clamp(22px, 2.2vw, 32px);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.adm-page .adm-greet__eyebrow { margin-bottom: 8px; letter-spacing: .08em; }
+.adm-page .adm-greet__title { font-size: clamp(1.4rem, 2vw, 1.85rem); line-height: 1.25; }
+.adm-page .adm-greet__sub { margin-top: 10px; max-width: 80ch; line-height: 1.6; }
+.adm-page .adm-dashboard-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  min-width: 0;
+  align-items: start;
+}
+.adm-page .adm-dashboard-panels > .adm-card { height: auto; min-height: 0; }
+.adm-page .adm-card__head { flex-wrap: wrap; }
+.adm-page .adm-card__head > div { min-width: 0; }
+.adm-page .adm-attention .adm-alerts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.adm-page .adm-alert + .adm-alert { margin-top: 0; }
+.adm-page .adm-alert__body { min-width: 0; overflow-wrap: anywhere; }
+.adm-page .adm-alert__title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.adm-page .adm-btn-row { flex-wrap: wrap; }
+.adm-page .adm-chart-block { height: auto; min-height: 0; }
+.adm-page .adm-chart { height: clamp(220px, 20vw, 300px); min-height: 220px; }
+.adm-page #visitsChartEmpty { min-height: 180px; padding: 24px 16px; gap: 8px; }
+.adm-page #visitsChartEmpty .adm-empty__desc { max-width: 52ch; line-height: 1.5; }
+.adm-page .adm-attention .adm-empty { padding: 20px 16px; }
+@media (max-width: 991.98px) {
+  .adm-page .adm-attention .adm-alerts { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 575.98px) {
+  .adm-page > .adm-greet { padding: 20px 16px; gap: 12px; margin-bottom: 16px; }
+  .adm-page .adm-dashboard-panels { gap: 16px; }
+  .adm-page .adm-greet__title { font-size: 1.35rem; }
+  .adm-page .adm-greet__sub { margin-top: 8px; }
+  .adm-page .adm-activity .adm-btn-row { width: 100%; }
+  .adm-page .adm-activity .adm-btn-row > .adm-btn { flex: 1 1 auto; }
 }

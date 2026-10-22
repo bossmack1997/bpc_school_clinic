@@ -403,10 +403,11 @@ function validate_session(): bool {
 
     try {
         $db = getDB();
-        $stmt = $db->prepare("SELECT id, role, status, admin_type FROM users WHERE id = ? LIMIT 1");
+        $stmt = $db->prepare("SELECT id, role, status, admin_type, credential_version FROM users WHERE id = ? LIMIT 1");
         $stmt->execute([$uId]);
         $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        if ($userRow && (int)($_SESSION['credential_version'] ?? 0) !== (int)$userRow['credential_version']) return false;
         if (!$userRow || ($userRow['status'] ?? '') !== 'active' || !is_supported_role($userRow['role'] ?? '')) {
             return false;
         }

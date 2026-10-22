@@ -5,7 +5,7 @@
 ?>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-<meta name="theme-color" content="#0E7A3E">
+<meta name="theme-color" content="#0b6b3a">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -75,6 +75,7 @@ window.FIREBASE_CONFIG = {
 <link rel="stylesheet" href="<?= asset_url('css/theme.css') ?>">
 <link rel="stylesheet" href="<?= asset_url('css/ui-overrides.css') ?>">
 <link rel="stylesheet" href="<?= asset_url('css/dashboard-unified.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/notifications-header.css') ?>">
 
 <script>const APP_URL = "<?= APP_URL ?>";</script>
 <!-- Moment.js for real-time clock -->

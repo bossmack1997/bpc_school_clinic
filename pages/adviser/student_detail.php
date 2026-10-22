@@ -35,7 +35,7 @@ $pageTitle = 'Student Detail';
       <a href="students.php" class="btn btn-sm btn-outline-secondary mb-3"><i class="bi bi-arrow-left me-1"></i> Back to Advisory Class</a>
 
       <div class="row g-3">
-        <div class="col-lg-7">
+        <div class="col-12">
           <div class="card p-3">
             <h6 class="section-title mb-3"><i class="bi bi-person-badge-fill text-success me-1"></i> Student Information</h6>
             <div class="row g-2 small">
@@ -56,62 +56,11 @@ $pageTitle = 'Student Detail';
             </div>
           </div>
         </div>
-        <div class="col-lg-5">
-          <div class="card p-3 border-danger">
-            <h6 class="section-title mb-3 text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Report Emergency</h6>
-            <p class="small text-muted">Use this only for genuine student emergencies requiring clinic response.</p>
-            <form id="emergencyForm">
-              <input type="hidden" name="student_id" value="<?= (int)$student['id'] ?>">
-              <div class="mb-2">
-                <label class="form-label small fw-semibold">Emergency Type / Category</label>
-                <select class="form-control" name="emergency_type" required>
-                  <option value="">Select…</option>
-                  <option>Injury / Accident</option>
-                  <option>Severe Bleeding</option>
-                  <option>Difficulty Breathing</option>
-                  <option>Chest Pain</option>
-                  <option>Unconscious / Fainting</option>
-                  <option>Seizure</option>
-                  <option>Mental Health Crisis</option>
-                  <option>Other</option>
-                </select>
-              </div>
-              <div class="mb-2">
-                <label class="form-label small fw-semibold">Location</label>
-                <input type="text" class="form-control" name="location" placeholder="e.g. Room 204, BSIS Building" required>
-              </div>
-              <div class="mb-2">
-                <label class="form-label small fw-semibold">Description</label>
-                <textarea class="form-control" name="description" rows="3" placeholder="What is happening?" required></textarea>
-              </div>
-              <div class="mb-3">
-                <label class="form-label small fw-semibold">Additional Notes (optional)</label>
-                <textarea class="form-control" name="notes" rows="2"></textarea>
-              </div>
-              <button class="btn btn-danger w-100" type="submit"><i class="bi bi-broadcast me-1"></i> Report Emergency to Clinic</button>
-            </form>
-          </div>
-        </div>
       </div>
 
     </div>
   </div>
 </div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
-<script>
-$(function () {
-  $('#emergencyForm').on('submit', function (e) {
-    e.preventDefault();
-    const $btn = $(this).find('button[type=submit]');
-    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Sending…');
-    const data = $(this).serialize() + '&action=report&csrf_token=' + $('meta[name="csrf-token"]').attr('content');
-    $.post(APP_URL + '/api/emergencies.php', data, function (res) {
-      if (res.success) { toastSuccess(res.message); $('#emergencyForm')[0].reset(); }
-      else toastError(res.message);
-    }, 'json').fail(function () { toastError('Unable to send report.'); })
-      .always(function () { $btn.prop('disabled', false).html('<i class="bi bi-broadcast me-1"></i> Report Emergency to Clinic'); });
-  });
-});
-</script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
 require_role(['nurse', 'admin']);
+if(current_user()['role']==='admin' && !has_permission('clinical_records_read'))require_admin_permission('manage_users');
 header('Content-Type: application/json');
 
 $db = getDB();
@@ -256,9 +257,9 @@ if ($action === 'today_patients') {
 // Teacher/Staff viewing their OWN consultations (My Clinic)
 if ($action === 'my_consultations') {
     $role = $user['role'] ?? '';
-    if (!in_array($role, ['adviser', 'admin'], true)) json_response(false, [], 'Access denied.');
+    if (!in_array($role, ['teacher', 'adviser', 'admin'], true)) json_response(false, [], 'Access denied.');
     $teacherId = 0;
-    if ($role === 'adviser') {
+    if (in_array($role, ['teacher','adviser'], true)) {
         $stmt = $db->prepare("SELECT id FROM teachers WHERE user_id = ? LIMIT 1");
         $stmt->execute([$user['id']]);
         $teacherId = (int)$stmt->fetchColumn();

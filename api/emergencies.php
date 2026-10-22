@@ -10,24 +10,63 @@
 
 require_once __DIR__ . '/../config/config.php';
 require_login();
+require_once __DIR__ . '/../includes/sos_workflow.php';
+set_exception_handler(function (Throwable $e) {
+    $db = getDB();
+    if ($db->inTransaction()) $db->rollBack();
+    error_log('SOS API: ' . $e->getMessage());
+    http_response_code(500);
+    json_response(false, ['error_code'=>'SOS_SERVER_ERROR'], 'The emergency service could not complete this request. Check the current status before retrying.');
+});
 
 header('Content-Type: application/json');
 $db = getDB();
 $u = current_user();
 $role = $u['role'] ?? '';
-$action = (string)($_REQUEST['action'] ?? '');
+$action = (string)($_POST['action'] ?? $_GET['action'] ?? '');
+if (in_array($action, ['report','sos','update_location','cancel_sos','update_status'], true)) {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); header('Allow: POST'); json_response(false, [], 'Use POST.'); }
+    if (!csrf_verify($_POST['csrf_token'] ?? '')) { http_response_code(403); json_response(false, ['error_code'=>'CSRF_INVALID'], 'Your security token expired. Refresh the page and try again.'); }
+}
+
+
+if ($role==='admin') {
+    if(in_array($action,['oversight','oversight_detail','list','live_tracking','get_location'],true))require_admin_permission('view_emergencies');
+    if($action==='update_status'&&!admin_can_respond_sos($u))admin_access_denied('Co-administrators have emergency monitoring access only. A nurse must handle clinical response.');
+}
+
+// Administration read model uses the existing endpoint and existing role boundary.
+if (in_array($action, ['oversight','oversight_detail'], true)) {
+    if ($role !== 'admin') { http_response_code(403); json_response(false, [], 'Administration access is required.'); }
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET') { http_response_code(405); header('Allow: GET'); json_response(false, [], 'Use GET.'); }
+    require_once __DIR__ . '/../includes/emergency_oversight.php';
+    $oversight = new EmergencyOversight($db,admin_can_respond_sos($u));
+    try {
+        if ($action === 'oversight_detail') {
+            $id=filter_var($_GET['emergency_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+            if(!$id){http_response_code(400);json_response(false, [], 'Invalid emergency reference.');}
+            $report=$oversight->detail($id,(int)$u['id']);
+            if(!$report){http_response_code(404);json_response(false, [], 'Emergency not found.');}
+            json_response(true,['report'=>$report]);
+        }
+        $db->beginTransaction();
+        $result=$oversight->listing($_GET,(int)$u['id']);
+        $db->commit();
+        json_response(true,$result);
+    } catch(InvalidArgumentException $e) {if($db->inTransaction())$db->rollBack();http_response_code(422);json_response(false, [], $e->getMessage());}
+}
 
 // ---------------------------------------------------------------------
 // 1. ADVISER REPORT EMERGENCY (Manual Location)
 // ---------------------------------------------------------------------
 if ($action === 'report') {
     if ($role !== 'teacher') {
-        json_response(false, [], 'Only teachers can submit teacher emergency reports.');
+        http_response_code(403); json_response(false, [], 'Only teachers can submit teacher emergency reports.');
     }
-    csrf_verify_or_die();
+
 
     $studentId = (int)($_POST['student_id'] ?? 0);
-    $type = trim((string)($_POST['emergency_type'] ?? 'Emergency'));
+    $type = trim((string)($_POST['emergency_type'] ?? ''));
     $location = trim((string)($_POST['location'] ?? ''));
     $description = trim((string)($_POST['description'] ?? ''));
     $notes = trim((string)($_POST['notes'] ?? ''));
@@ -35,12 +74,21 @@ if ($action === 'report') {
     if (!in_array($priority, ['routine', 'soon', 'urgent'], true)) $priority = 'urgent';
 
     if ($studentId <= 0) json_response(false, [], 'A valid student is required.');
+    if ($type === '' || mb_strlen($type) > 100) json_response(false, [], 'Select a valid emergency type.');
+    if ($description === '' || mb_strlen($description) < 5 || mb_strlen($description) > 2000) json_response(false, [], 'Describe the incident in 5 to 2,000 characters.');
+    if (mb_strlen($location) > 255 || mb_strlen($notes) > 1000) json_response(false, [], 'The location or notes are too long.');
     if (!adviser_can_access_student($db, $u['id'], $studentId)) {
-        json_response(false, [], 'You can only report emergencies for students in your current advisory section.');
+        http_response_code(403); json_response(false, [], 'You can only report emergencies for students in your current advisory section.');
     }
     if ($location === '') {
         json_response(false, [], 'Location is required (e.g. Room 204, Main Building).');
     }
+
+    $db->beginTransaction();
+    $lock=$db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE');$lock->execute([$u['id']]);
+    $duplicate=$db->prepare("SELECT id FROM sos_emergencies WHERE user_id=? AND student_id=? AND emergency_type=? AND location=? AND status IN ('new','active','acknowledged','responding','responded') AND created_at>=DATE_SUB(NOW(),INTERVAL 2 MINUTE) LIMIT 1");
+    $duplicate->execute([$u['id'],$studentId,$type,$location]);
+    if($duplicateId=$duplicate->fetchColumn()){$db->commit();json_response(true,['emergency_id'=>(int)$duplicateId],'This emergency is already recorded.');}
 
     // Resolve section ID
     $sectionId = null;
@@ -60,7 +108,7 @@ if ($action === 'report') {
     $stmt = $db->prepare("
         INSERT INTO sos_emergencies
             (user_id, student_id, emergency_type, location, location_source, description, status, priority, source, reporter_role, section_id, ip_address, user_agent)
-        VALUES (?, ?, ?, ?, 'manual', ?, 'new', ?, 'adviser', 'adviser', ?, ?, ?)
+        VALUES (?, ?, ?, ?, 'manual', ?, 'new', ?, 'adviser', 'teacher', ?, ?, ?)
     ");
     $stmt->execute([
         $u['id'], $studentId, $type, $location, $fullDesc, $priority, $sectionId,
@@ -68,37 +116,9 @@ if ($action === 'report') {
     ]);
 
     $emergencyId = (int)$db->lastInsertId();
-    log_activity($u['id'], 'Reported emergency', 'emergency', "Adviser emergency #$emergencyId for student #$studentId at $location");
-
-    // Student name for notification
-    $stuStmt = $db->prepare("SELECT u.first_name, u.last_name FROM students s JOIN users u ON u.id = s.user_id WHERE s.id = ?");
-    $stuStmt->execute([$studentId]);
-    $stu = $stuStmt->fetch();
-    $stuName = $stu ? ($stu['first_name'] . ' ' . $stu['last_name']) : 'Student';
-
-    $title = 'Emergency Reported by Adviser';
-    $msg = "{$u['first_name']} {$u['last_name']} reported an emergency for {$stuName} at {$location}. Type: {$type}";
-
-    // Notify nurses
-    $nurses = $db->query("SELECT user_id FROM nurses")->fetchAll();
-    foreach ($nurses as $n) {
-        push_notification((int)$n['user_id'], 'emergency', $title, $msg, APP_URL . '/pages/nurse/dashboard.php', $emergencyId, 'emergency');
-    }
-    // Notify admins
-    $admins = $db->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll();
-    foreach ($admins as $a) {
-        push_notification((int)$a['id'], 'emergency', $title, $msg, APP_URL . '/pages/admin/dashboard.php', $emergencyId, 'emergency');
-    }
-    // FCM push
-    try {
-        send_emergency_fcm($db, 'ADVISER EMERGENCY', $msg, [
-            'emergency_id' => (string)$emergencyId,
-            'type' => 'emergency',
-            'location' => $location,
-        ]);
-    } catch (Throwable $e) {
-        error_log('Emergency FCM failed: ' . $e->getMessage());
-    }
+    sos_audit($db,$u,$emergencyId,'','new');
+    $db->commit();
+    sos_notify($db,$emergencyId,'new',(int)$u['id']);
 
     json_response(true, ['emergency_id' => $emergencyId], 'Emergency reported. The clinic has been notified.');
 }
@@ -107,118 +127,40 @@ if ($action === 'report') {
 // 2. STUDENT DIRECT SOS (GPS Location)
 // ---------------------------------------------------------------------
 if ($action === 'sos') {
-    csrf_verify_or_die();
 
-    $emergencyType = trim((string)($_POST['emergency_type'] ?? 'Emergency Assistance'));
-    $description = trim((string)($_POST['description'] ?? 'Student initiated SOS emergency'));
-    $latitude = $_POST['latitude'] ?? null;
-    $longitude = $_POST['longitude'] ?? null;
-    $accuracy = (isset($_POST['accuracy']) && $_POST['accuracy'] !== '') ? trim((string)$_POST['accuracy']) : null;
 
-    // Validate GPS coordinates server-side
-    $validLat = null;
-    $validLng = null;
-    if ($latitude !== null && $latitude !== '' && is_numeric($latitude)) {
-        $latF = (float)$latitude;
-        if ($latF >= -90.0 && $latF <= 90.0) $validLat = $latF;
-    }
-    if ($longitude !== null && $longitude !== '' && is_numeric($longitude)) {
-        $lngF = (float)$longitude;
-        if ($lngF >= -180.0 && $lngF <= 180.0) $validLng = $lngF;
-    }
-
-    // Resolve student_id
-    $studentId = null;
-    $sStmt = $db->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
-    $sStmt->execute([$u['id']]);
-    $studentId = $sStmt->fetchColumn() ?: null;
-
-    $locationUpdatedAt = ($validLat !== null && $validLng !== null) ? date('Y-m-d H:i:s') : null;
-
-    $stmt = $db->prepare("
-        INSERT INTO sos_emergencies
-            (user_id, student_id, emergency_type, description, location_source, latitude, longitude, location_accuracy, location_updated_at, status, priority, source, reporter_role, ip_address, user_agent)
-        VALUES (?, ?, ?, ?, 'gps', ?, ?, ?, ?, 'active', 'urgent', 'sos', 'student', ?, ?)
-    ");
-    $stmt->execute([
-        $u['id'], $studentId, $emergencyType, $description,
-        $validLat, $validLng, $accuracy, $locationUpdatedAt,
-        $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null
-    ]);
-    $emergencyId = (int)$db->lastInsertId();
-
-    // Log initial GPS position to location history table
-    if ($validLat !== null && $validLng !== null) {
-        try {
-            $db->prepare("
-                INSERT INTO emergency_location_updates (emergency_id, latitude, longitude, accuracy, recorded_at)
-                VALUES (?, ?, ?, ?, NOW())
-            ")->execute([$emergencyId, $validLat, $validLng, $accuracy]);
-        } catch (Throwable $e) {
-            error_log('Emergency location history insert failed: ' . $e->getMessage());
-        }
-    }
-
-    log_activity($u['id'], 'SOS Emergency Alert', 'emergency', "$emergencyType - #$emergencyId");
-
-    $senderName = trim((string)($u['first_name'] . ' ' . $u['last_name']));
-    $locMsg = ($validLat !== null && $validLng !== null) ? " (GPS: $validLat, $validLng)" : " (GPS unavailable)";
-    $title = 'STUDENT SOS EMERGENCY';
-    $msg = "{$senderName} triggered an emergency SOS: {$emergencyType}{$locMsg}.";
-
-    // Notify clinic staff
-    $nurses = $db->query("SELECT user_id FROM nurses")->fetchAll();
-    foreach ($nurses as $n) {
-        push_notification((int)$n['user_id'], 'emergency', $title, $msg, APP_URL . '/pages/nurse/dashboard.php', $emergencyId, 'emergency');
-    }
-    $admins = $db->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll();
-    foreach ($admins as $a) {
-        push_notification((int)$a['id'], 'emergency', $title, $msg, APP_URL . '/pages/admin/dashboard.php', $emergencyId, 'emergency');
-    }
-    try {
-        send_emergency_fcm($db, 'STUDENT SOS', $msg, [
-            'emergency_id' => (string)$emergencyId,
-            'type' => 'emergency',
-            'latitude' => (string)$validLat,
-            'longitude' => (string)$validLng,
-        ]);
-    } catch (Throwable $e) {
-        error_log('Emergency FCM failed: ' . $e->getMessage());
-    }
-
-    json_response(true, [
-        'emergency_id'    => $emergencyId,
-        'tracking_active' => true,
-        'latitude'        => $validLat,
-        'longitude'       => $validLng,
-    ], 'Your emergency request has been sent to the School Clinic. Please remain where you are while waiting for assistance.');
+    if (!in_array($role, ['student','teacher','nurse','admin'], true)) { http_response_code(403); json_response(false, [], 'Access denied.'); }
+    $result = sos_create($db, $u, $_POST);
+    json_response(true, $result, 'Emergency request saved. The clinic has been notified.');
 }
 
 // ---------------------------------------------------------------------
 // 3. REAL-TIME LOCATION UPDATE (Student GPS watchPosition)
 // ---------------------------------------------------------------------
 if ($action === 'update_location') {
-    csrf_verify_or_die();
+
 
     $emergencyId = (int)($_POST['emergency_id'] ?? 0);
     $latitude = $_POST['latitude'] ?? null;
     $longitude = $_POST['longitude'] ?? null;
-    $accuracy = (isset($_POST['accuracy']) && $_POST['accuracy'] !== '') ? trim((string)$_POST['accuracy']) : null;
+    $accuracy = sos_accuracy($_POST['accuracy'] ?? null);
 
     if ($emergencyId <= 0) {
-        json_response(false, [], 'Invalid emergency ID.');
+        http_response_code(400); json_response(false, [], 'Invalid emergency ID.');
     }
 
+    $db->beginTransaction();
     // Verify emergency exists and belongs to current user
-    $chk = $db->prepare("SELECT id, status, user_id FROM sos_emergencies WHERE id = ? LIMIT 1");
+    $chk = $db->prepare("SELECT id, status, user_id, location_accuracy FROM sos_emergencies WHERE id = ? LIMIT 1 FOR UPDATE");
     $chk->execute([$emergencyId]);
     $em = $chk->fetch();
     if (!$em || (int)$em['user_id'] !== (int)$u['id']) {
-        json_response(false, [], 'Emergency record not found or access denied.');
+        sos_fail(403, 'Emergency record not found or access denied.', 'SOS_FORBIDDEN');
     }
 
     // If emergency is resolved or cancelled, signal frontend to STOP tracking
     if (in_array($em['status'], ['resolved', 'cancelled', 'false_alarm'], true)) {
+        $db->commit();
         json_response(true, [
             'tracking_active' => false,
             'status'          => $em['status'],
@@ -239,26 +181,25 @@ if ($action === 'update_location') {
     }
 
     if ($validLat === null || $validLng === null) {
-        json_response(false, [], 'Invalid GPS coordinates.');
+        sos_fail(422, 'Invalid GPS coordinates.', 'SOS_INVALID_LOCATION');
     }
 
+    $previousAccuracy = sos_accuracy($em['location_accuracy']);
+    if ($previousAccuracy !== null && ($accuracy === null || $accuracy > $previousAccuracy)) {
+        $db->commit();
+        json_response(true, ['tracking_active'=>true, 'status'=>$em['status']], 'Previous, more accurate location retained.');
+    }
     // Update main emergency record
     $db->prepare("
         UPDATE sos_emergencies
         SET latitude = ?, longitude = ?, location_accuracy = ?, location_updated_at = NOW(), updated_at = NOW()
-        WHERE id = ?
+        WHERE id = ? AND status IN ('new','active','acknowledged','responding','responded')
     ")->execute([$validLat, $validLng, $accuracy, $emergencyId]);
 
-    // Insert into location updates history trail
-    try {
-        $db->prepare("
-            INSERT INTO emergency_location_updates (emergency_id, latitude, longitude, accuracy, recorded_at)
-            VALUES (?, ?, ?, ?, NOW())
-        ")->execute([$emergencyId, $validLat, $validLng, $accuracy]);
-    } catch (Throwable $e) {
-        error_log('Failed to log location update history: ' . $e->getMessage());
-    }
+    $db->prepare("INSERT INTO emergency_location_updates (emergency_id, latitude, longitude, accuracy, recorded_at) VALUES (?, ?, ?, ?, NOW())")
+        ->execute([$emergencyId, $validLat, $validLng, $accuracy]);
 
+    $db->commit();
     json_response(true, [
         'tracking_active'     => true,
         'emergency_id'        => $emergencyId,
@@ -294,39 +235,10 @@ if ($action === 'active_sos') {
 // 5. CANCEL SOS (Student self-cancelling their emergency)
 // ---------------------------------------------------------------------
 if ($action === 'cancel_sos') {
-    csrf_verify_or_die();
 
-    $emergencyId = (int)($_POST['emergency_id'] ?? 0);
-    if ($emergencyId <= 0) json_response(false, [], 'Invalid emergency ID.');
 
-    $stmt = $db->prepare("SELECT * FROM sos_emergencies WHERE id = ? AND user_id = ? LIMIT 1");
-    $stmt->execute([$emergencyId, $u['id']]);
-    $em = $stmt->fetch();
-    if (!$em) json_response(false, [], 'Emergency record not found.');
-
-    if (in_array($em['status'], ['resolved', 'cancelled', 'false_alarm'], true)) {
-        json_response(true, ['status' => $em['status']], 'Emergency is already closed.');
-    }
-
-    $db->prepare("
-        UPDATE sos_emergencies
-        SET status = 'cancelled', cancelled_by = ?, cancelled_at = NOW(), updated_at = NOW()
-        WHERE id = ?
-    ")->execute([$u['id'], $emergencyId]);
-
-    log_activity($u['id'], 'Cancelled SOS Emergency', 'emergency', "Student cancelled SOS #$emergencyId");
-
-    // Notify nurses
-    $nurses = $db->query("SELECT user_id FROM nurses")->fetchAll();
-    foreach ($nurses as $n) {
-        push_notification((int)$n['user_id'], 'emergency', 'SOS Cancelled', "Student {$u['first_name']} {$u['last_name']} cancelled SOS #$emergencyId.", APP_URL . '/pages/nurse/dashboard.php', $emergencyId);
-    }
-
-    json_response(true, [
-        'emergency_id'    => $emergencyId,
-        'tracking_active' => false,
-        'status'          => 'cancelled'
-    ], 'Your emergency request has been cancelled. Location sharing has stopped.');
+    $result = sos_transition($db, $u, (int)($_POST['emergency_id'] ?? 0), 'cancel', $_POST, true);
+    json_response(true, $result, 'Emergency cancelled. Location sharing has stopped.');
 }
 
 // ---------------------------------------------------------------------
@@ -334,11 +246,11 @@ if ($action === 'cancel_sos') {
 // ---------------------------------------------------------------------
 if ($action === 'live_tracking' || $action === 'get_location') {
     if (!in_array($role, ['nurse', 'admin'], true)) {
-        json_response(false, [], 'Access denied.');
+        http_response_code(403); json_response(false, [], 'Access denied.');
     }
 
     $emergencyId = (int)($_GET['emergency_id'] ?? 0);
-    if ($emergencyId <= 0) json_response(false, [], 'Invalid emergency ID.');
+    if ($emergencyId <= 0) { http_response_code(400); json_response(false, [], 'Invalid emergency ID.'); }
 
     $stmt = $db->prepare("
         SELECT se.*,
@@ -354,7 +266,7 @@ if ($action === 'live_tracking' || $action === 'get_location') {
     ");
     $stmt->execute([$emergencyId]);
     $em = $stmt->fetch();
-    if (!$em) json_response(false, [], 'Emergency not found.');
+    if (!$em) { http_response_code(404); json_response(false, [], 'Emergency not found.'); }
 
     // Fetch location updates trail (history)
     $histStmt = $db->prepare("
@@ -377,16 +289,16 @@ if ($action === 'live_tracking' || $action === 'get_location') {
 // 7. LIST EMERGENCIES (Nurse / Admin / Adviser)
 // ---------------------------------------------------------------------
 if ($action === 'list') {
-    if (!in_array($role, ['nurse', 'admin', 'teacher'], true)) {
-        json_response(false, [], 'Access denied.');
+    if (!in_array($role, ['nurse', 'admin', 'teacher', 'student'], true)) {
+        http_response_code(403); json_response(false, [], 'Access denied.');
     }
     $where = '';
     $params = [];
-    if ($role === 'teacher') {
-        $where = "WHERE se.source = 'adviser' AND se.user_id = ?";
+    if (in_array($role, ['teacher','student'], true)) {
+        $where = "WHERE se.user_id = ?";
         $params[] = $u['id'];
     } else {
-        $where = "WHERE se.status IN ('new','active','acknowledged','responding','responded')";
+        $where = (($_GET['history'] ?? '') === '1') ? '' : "WHERE se.status IN ('new','active','acknowledged','responding','responded')";
     }
 
     $stmt = $db->prepare("
@@ -407,65 +319,40 @@ if ($action === 'list') {
 }
 
 // ---------------------------------------------------------------------
+// 9. TEACHER STUDENTS (searchable roster for the emergency modal)
+// ---------------------------------------------------------------------
+if ($action === 'teacher_students') {
+    if ($role !== 'teacher') {
+        http_response_code(403); json_response(false, [], 'Access denied.');
+    }
+    $q = trim((string)($_GET['q'] ?? ''));
+    $students = get_adviser_students($db, $u['id']);
+    if ($q !== '') {
+        $qLower = strtolower($q);
+        $students = array_values(array_filter($students, function ($st) use ($qLower) {
+            $haystack = strtolower(trim(($st['first_name'] ?? '') . ' ' . ($st['last_name'] ?? '') . ' ' . ($st['student_number'] ?? '') . ' ' . ($st['section'] ?? '')));
+            return str_contains($haystack, $qLower);
+        }));
+    }
+    $out = array_map(function ($st) {
+        return [
+            'id' => (int)$st['id'],
+            'student_number' => $st['student_number'] ?? '',
+            'name' => trim(($st['first_name'] ?? '') . ' ' . ($st['last_name'] ?? '')),
+            'section' => $st['section'] ?? '',
+            'course' => $st['course'] ?? '',
+            'label' => trim(($st['first_name'] ?? '') . ' ' . ($st['last_name'] ?? '')) . ' • ' . ($st['student_number'] ?? ''),
+        ];
+    }, array_slice($students, 0, 20));
+    json_response(true, ['data' => $out]);
+}
+
+// ---------------------------------------------------------------------
 // 8. UPDATE STATUS (Nurse / Admin)
 // ---------------------------------------------------------------------
 if ($action === 'update_status') {
-    if (!in_array($role, ['nurse', 'admin'], true)) {
-        json_response(false, [], 'Access denied.');
-    }
-    csrf_verify_or_die();
-
-    $id = (int)($_POST['emergency_id'] ?? 0);
-    $op = trim((string)($_POST['op'] ?? ''));
-
-    $stmt = $db->prepare("SELECT * FROM sos_emergencies WHERE id = ?");
-    $stmt->execute([$id]);
-    $em = $stmt->fetch();
-    if (!$em) json_response(false, [], 'Emergency not found.');
-
-    if ($op === 'acknowledge') {
-        if (in_array($em['status'], ['resolved', 'cancelled', 'false_alarm'], true)) {
-            json_response(false, [], 'This emergency is already closed.');
-        }
-        $db->prepare("UPDATE sos_emergencies SET status = 'acknowledged', acknowledged_by = ?, acknowledged_at = NOW(), updated_at = NOW() WHERE id = ?")
-            ->execute([$u['id'], $id]);
-        $log = 'Acknowledged';
-    } elseif ($op === 'respond') {
-        $db->prepare("UPDATE sos_emergencies SET status = 'responding', assigned_to = ?, updated_at = NOW() WHERE id = ?")
-            ->execute([$u['id'], $id]);
-        $log = 'Responding';
-    } elseif ($op === 'resolve') {
-        $resolution = trim((string)($_POST['resolution_notes'] ?? ''));
-        $db->prepare("UPDATE sos_emergencies SET status = 'resolved', assigned_to = COALESCE(assigned_to,?), resolved_at = NOW(), resolution_notes = ?, updated_at = NOW() WHERE id = ?")
-            ->execute([$u['id'], $resolution, $id]);
-        $log = 'Resolved';
-    } elseif ($op === 'cancel') {
-        $db->prepare("UPDATE sos_emergencies SET status = 'cancelled', cancelled_by = ?, cancelled_at = NOW(), updated_at = NOW() WHERE id = ?")
-            ->execute([$u['id'], $id]);
-        $log = 'Cancelled';
-    } else {
-        json_response(false, [], 'Invalid operation.');
-    }
-
-    log_activity($u['id'], "Emergency $log", 'emergency', "Emergency #$id $log");
-
-    // Notify the reporter if applicable
-    if ($em['source'] === 'adviser' && $em['user_id']) {
-        $labels = [
-            'acknowledge' => ['Emergency Acknowledged', 'The clinic has acknowledged the emergency you reported.'],
-            'respond'     => ['Clinic Responding', 'A clinic staff member is now responding to the emergency you reported.'],
-            'resolve'     => ['Emergency Resolved', 'The emergency you reported has been resolved by the clinic.'],
-            'cancel'      => ['Emergency Update', 'The emergency you reported has been updated by the clinic.'],
-        ];
-        $l = $labels[$op] ?? ['Emergency Update', 'Your reported emergency has been updated.'];
-        push_notification((int)$em['user_id'], 'emergency', $l[0], $l[1], APP_URL . '/pages/adviser/emergencies.php', (int)$id);
-    } elseif ($em['source'] === 'sos' && $em['user_id']) {
-        if ($op === 'resolve') {
-            push_notification((int)$em['user_id'], 'emergency', 'Emergency Resolved', 'Clinic staff has marked your emergency as resolved. Location sharing has ended.', APP_URL . '/pages/student/dashboard.php', (int)$id);
-        }
-    }
-
-    json_response(true, [], "Emergency $log.");
+    $result = sos_transition($db, $u, (int)($_POST['emergency_id'] ?? 0), (string)($_POST['op'] ?? ''), $_POST);
+    json_response(true, $result, 'Emergency status updated.');
 }
-
+http_response_code(400);
 json_response(false, [], 'Unknown action.');

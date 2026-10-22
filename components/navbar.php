@@ -26,10 +26,22 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
     </button>
     <div class="topbar-headings">
       <h1 class="page-title"><?= e($pageTitle ?? 'Dashboard') ?></h1>
-      <div class="welcome-text">Welcome back, <?= e($u['first_name']) ?>! <span class="current-date">· <?= format_datetime('now', 'l, F j, Y') ?></span></div>
+      <div class="welcome-text">Welcome back, <?= e($u['first_name']) ?>!</div>
     </div>
   </div>
   <div class="topbar-right">
+    <?php if ($uRole === 'admin' && admin_can_view_emergencies()): ?>
+      <a class="topbar-btn" href="<?= APP_URL ?>/pages/admin/emergencies.php" title="Emergency Management" aria-label="Open Emergency Management" style="color:#a10e22"><i class="bi bi-shield-exclamation" aria-hidden="true"></i></a>
+    <?php elseif ($uRole === 'nurse'): ?>
+      <button type="button" class="topbar-btn position-relative" id="emergencyShieldBtn" onclick="document.getElementById('globalSosIndicator')?.click()" title="Emergency Alerts" aria-label="Emergency Alerts" style="color:#a10e22">
+        <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+        <span id="emergencyBadge" class="emergency-badge d-none">0</span>
+      </button>
+    <?php elseif ($uRole === 'student'): ?>
+      <button type="button" class="topbar-btn" data-action="open-sos" title="Emergency SOS" aria-label="Open Emergency SOS" style="color:#a10e22"><i class="bi bi-shield-exclamation" aria-hidden="true"></i></button>
+    <?php elseif ($uRole === 'teacher' || $uRole === 'adviser'): ?>
+      <a class="topbar-btn" href="<?= APP_URL ?>/pages/adviser/emergencies.php?report=1" title="Report Student Emergency" aria-label="Open teacher emergency reporting" style="color:#a10e22"><i class="bi bi-shield-exclamation" aria-hidden="true"></i></a>
+    <?php endif; ?>
     <!-- Real-time Clock -->
     <div class="topbar-clock" title="Current Date & Time">
       <i class="bi bi-clock"></i>
@@ -50,13 +62,16 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
 
     <!-- Notifications -->
     <div class="dropdown">
-      <button class="topbar-btn position-relative" data-bs-toggle="dropdown" aria-label="Notifications">
+      <button type="button" id="notificationBell" class="topbar-btn position-relative" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-controls="notificationDropdown" aria-label="Notifications">
         <i class="bi bi-bell"></i>
         <span id="notifBadge" class="notif-badge d-none">0</span>
       </button>
-      <ul class="dropdown-menu dropdown-menu-end shadow topbar-notification-menu" id="notifList">
-        <li class="dropdown-item text-muted small">Loading...</li>
-      </ul>
+      <div class="dropdown-menu dropdown-menu-end shadow topbar-notification-menu" id="notificationDropdown" aria-labelledby="notificationBell">
+        <div class="notification-toolbar"><strong>Notifications</strong><button type="button" id="markAllNotificationsRead" class="btn btn-sm btn-link">Mark All as Read</button></div>
+        <div id="notificationActionStatus" class="small px-3" role="status" aria-live="polite"></div>
+        <ul id="notifList" class="list-unstyled m-0"><li class="dropdown-item text-muted small">Loading...</li></ul>
+        <div class="notification-footer"><a href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/notifications.php">View All Notifications</a><a href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/announcements.php">Announcements</a></div>
+      </div>
       <script>window.NOTIFICATION_PAGE_URL = "<?= APP_URL ?>/pages/<?= $navRoleDir ?>/notifications.php";</script>
     </div>
 
@@ -70,9 +85,14 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
       </button>
       <ul class="dropdown-menu dropdown-menu-end shadow">
         <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/profile.php"><i class="bi bi-person me-2"></i>My Profile</a></li>
-        <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/notifications.php"><i class="bi bi-bell me-2"></i>Notifications</a></li>
-        <?php if (in_array($u['role'] ?? '', ['admin', 'nurse'], true)): ?>
-          <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/reports.php"><i class="bi bi-file-earmark-bar-graph me-2"></i>Reports</a></li>
+        <?php if ($uRole === 'admin'): ?>
+          <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/emergencies.php"><i class="bi bi-shield-exclamation me-2"></i>Emergency Oversight</a></li>
+        <?php endif; ?>
+        <?php if ($uRole === 'nurse'): ?>
+          <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/nurse/settings.php"><i class="bi bi-gear me-2"></i>Settings</a></li>
+        <?php endif; ?>
+        <?php if ($uRole === 'teacher' || $uRole === 'adviser'): ?>
+          <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/adviser/settings.php"><i class="bi bi-gear me-2"></i>Settings</a></li>
         <?php endif; ?>
         <li><hr class="dropdown-divider"></li>
         <li><a class="dropdown-item text-danger logout-link" href="#" data-logout-url="<?= APP_URL ?>/auth/logout.php"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>

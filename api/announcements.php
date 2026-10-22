@@ -6,10 +6,13 @@ header('Content-Type: application/json');
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+if($user['role']==='admin'&&!is_primary_admin($user)&&$action!=='list')admin_access_denied();
+if (in_array($action, ['add','edit','delete','toggle_pin'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); json_response(false, [], 'Use POST.'); }
 
 if ($action === 'list') {
-    $audience = $user['role'];
-    if (in_array($audience, ['admin', 'nurse', 'teacher'], true)) {
+    $viewerRole = canonical_role($user['role']);
+    $audience = ['student'=>'students','teacher'=>'teachers','nurse'=>'nurses','admin'=>'admin'][$viewerRole] ?? '';
+    if (in_array($viewerRole, ['admin', 'nurse'], true)) {
         $stmt = $db->query("SELECT a.*, u.first_name, u.last_name FROM announcements a LEFT JOIN users u ON u.id = a.posted_by ORDER BY a.is_pinned DESC, a.created_at DESC");
     } else {
         $stmt = $db->prepare("SELECT a.*, u.first_name, u.last_name FROM announcements a LEFT JOIN users u ON u.id = a.posted_by WHERE a.audience IN ('all', ?) ORDER BY a.is_pinned DESC, a.created_at DESC");
@@ -28,6 +31,7 @@ if ($action === 'add') {
     $is_pinned = !empty($_POST['is_pinned']) ? 1 : 0;
 
     if (!$title || !$content) json_response(false, [], 'Title and content are required.');
+    if (!in_array($audience, ['all','students','teachers','nurses','admin'], true)) json_response(false, [], 'Invalid announcement audience.');
 
     $stmt = $db->prepare("INSERT INTO announcements (title, content, posted_by, audience, is_pinned) VALUES (?,?,?,?,?)");
     $stmt->execute([$title, $content, $user['id'], $audience, $is_pinned]);
@@ -43,11 +47,13 @@ if ($action === 'add') {
         $targetRoles = ['teacher', 'adviser'];
     } elseif ($audience === 'nurses') {
         $targetRoles = ['nurse'];
+    } elseif ($audience === 'admin') {
+        $targetRoles = ['admin'];
     }
 
     if ($targetRoles) {
         $inList = implode(',', array_fill(0, count($targetRoles), '?'));
-        $stmt = $db->prepare("SELECT id, role FROM users WHERE role IN ($inList) AND id != ?");
+        $stmt = $db->prepare("SELECT id, role FROM users WHERE role IN ($inList) AND status = 'active' AND id != ?");
         $stmt->execute(array_merge($targetRoles, [(int)$user['id']]));
         $targetUsers = $stmt->fetchAll();
 
@@ -92,6 +98,7 @@ if ($action === 'edit') {
     $is_pinned = !empty($_POST['is_pinned']) ? 1 : 0;
 
     if (!$title || !$content) json_response(false, [], 'Title and content are required.');
+    if (!in_array($audience, ['all','students','teachers','nurses','admin'], true)) json_response(false, [], 'Invalid announcement audience.');
 
     $stmt = $db->prepare("UPDATE announcements SET title=?, content=?, audience=?, is_pinned=? WHERE id=?");
     $stmt->execute([$title, $content, $audience, $is_pinned, $id]);

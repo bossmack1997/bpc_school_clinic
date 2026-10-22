@@ -1,11 +1,31 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
 require_role(['admin', 'nurse']);
+
 header('Content-Type: application/json');
 
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+
+if($action==='health'){
+    require_primary_admin();
+    $ok=(int)$db->query('SELECT 1')->fetchColumn()===1;
+    $db->query('SELECT id,quantity,reorder_level,expiration_date FROM medicines LIMIT 0');
+    json_response(true,['database'=>$ok?'available':'unavailable','inventory_api'=>'available','document_renderer'=>class_exists('Dompdf\\Dompdf')||is_file(__DIR__.'/../vendor/dompdf/dompdf/src/Dompdf.php'),'checked_at'=>date(DATE_ATOM)]);
+}
+$readActions=['list','stats','categories','policy'];
+require_inventory_access(!in_array($action,$readActions,true));
+if(!in_array($action,$readActions,true)&&$_SERVER['REQUEST_METHOD']!=='POST'&&$action!=='template'){http_response_code(405);header('Allow: POST');json_response(false,[],'Use POST.');}
+require_once __DIR__.'/../includes/medicine_inventory_service.php';
+set_exception_handler(function(Throwable $e){if(getDB()->inTransaction())getDB()->rollBack();error_log('Inventory API: '.$e->getMessage());if($e instanceof InvalidArgumentException){http_response_code(422);json_response(false,[],$e->getMessage());}http_response_code(500);json_response(false,[],'The inventory request could not be completed. Check current stock before retrying.');});
+
+if($action==='policy')json_response(true,['policy'=>(new MedicineInventoryService($db))->policy()]);
+if($action==='save_policy'){
+    csrf_verify_or_die();$policy=[];
+    foreach(['lookback_days','coverage_days','safety_days','threshold_multiplier'] as $key){$value=filter_var($_POST[$key]??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>365]]);if($value===false){http_response_code(422);json_response(false,[],'Enter inventory rule values from 1 to 365.');}$policy[$key]=$value;}
+    $db->beginTransaction();$q=$db->prepare('INSERT INTO system_settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)');foreach($policy as $key=>$value)$q->execute(['inventory_rule_'.$key,(string)$value]);log_activity($user['id'],'Updated restock draft rules','inventory');$db->commit();json_response(true,['policy'=>$policy],'Restock draft rules saved.');
+}
 
 // ================================================================
 // Helper: compute medicine status using shared function
@@ -30,84 +50,21 @@ function fire_med_alerts($db, $medicineId) {
 // LIST — all medicines with computed statuses + category filter
 // ================================================================
 if ($action === 'list') {
-    $cat = trim($_GET['category'] ?? '');
-    $status = trim($_GET['status'] ?? '');
-    $expiry = trim($_GET['expiry'] ?? '');   // all | expiring30 | expired
-    $search = trim($_GET['search'] ?? '');
-    $limit = min((int)($_GET['limit'] ?? 50), 200);
-    $offset = (int)($_GET['offset'] ?? 0);
-
-    $where = "WHERE m.is_archived = 0";
-    $params = [];
-
-    if ($cat !== '') { $where .= " AND m.category = ?"; $params[] = $cat; }
-    if ($status !== '') {
-        $today = date('Y-m-d');
-        switch ($status) {
-            case 'available':
-                $where .= " AND m.quantity > m.reorder_level AND (m.expiration_date IS NULL OR m.expiration_date > DATE_ADD(?, INTERVAL 30 DAY))";
-                $params[] = $today;
-                break;
-            case 'low_stock':
-                $where .= " AND m.quantity > 0 AND m.quantity <= m.reorder_level AND (m.expiration_date IS NULL OR m.expiration_date >= ?)";
-                $params[] = $today;
-                break;
-            case 'out_of_stock':
-                $where .= " AND m.quantity <= 0";
-                break;
-            case 'expired':
-                $where .= " AND m.expiration_date IS NOT NULL AND m.expiration_date < ?";
-                $params[] = $today;
-                break;
-            case 'expiring_soon':
-            case 'near_expiration':
-                $where .= " AND m.expiration_date IS NOT NULL AND m.expiration_date BETWEEN ? AND DATE_ADD(?, INTERVAL 30 DAY)";
-                $params[] = $today;
-                $params[] = $today;
-                break;
-        }
-    }
-    if ($search !== '') {
-        $where .= " AND (m.medicine_name LIKE ? OR m.generic_name LIKE ? OR m.supplier LIKE ? OR m.category LIKE ? OR m.batch_number LIKE ? OR m.barcode LIKE ?)";
-        $like = '%' . $search . '%';
-        $params = array_merge($params, [$like, $like, $like, $like, $like, $like]);
-    }
-    if ($expiry === 'expiring30') {
-        $where .= " AND m.expiration_date IS NOT NULL AND m.expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)";
-    } elseif ($expiry === 'expired') {
-        $where .= " AND m.expiration_date IS NOT NULL AND m.expiration_date < CURDATE()";
-    }
-
-    $countStmt = $db->prepare("SELECT COUNT(*) FROM medicines m $where");
-    $countStmt->execute($params);
-    $total = (int)$countStmt->fetchColumn();
-
-    $stmt = $db->prepare("SELECT m.* FROM medicines m $where ORDER BY m.medicine_name ASC LIMIT ? OFFSET ?");
-    $params[] = $limit;
-    $params[] = $offset;
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll();
-
-    // Compute status in PHP
-    foreach ($rows as &$r) {
-        $r['status'] = inv_status($r);
-    }
-    unset($r);
-
-    json_response(true, ['data' => $rows, 'total' => $total]);
+    $service=new MedicineInventoryService($db);$items=$service->snapshot();$today=(string)$db->query('SELECT CURDATE()')->fetchColumn();
+    $matched=array_values(MedicineInventoryService::filter($items,$_GET,$today));
+    $total=count($matched);$offset=max(0,(int)($_GET['offset']??0));$limit=max(1,min(200,(int)($_GET['limit']??50)));
+    $rows=array_slice($matched,$offset,$limit);foreach($rows as &$m)$m['status']=$m['display_status'];unset($m);
+    json_response(true,['data'=>$rows,'total'=>$total]);
 }
 
 // ================================================================
 // STATS — dashboard cards
 // ================================================================
 if ($action === 'stats') {
-    $total = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0")->fetchColumn();
-    $categories = (int)$db->query("SELECT COUNT(DISTINCT category) FROM medicines WHERE is_archived = 0 AND category IS NOT NULL AND category <> ''")->fetchColumn();
-    $avail = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity > reorder_level AND (expiration_date IS NULL OR expiration_date > DATE_ADD(CURDATE(), INTERVAL 30 DAY))")->fetchColumn();
-    $low = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity > 0 AND quantity <= reorder_level AND (expiration_date IS NULL OR expiration_date > CURDATE())")->fetchColumn();
-    $expired = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND expiration_date IS NOT NULL AND expiration_date < CURDATE()")->fetchColumn();
-    $nearExp = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND expiration_date IS NOT NULL AND expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchColumn();
-    $outOfStock = (int)$db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= 0")->fetchColumn();
+    $items=(new MedicineInventoryService($db))->snapshot();$today=(string)$db->query('SELECT CURDATE()')->fetchColumn();
+    $total=count($items);$categories=count(array_unique(array_filter(array_column($items,'category'))));
+    $count=fn($status)=>count(MedicineInventoryService::filter($items,['status'=>$status],$today));
+    $avail=$count('available');$low=$count('low_stock');$expired=$count('expired');$nearExp=$count('near_expiration');$outOfStock=$count('out_of_stock');
 
 // "Dispensed Today" counts BOTH the walk-in dispensing flow (medicine_dispensing)
     // AND the standalone Medicine Dispensing module (medicine_logs action='stock_out').
@@ -199,16 +156,15 @@ if ($action === 'add') {
         }
     }
 
-    // --- Duplicate handling: an active medicine with the same name already
-    //     exists -> increase its stock instead of creating a duplicate row. ---
-    $dupStmt = $db->prepare("SELECT id, quantity, medicine_name FROM medicines WHERE medicine_name = ? AND is_archived = 0");
-    $dupStmt->execute([$medicineName]);
-    $existingMed = $dupStmt->fetch();
-    $isMerge = $existingMed !== false;
-
+    // Serialize exact batch identities; never pool different expiry/batch records by name.
+    $identity=[$medicineName,$genericName,$brand,$unit,$batch,$expDate,$supplier];
+    $mergeLock='bpc_med_add_'.sha1(json_encode($identity));
+    $lock=$db->prepare('SELECT GET_LOCK(?,5)');$lock->execute([$mergeLock]);
+    if((int)$lock->fetchColumn()!==1){http_response_code(409);json_response(false,[],'This medicine is being updated. Check stock before retrying.');}
     try {
         $db->beginTransaction();
-
+        $dupStmt=$db->prepare("SELECT id,quantity,medicine_name FROM medicines WHERE medicine_name=? AND COALESCE(generic_name,'')=? AND COALESCE(brand,'')=? AND unit=? AND COALESCE(batch_number,'')=? AND COALESCE(expiration_date,'')=? AND COALESCE(supplier,'')=? AND is_archived=0 ORDER BY id LIMIT 1 FOR UPDATE");
+        $dupStmt->execute($identity);$existingMed=$dupStmt->fetch();$isMerge=$existingMed!==false;
         if ($isMerge) {
             // Increase existing stock (do NOT create a duplicate record).
             $newQty = (int)$existingMed['quantity'] + $quantity;
@@ -274,9 +230,11 @@ if ($action === 'add') {
         }
 
         $db->commit();
+        $db->prepare('SELECT RELEASE_LOCK(?)')->execute([$mergeLock]);
         json_response(true, ['id' => $medicineId, 'merged' => $isMerge], 'Medicine has been successfully added to the clinic inventory.');
     } catch (Exception $e) {
         if ($db->inTransaction()) $db->rollBack();
+        $db->prepare('SELECT RELEASE_LOCK(?)')->execute([$mergeLock]);
         error_log('Add medicine failed: ' . $e->getMessage());
         json_response(false, [], 'Unable to add medicine. Please try again.');
     }
@@ -295,6 +253,10 @@ if ($action === 'update') {
     $quantity = (int)($_POST['quantity'] ?? 0);
     if ($quantity < 0) json_response(false, [], 'Quantity cannot be negative.');
 
+    $db->beginTransaction();
+    $locked=$db->prepare('SELECT quantity FROM medicines WHERE id=? AND is_archived=0 FOR UPDATE');$locked->execute([$id]);$previous=$locked->fetchColumn();
+    if($previous===false)throw new InvalidArgumentException('Medicine not found.');
+    if(isset($_POST['original_quantity'])&&$_POST['original_quantity']!==''&&(int)$_POST['original_quantity']!==(int)$previous){$db->rollBack();http_response_code(409);json_response(false,[],'Stock changed since this record was opened. Reopen it before saving.');}
     $stmt = $db->prepare("
         UPDATE medicines SET
             medicine_name=?, generic_name=?, brand=?, category=?, dosage=?, form=?,
@@ -316,6 +278,8 @@ if ($action === 'update') {
 
     log_activity($user['id'], 'Updated medicine', 'inventory', "Medicine #$id");
     update_medicine_status($db, $id);
+    if($quantity!==(int)$previous)$db->prepare("INSERT INTO inventory_logs (medicine_id,change_type,quantity_change,remarks,logged_by) VALUES (?,'adjustment',?,'Quantity changed in medicine editor',?)")->execute([$id,$quantity-(int)$previous,$user['id']]);
+    $db->commit();
     json_response(true, [], 'Medicine updated.');
 }
 
@@ -324,51 +288,10 @@ if ($action === 'update') {
 // ================================================================
 if ($action === 'stock_update') {
     csrf_verify_or_die();
-    if (!in_array(canonical_role($user['role']), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
-
-    $id = (int)($_POST['id'] ?? 0);
-    $type = $_POST['type'] ?? ''; // stock_in / stock_out / adjustment
-    $qty = (int)($_POST['quantity'] ?? 0);
-    $reason = trim($_POST['reason'] ?? '');
-
-    if (!in_array($type, ['stock_in', 'stock_out', 'adjustment'], true)) {
-        json_response(false, [], 'Invalid stock action type.');
-    }
-    if ($type === 'adjustment' && $qty < 0) {
-        json_response(false, [], 'Adjustment quantity cannot be negative.');
-    }
-    if ($type !== 'adjustment' && $qty <= 0) {
-        json_response(false, [], 'Quantity must be greater than zero.');
-    }
-
-    $stmt = $db->prepare("SELECT quantity FROM medicines WHERE id=?");
-    $stmt->execute([$id]);
-    $current = $stmt->fetchColumn();
-    if ($current === false) json_response(false, [], 'Medicine not found.');
-
-    if ($type === 'stock_in') {
-        $newQty = (int)$current + $qty;
-    } elseif ($type === 'stock_out') {
-        if ($qty > (int)$current) json_response(false, [], 'Not enough stock available.');
-        $newQty = (int)$current - $qty;
-    } else { // adjustment: set absolute quantity
-        $newQty = $qty;
-    }
-
-    try {
-        $db->beginTransaction();
-        $db->prepare("UPDATE medicines SET quantity=? WHERE id=?")->execute([$newQty, $id]);
-        update_medicine_status($db, $id);
-        $db->prepare("INSERT INTO inventory_logs (medicine_id, change_type, quantity_change, remarks, logged_by) VALUES (?,?,?,?,?)")
-           ->execute([$id, $type === 'adjustment' ? 'adjustment' : ($type === 'stock_in' ? 'in' : 'out'), $newQty - (int)$current, $reason, $user['id']]);
-
-        log_activity($user['id'], ucfirst(str_replace('_', ' ', $type)), 'inventory', "Medicine #$id qty $qty (new total: $newQty)");
-        $db->commit();
-        json_response(true, ['new_quantity' => $newQty], 'Stock updated.');
-    } catch (Exception $e) {
-        $db->rollBack();
-        json_response(false, [], safe_api_error($e, 'Failed to update stock. Please try again.', 'inventory/stock_update'));
-    }
+    $quantity=filter_var($_POST['quantity']??null,FILTER_VALIDATE_INT);
+    if($quantity===false)throw new InvalidArgumentException('Enter a whole stock quantity.');
+    $new=(new MedicineInventoryService($db))->adjust((int)($_POST['id']??0),(string)($_POST['type']??''),$quantity,trim((string)($_POST['reason']??'')),(int)$user['id']);
+    json_response(true,['new_quantity'=>$new],'Stock updated.');
 }
 
 // ================================================================
@@ -380,12 +303,12 @@ if ($action === 'delete') {
     $id = (int)($_POST['id'] ?? 0);
     $hard = !empty($_POST['hard']);
     if ($hard) {
-        $db->prepare("DELETE FROM medicines WHERE id = ?")->execute([$id]);
+        $db->prepare("UPDATE medicines SET is_archived=1 WHERE id = ?")->execute([$id]);
     } else {
         $db->prepare("UPDATE medicines SET is_archived = 1 WHERE id = ?")->execute([$id]);
     }
     log_activity($user['id'], 'Deleted medicine', 'inventory', "Medicine #$id");
-    json_response(true, [], 'Medicine ' . ($hard ? 'deleted' : 'archived') . '.');
+    json_response(true, [], 'Medicine archived. Existing history was preserved.');
 }
 
 if ($action === 'bulk_delete' || $action === 'bulk_archive') {
@@ -400,7 +323,7 @@ if ($action === 'bulk_delete' || $action === 'bulk_archive') {
     if ($action === 'bulk_archive') {
         $stmt = $db->prepare("UPDATE medicines SET is_archived = 1 WHERE id IN ($ph)");
     } else {
-        $stmt = $db->prepare("DELETE FROM medicines WHERE id IN ($ph)");
+        $stmt = $db->prepare("UPDATE medicines SET is_archived=1 WHERE id IN ($ph)");
     }
     $stmt->execute($safe);
     log_activity($user['id'], ucfirst(str_replace('_', ' ', $action)), 'inventory', count($safe) . ' item(s)');
@@ -420,9 +343,9 @@ if ($action === 'bulk_stock_update') {
     if (!$safe) json_response(false, [], 'Invalid selection.');
     $ph = implode(',', array_fill(0, count($safe), '?'));
 
-    $stmt = $db->prepare("UPDATE medicines SET quantity = GREATEST(0, quantity + ?) WHERE id IN ($ph)");
-    $stmt->execute(array_merge([$delta], $safe));
-    json_response(true, ['count' => count($safe)], 'Stock adjusted for ' . count($safe) . ' medicine(s).');
+    $db->beginTransaction();$service=new MedicineInventoryService($db);$safe=array_values(array_unique($safe));sort($safe);
+    foreach($safe as $id)$service->adjust($id,$delta>0?'stock_in':'stock_out',abs($delta),'Bulk stock adjustment',(int)$user['id']);
+    $db->commit();json_response(true,['count'=>count($safe)],'Stock adjusted.');
 }
 
 if ($action === 'bulk_category') {

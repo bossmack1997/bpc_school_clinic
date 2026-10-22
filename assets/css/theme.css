@@ -627,6 +627,9 @@ body {
 
 /* Unified messaging layout for Student, Nurse, and Teacher pages. */
 .content-area:has(.messenger-container) { min-width: 0; overflow: hidden; }
+.nurse-messages-page .messenger-container { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); }
+.nurse-messages-page #convSidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0; visibility: visible; }
+.nurse-messages-page #convList { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow-y: auto; }
 .messenger-container {
   grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
   height: calc(100dvh - var(--header-height, 64px) - 32px);
@@ -697,6 +700,10 @@ body {
 .messenger-input { font-size: 16px !important; }
 body:has(.messenger-container) :is(.mica-fab, .mica-widget) { display: none !important; }
 
+@media (min-width: 992px) {
+  .nurse-messages-page #convSidebar.is-mobile-hidden { display: flex !important; }
+}
+
 @media (max-width: 991.98px) {
   .messenger-container { grid-template-columns: minmax(0, 1fr); height: calc(100dvh - var(--header-height, 64px) - 24px); min-height: 0; }
   .messenger-sidebar { border-right: 0; }
@@ -717,6 +724,40 @@ body:has(.messenger-container) :is(.mica-fab, .mica-widget) { display: none !imp
   body:has(.messenger-main:not(.is-mobile-hidden)) .messenger-container { position: relative; inset: auto; width: auto; height: calc(100dvh - var(--header-height, 64px) - 24px); min-height: 0; border-radius: var(--radius-lg); }
 }
 @media (max-width: 575.98px) {
+  .nurse-messages-page .messenger-container { grid-template-columns: clamp(108px, 34vw, 136px) minmax(0, 1fr); }
+  .nurse-messages-page .messenger-container:has(#chatMain.is-mobile-hidden) { grid-template-columns: minmax(0, 1fr); }
+  .nurse-messages-page #convSidebar { display: flex !important; }
+  .nurse-messages-page #convSidebar > .p-3.border-bottom { padding: 8px !important; }
+  .nurse-messages-page #convSidebar > .p-3.border-bottom > .d-flex:last-child,
+  .nurse-messages-page .messenger-filter-pills { display: none !important; }
+  .nurse-messages-page #convSidebar h1 { font-size: .95rem; }
+  .nurse-messages-page .messenger-search-bar { padding: 6px; }
+  .nurse-messages-page .messenger-search-bar .input-group-text,
+  .nurse-messages-page .messenger-search-bar .form-control { min-height: 38px; padding-inline: 7px; font-size: .72rem; }
+  .nurse-messages-page .messenger-thread-item { flex-direction: column; gap: 4px; padding: 8px 4px; text-align: center; }
+  .nurse-messages-page .messenger-avatar { width: 38px; height: 38px; }
+  .nurse-messages-page .messenger-thread-info,
+  .nurse-messages-page .messenger-thread-name,
+  .nurse-messages-page .messenger-thread-snippet { width: 100%; min-width: 0; }
+  .nurse-messages-page .messenger-thread-top { display: block; }
+  .nurse-messages-page .messenger-thread-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .68rem; }
+  .nurse-messages-page .messenger-thread-name .badge,
+  .nurse-messages-page .messenger-thread-time,
+  .nurse-messages-page .messenger-thread-info > .text-muted { display: none !important; }
+  .nurse-messages-page .messenger-thread-snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .62rem; }
+  .nurse-messages-page .messenger-header { gap: 4px; padding-inline: 6px; }
+  .nurse-messages-page .messenger-header-info { min-width: 0; gap: 4px; }
+  .nurse-messages-page #activeHeaderName { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem !important; }
+  .nurse-messages-page #activeHeaderSubtext,
+  .nurse-messages-page #activeHeaderPresence,
+  .nurse-messages-page #activeHeaderRoleBadge { display: none !important; }
+  .nurse-messages-page #activeHeaderActions { gap: 2px !important; }
+  .nurse-messages-page #aiSummarizeBtn { min-width: 36px !important; width: 36px; padding: 0; justify-content: center; }
+  .nurse-messages-page #aiSummarizeBtn span,
+  .nurse-messages-page #activeHeaderActions .btn-light { display: none !important; }
+  .nurse-messages-page .messenger-composer-area { gap: 2px; padding-inline: 4px; }
+  .nurse-messages-page .messenger-attach-btn { min-width: 34px; width: 34px; flex-basis: 34px; }
+  .nurse-messages-page .messenger-send-btn { min-width: 36px; width: 36px; }
   .content-area:has(.messenger-container) { padding: 6px !important; }
   .messenger-container { height: calc(100dvh - var(--header-height, 64px) - 12px); border-radius: var(--radius-md); }
   .student-messages-page .messenger-container.shadow-sm.border { grid-template-columns: minmax(0, 1fr); width: 100%; height: calc(100dvh - var(--header-height, 64px) - 12px); min-height: 0; }

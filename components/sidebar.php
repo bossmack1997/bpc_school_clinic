@@ -24,29 +24,14 @@ $sbNav = [
         'sections' => [
             'Overview' => [
                 ['dashboard', 'Dashboard', 'dashboard.php'],
-            ],
-            'Clinic Operations' => [
-                ['shield-alert', 'Emergencies', 'emergencies.php'],
-                ['qr', 'QR & Verification', 'qr_management.php'],
+                ['alert-triangle', 'Emergency Oversight', 'emergencies.php'],
             ],
             'Management' => [
-                ['users', 'Users & Roles', 'users.php'],
+                ['users', 'People Directory', 'users.php'],
                 ['shield-lock', 'Admin Accounts', 'admin_accounts.php'],
-            ],
-            'Inventory' => [
-                ['pill', 'Medicine Stocks', 'inventory.php'],
-            ],
-            'Communication' => [
-                ['megaphone', 'Announcements', 'announcements.php'],
-                ['bell', 'Notifications', 'notifications.php'],
-            ],
-            'Reports' => [
-                ['chart', 'Reports', 'reports.php'],
-                ['history', 'Activity Logs', 'activity_logs.php'],
             ],
             'Settings' => [
                 ['settings', 'Settings', 'settings.php'],
-                ['lock', 'Security', 'security.php'],
             ],
             'Account' => [
                 ['user', 'My Profile', 'profile.php'],
@@ -63,18 +48,12 @@ $sbNav = [
             ],
             'Clinic Operations' => [
                 ['list', 'Clinic Queue', 'queue.php'],
-                ['stethoscope', 'Consultation Desk', 'walkin.php'],
-                ['clipboard-list', 'Student Records', 'medical_records.php'],
-                ['shield-alert', 'Emergency Center', 'emergencies.php'],
             ],
-            'Inventory & Docs' => [
-                ['pill', 'Medicine Inventory', 'inventory.php'],
-                ['file-medical', 'Certificates', 'certificates.php'],
-            ],
-            'Reports & Comms' => [
-                ['chart', 'Reports', 'reports.php'],
+            'Communication' => [
                 ['chat', 'Messages', 'messages.php'],
-                ['megaphone', 'Announcements', 'announcements.php'],
+            ],
+            'Settings' => [
+                ['settings', 'Settings', 'settings.php'],
             ],
             'Account' => [
                 ['user', 'Profile', 'profile.php'],
@@ -92,16 +71,12 @@ $sbNav = [
             'Health Services' => [
                 ['list', 'Clinic Queue', 'queue.php'],
                 ['file-medical', 'Health Record', 'medical_record.php'],
-                ['clipboard-check', 'Certificates', 'certificates.php'],
-                ['heart-pulse', 'Health Monitoring', 'health_monitoring.php'],
-                ['qr', 'Health Pass QR', 'my_qr.php'],
             ],
-            'Emergency & Comms' => [
-                ['shield-alert', 'SOS Emergency', null, 'sos'],
+            'Communication' => [
                 ['chat', 'Messages', 'messages.php'],
-                ['bell', 'Notifications', 'notifications.php'],
             ],
             'Account' => [
+                ['settings', 'Settings', 'settings.php'],
                 ['user', 'My Profile', 'profile.php'],
                 ['logout', 'Logout', null, 'logout'],
             ],
@@ -114,16 +89,18 @@ $sbNav = [
             'Overview' => [
                 ['dashboard', 'Dashboard', 'dashboard.php'],
             ],
-            'My Advisory' => [
+            'Teacher Management' => [
                 ['users', 'My Students', 'students.php'],
-                ['list', 'Clinic Queue', 'queue.php'],
             ],
-            'Emergency & Comms' => [
-                ['shield-alert', 'Emergency', 'emergencies.php'],
-                ['megaphone', 'Announcements', 'announcements.php'],
+            'Personal Clinic Services' => [
+                ['list', 'Clinic Queue', 'queue.php'],
+                ['file-medical', 'My Health Record', 'consultations.php'],
+            ],
+            'Communication' => [
                 ['chat', 'Messages', 'messages.php'],
             ],
             'Account' => [
+                ['settings', 'Settings', 'settings.php'],
                 ['user', 'Profile', 'profile.php'],
                 ['logout', 'Logout', null, 'logout'],
             ],
@@ -132,7 +109,67 @@ $sbNav = [
     ],
 ];
 
+$sbProfile=permission_profile($sbUser);
+if($sbProfile==='mis')$sbNav['admin']=['brand'=>'MIS / System Administrator','sections'=>[
+ 'System Administration'=>[
+     ['dashboard','Dashboard','dashboard.php'],
+     ['users','People Management','users.php'],
+     ['shield-lock','Administrator Management','admin_accounts.php'],
+     ['activity','System Monitoring','system_monitoring.php'],
+     ['shield-check','Security Center','security.php'],
+     ['clock','Activity & Audit Logs','activity_logs.php'],
+     ['database','Backup & Recovery','backups.php'],
+     ['settings','System Settings','settings.php']
+ ],
+ 'Account'=>[
+     ['user','My Profile','profile.php'],
+     ['logout','Logout',null,'logout']
+ ]
+]];
+if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Administrator','sections'=>[
+ 'Clinical Overview'=>[
+     ['dashboard','Dashboard','dashboard.php'],
+     ['activity','Clinic Monitoring','clinic_monitoring.php'],
+ ],
+ 'Patient Care'=>[
+     ['users','Patient Records','patients.php'],
+     ['file-medical','Consultations','consultations.php'],
+ ],
+ 'Clinical Supervision'=>[
+     ['pill','Medicine Oversight','inventory.php'],
+     ['alert-triangle','Emergency Oversight','emergencies.php'],
+     ['file-medical','Clinical Reports','reports.php']
+ ],
+ 'Communication'=>[
+     ['chat','Messages','messages.php'],
+     ['sparkles','MICA AI','../ai_assistant.php']
+ ],
+ 'Account'=>[
+     ['user','My Profile','profile.php'],
+     ['settings','Settings','settings.php'],
+     ['logout','Logout',null,'logout']
+ ]
+]];
 $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
+if($sbRole==='nurse')$sbMenus['sections']['Clinic Operations'][]=['pill','Medicine Inventory','inventory.php'];
+if ($sbRole === 'admin' && $sbProfile!=='doctor') {
+    $settingsVisible=is_primary_admin($sbUser)||has_admin_permission('manage_settings',$sbUser)||has_admin_permission('manage_security',$sbUser)||has_admin_permission('view_audit_logs',$sbUser);
+    $rules=[
+        'users.php'=>has_admin_permission('manage_users',$sbUser)||has_admin_permission('approve_users',$sbUser),
+        'admin_accounts.php'=>is_primary_admin($sbUser),
+        'system_monitoring.php'=>has_admin_permission('system_manage',$sbUser),
+        'emergencies.php'=>has_admin_permission('view_emergencies',$sbUser),
+        'settings.php'=>$settingsVisible,
+        'security.php'=>has_admin_permission('manage_security',$sbUser),
+        'backups.php'=>has_admin_permission('backups_manage',$sbUser),
+        'activity_logs.php'=>has_admin_permission('view_audit_logs',$sbUser),
+    ];
+    foreach($sbMenus['sections'] as $section=>$items){
+        $sbMenus['sections'][$section]=array_values(array_filter($items,fn($item)=>!isset($rules[$item[2]??''])||$rules[$item[2]]));
+        if(!$sbMenus['sections'][$section])unset($sbMenus['sections'][$section]);
+    }
+}
+
 ?>
 
 <a class="skip-link" href="#mainContent">Skip to main content</a>
@@ -173,9 +210,14 @@ $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
             }
         }
 
+        // Settings owns every admin settings tab, regardless of its query string.
+        if ($sbRole === 'admin' && $sbFileBase === 'settings.php' && $sbCur === 'settings.php') {
+            $sbActive = true;
+        }
+
         $activeClass = $sbActive ? 'active' : '';
         $sbClass     = $sbType === 'logout' ? 'nav-link logout-link' : 'nav-link';
-        $sbDirectory = $sbRole === 'teacher' ? 'adviser' : $sbRole;
+        $sbDirectory = $sbProfile==='doctor'?'doctor':($sbRole === 'teacher' ? 'adviser' : $sbRole);
 
         if ($sbType === 'sos') {
             $sbHref   = '#';

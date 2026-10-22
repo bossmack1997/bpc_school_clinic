@@ -1,6 +1,10 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
 require_role('nurse');
+// Keep bookmarked Consultation Desk URLs working in the unified workspace.
+require __DIR__ . '/queue.php';
+exit;
+
 $pageTitle = 'Walk-in Patient Management';
 $u = current_user();
 ?>

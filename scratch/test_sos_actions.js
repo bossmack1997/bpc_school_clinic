@@ -1,0 +1,20 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync('assets/js/main.js','utf8');
+let notices=[],payload,enabled=true;
+const sandbox={document:{querySelectorAll(){return [];}},URLSearchParams,APP_URL:'/clinic',Number,Math,Event:class{},window:{dispatchEvent(){}},loadNotifications(){},Swal:{async fire(config){notices.push(config);return {isConfirmed:true,value:'Patient assisted'};}},$(){return {prop(k,v){enabled=!v;return this;},attr(){return 'csrf';}}},fetch:async(url,options)=>{payload=Object.fromEntries(options.body);return {ok:true,status:200,json:async()=>({success:true,status:'acknowledged'})}}};
+vm.createContext(sandbox);
+vm.runInContext(source.slice(source.indexOf('async function bpcSosAction'),source.indexOf('async function updateSosStatus')),sandbox);
+vm.runInContext(source.slice(source.indexOf('function bpcSosHasGps')),sandbox);
+(async()=>{
+ assert(!sandbox.bpcSosHasGps({latitude:91,longitude:1}));assert(!sandbox.bpcSosHasGps({}));assert(sandbox.bpcSosHasGps({latitude:0,longitude:0}));
+ assert(sandbox.bpcSosAccuracyLabel('5000000m').includes('Poor accuracy'));assert(sandbox.bpcSosAccuracyLabel(null).includes('unknown'));
+ const result=await sandbox.bpcSosAction(123,'accept',[]);assert.equal(result.status,'acknowledged');assert.equal(payload.action,'update_status');assert.equal(payload.op,'accept');assert.equal(payload.emergency_id,'123');assert(enabled);
+ sandbox.fetch=async()=>({ok:false,status:403,json:async()=>({success:false,message:'Session expired'})});
+ assert.equal(await sandbox.bpcSosAction(123,'accept',[]),null);assert.equal(notices.at(-1).text,'Session expired');
+ sandbox.fetch=async()=>({ok:false,status:500,json:async()=>{throw Error()}});
+ await sandbox.bpcSosAction(123,'accept',[]);assert(notices.at(-1).text.includes('HTTP 500'));
+ sandbox.fetch=async()=>{throw Error()};await sandbox.bpcSosAction(123,'accept',[]);assert(notices.at(-1).text.includes('Connection lost'));
+ sandbox.fetch=async(u,o)=>{payload=Object.fromEntries(o.body);return {ok:true,json:async()=>({success:true,status:'resolved'})}};
+ await sandbox.bpcSosAction(123,'resolve',[]);assert.equal(payload.resolution_notes,'Patient assisted');
+ assert(enabled);console.log('PASS SOS frontend contract, GPS validation/accuracy warnings, HTTP/session/invalid JSON/offline handling, resolution notes and button recovery.');
+})().catch(e=>{console.error(e);process.exitCode=1});

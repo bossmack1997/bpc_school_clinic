@@ -22,11 +22,19 @@ if (has_active_primary_admin($db)) {
     redirect(APP_URL . '/auth/login.php');
 }
 
+// Bootstrap requires an operator-held secret; lack of an active account is not authorization.
+if ((int)$db->query("SELECT COUNT(*) FROM users WHERE role='admin' AND admin_type='primary_admin'")->fetchColumn()>0) {
+    http_response_code(403);exit('An administrator already exists. Use the authorized operator account-recovery procedure.');
+}
+$setupSecret=(string)getenv('INITIAL_ADMIN_SETUP_TOKEN');
+if(strlen($setupSecret)<32){http_response_code(503);exit('Initial provisioning requires an operator-configured INITIAL_ADMIN_SETUP_TOKEN of at least 32 characters.');}
+
 $errors = [];
 $old = $_POST ?? [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
+    if(!is_string($_POST['setup_token']??null)||!hash_equals($setupSecret,$_POST['setup_token'])){http_response_code(403);exit('Authorized provisioning token required.');}
 
     // Secondary pre-check
     if (has_active_primary_admin($db)) {
@@ -221,7 +229,7 @@ $pageTitle = 'Initial Primary Administrator Setup';
       <?php endif; ?>
 
       <form method="POST" novalidate id="primaryAdminSetupForm">
-        <?= csrf_field() ?>
+        <?= csrf_field() ?><div class="mb-3"><label for="setup-token" class="form-label">Operator provisioning token</label><input type="password" id="setup-token" name="setup_token" class="form-control" required autocomplete="off"></div>
 
         <div class="row g-2 mb-3">
           <div class="col-md-5">

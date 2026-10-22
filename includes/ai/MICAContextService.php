@@ -27,9 +27,18 @@ class MICAContextService
     /**
      * Build comprehensive live system context string tailored to the user's role and permissions.
      */
-    public function getSystemContextString(): string
+    public function getSystemContextString(bool $includePrivate = false): string
     {
-        $role = $this->user['role'] ?? 'student';
+        $profile=permission_profile($this->user,$this->db);
+        if($profile==='mis'){
+            require_once __DIR__.'/../system_monitoring.php';
+            return 'MIS technical assistance only. No clinical records, diagnoses, consultation counts, inventory or emergency details. Verified system data: '.json_encode((new SystemMonitoringService($this->db))->summary());
+        }
+        if($profile==='doctor'){
+            require_once __DIR__.'/../doctor_clinical_service.php';
+            return 'Doctor clinical oversight. Assistive recommendations require professional judgment; never independently diagnose or execute treatment. Verified aggregate clinic data: '.json_encode((new DoctorClinicalService($this->db,$this->user))->summary());
+        }
+        $role = canonical_role($this->user['role'] ?? 'student');
         $name = trim(($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? ''));
         $today = date('Y-m-d');
         $now = date('Y-m-d H:i:s');
@@ -44,13 +53,13 @@ class MICAContextService
 
         // Role-specific database context
         if ($role === 'student') {
-            $lines[] = $this->getStudentContextString();
+            $lines[] = $includePrivate ? $this->getStudentContextString() : 'Student portal: access is limited to this account. Ask explicitly for your own records when needed.';
         } elseif ($role === 'nurse') {
-            $lines[] = $this->getClinicalStaffContextString();
+            $lines[] = 'Clinic tools provide authorized patient information and verified inventory. No patient data is included in this general conversation context.';
         } elseif ($role === 'admin') {
             $lines[] = $this->getAdminContextString();
-        } elseif ($role === 'adviser') {
-            $lines[] = $this->getAdviserContextString();
+        } elseif ($role === 'teacher') {
+            $lines[] = $includePrivate ? $this->getTeacherPatientContextString() : 'Teacher patient portal: access is limited to this account.';
         }
 
         // Shared clinic operational context
@@ -117,7 +126,7 @@ class MICAContextService
                 }
             }
         } catch (Exception $e) {
-            $lines[] = "Student context error: " . $e->getMessage();
+            $lines[] = "Context temporarily unavailable.";
         }
         return implode("\n", $lines);
     }
@@ -171,7 +180,7 @@ class MICAContextService
             $lines[] = "Pending Medicine Reorder Requests: $pendingReorders";
 
         } catch (Exception $e) {
-            $lines[] = "Clinical staff context error: " . $e->getMessage();
+            $lines[] = "Context temporarily unavailable.";
         }
         return implode("\n", $lines);
     }
@@ -203,12 +212,14 @@ class MICAContextService
             $lines[] = "Graduating Students Flagged for Review: $graduating";
 
             // Low Stock & Reorders
+            if(can_view_inventory($this->user,$this->db)){
             $lowCount = $this->db->query("SELECT COUNT(*) FROM medicines WHERE quantity <= reorder_level AND is_archived = 0")->fetchColumn();
             $pendingReorders = $this->db->query("SELECT COUNT(*) FROM medicine_reorders WHERE status = 'for_approval'")->fetchColumn();
             $lines[] = "Low Stock Items: $lowCount | Reorder Requests for Approval: $pendingReorders";
+            }
 
         } catch (Exception $e) {
-            $lines[] = "Admin context error: " . $e->getMessage();
+            $lines[] = "Context temporarily unavailable.";
         }
         return implode("\n", $lines);
     }
@@ -216,6 +227,14 @@ class MICAContextService
     /**
      * Teacher / Adviser context
      */
+    private function getTeacherPatientContextString(): string {
+        $stmt=$this->db->prepare('SELECT c.consultation_date,c.chief_complaint,c.diagnosis FROM consultations c JOIN teachers t ON t.id=c.teacher_id WHERE t.user_id=? ORDER BY c.consultation_date DESC LIMIT 2');
+        $stmt->execute([(int)$this->user['id']]);
+        $lines=['Own teacher clinic records:'];
+        foreach($stmt as $record)$lines[]=implode(' | ',array_map('strval',$record));
+        return implode("\n",$lines);
+    }
+
     private function getAdviserContextString(): string
     {
         $lines = ["\n=== ADVISER CONTEXT ==="];
@@ -244,7 +263,7 @@ class MICAContextService
                 }
             }
         } catch (Exception $e) {
-            $lines[] = "Adviser context error: " . $e->getMessage();
+            $lines[] = "Context temporarily unavailable.";
         }
         return implode("\n", $lines);
     }
@@ -287,6 +306,7 @@ class MICAContextService
 
     public function getLowStockMedicines(): array
     {
+        if(!can_view_inventory($this->user,$this->db))return [];
         $stmt = $this->db->query("
             SELECT id, medicine_name, generic_name, category, quantity, unit, reorder_level, expiration_date
             FROM medicines
@@ -298,6 +318,7 @@ class MICAContextService
 
     public function getExpiringMedicines(int $days = 30): array
     {
+        if(!can_view_inventory($this->user,$this->db))return [];
         $stmt = $this->db->prepare("
             SELECT id, medicine_name, generic_name, category, quantity, unit, expiration_date,
                    DATEDIFF(expiration_date, CURDATE()) as days_left
@@ -332,6 +353,7 @@ class MICAContextService
 
     public function getDailySummaryData(): array
     {
+        if(permission_profile($this->user,$this->db)==='mis'){require_once __DIR__.'/../system_monitoring.php';return ['profile'=>'mis','system'=>(new SystemMonitoringService($this->db))->summary(),'generated_at'=>date('c')];}
         $today = date('Y-m-d');
         $yesterday = date('Y-m-d', strtotime('-1 day'));
 
@@ -339,13 +361,19 @@ class MICAContextService
         $pendingApps = (int)$this->db->query("SELECT COUNT(*) FROM appointments WHERE status = 'pending'")->fetchColumn();
         $waitingQueue = (int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = '$today' AND status = 'waiting'")->fetchColumn();
         $servingQueue = (int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = '$today' AND status = 'serving'")->fetchColumn();
-        $lowStockMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE quantity <= reorder_level AND is_archived = 0")->fetchColumn();
-        $expiringMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE expiration_date IS NOT NULL AND expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND is_archived = 0")->fetchColumn();
-        $expiredMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE expiration_date IS NOT NULL AND expiration_date < CURDATE() AND is_archived = 0")->fetchColumn();
+        $lowStockMeds = $expiringMeds = $expiredMeds = null;
+        if (can_view_inventory($this->user,$this->db)) {
+            require_once __DIR__ . '/../medicine_inventory_service.php';
+            $rows = (new MedicineInventoryService($this->db))->snapshot();
+            $lowStockMeds = count(MedicineInventoryService::filter($rows, ['status'=>'low_stock'], $today));
+            $expiringMeds = count(MedicineInventoryService::filter($rows, ['expiry'=>'expiring30'], $today));
+            $expiredMeds = count(MedicineInventoryService::filter($rows, ['status'=>'expired'], $today));
+        }
         $activeEmergencies = (int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
         $todayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$today'")->fetchColumn();
         $yesterdayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$yesterday'")->fetchColumn();
-        $pendingRegistrations = (int)$this->db->query("SELECT COUNT(*) FROM users WHERE status = 'pending'")->fetchColumn();
+        require_once __DIR__.'/../account_monitoring.php';
+        $pendingRegistrations = canonical_role($this->user['role']??'')==='admin' ? (new AccountMonitoringService($this->db))->counts()['verification'] : null;
 
         return [
             'today_appointments'     => $todayApps,

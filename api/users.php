@@ -24,8 +24,21 @@ if (isset($permissionByAction[$action]) && !is_primary_admin($user)) {
         $hasPermission = has_admin_permission('manage_users', $user, $db);
     }
     if (!$hasPermission) {
-        json_response(false, [], 'Access denied: you do not have permission to manage user accounts.');
+        http_response_code(403); json_response(false, [], 'Access denied: you do not have permission to manage user accounts.');
     }
+}
+
+if (!is_primary_admin($user) && !isset($permissionByAction[$action])
+    && !in_array($action,['create_admin_account','list_admins','update_admin_status','delete_admin'],true)
+    && !has_admin_permission('manage_users',$user,$db) && !has_admin_permission('approve_users',$user,$db)) admin_access_denied();
+if(in_array($action,['create_admin_account','list_admins','update_admin_status','delete_admin'],true))require_primary_admin();
+
+// Routine access changes are retired; documented security exceptions are the only review path.
+if(in_array($action,['approve','reject','activate','deactivate','bulk_approve','update_admin_status','delete_admin'],true)) {
+    http_response_code(410);json_response(false,[],'Use the authorized Account Security Exceptions process with a reason and evidence reference.');
+}
+if(!in_array($action,['get_user','list_admins'],true) && $_SERVER['REQUEST_METHOD']!=='POST') {
+    http_response_code(405);json_response(false,[],'Use POST.');
 }
 
 // Obsolete manual user-creation endpoints must be strictly blocked.
@@ -46,7 +59,7 @@ if ($action === 'create_admin_account') {
 
     // Only Primary Administrators can create new admin accounts
     if (!is_primary_admin($user)) {
-        json_response(false, [], 'Access denied: Only the Primary Administrator can create admin accounts.');
+        http_response_code(403); json_response(false, [], 'Access denied: Only the Primary Administrator can create admin accounts.');
     }
 
     $firstName     = trim($_POST['first_name'] ?? '');
@@ -137,7 +150,7 @@ if ($action === 'create_admin_account') {
 
 if ($action === 'list_admins') {
     if (!is_primary_admin($user)) {
-        json_response(false, [], 'Access denied.');
+        http_response_code(403); json_response(false, [], 'Access denied.');
     }
 
     $stmt = $db->query("
@@ -155,7 +168,7 @@ if ($action === 'update_admin_status') {
     csrf_verify_or_die();
 
     if (!is_primary_admin($user)) {
-        json_response(false, [], 'Access denied: Only the Primary Administrator can modify admin accounts.');
+        http_response_code(403); json_response(false, [], 'Access denied: Only the Primary Administrator can modify admin accounts.');
     }
 
     $id = (int)($_POST['id'] ?? 0);
@@ -182,7 +195,7 @@ if ($action === 'delete_admin') {
     csrf_verify_or_die();
 
     if (!is_primary_admin($user)) {
-        json_response(false, [], 'Access denied: Only the Primary Administrator can delete admin accounts.');
+        http_response_code(403); json_response(false, [], 'Access denied: Only the Primary Administrator can delete admin accounts.');
     }
 
     $id = (int)($_POST['id'] ?? 0);
@@ -202,7 +215,7 @@ if ($action === 'delete_admin') {
     json_response(true, [], 'Admin account disabled successfully.');
 }
 
-if (!in_array($action, ['get_user','approve','reject','deactivate','activate','update_user','bulk_approve'], true)) {
+if (!in_array($action, ['get_user', 'update_user'], true)) {
     if (empty($action)) json_response(false, [], 'No action specified.');
     json_response(false, [], 'Unknown action.');
 }if ($action === 'get_user') {
@@ -227,331 +240,15 @@ if (!in_array($action, ['get_user','approve','reject','deactivate','activate','u
     $stmt->execute([$id]);
     $target = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$target) json_response(false, [], 'User not found.');
-    if ($target['role'] === 'admin' && !is_primary_admin($user)
-        && !has_admin_permission('approve_admins', $user, $db)) {
-        json_response(false, [], 'Access denied: you do not have permission to view administrator accounts.');
+    if ($target['role'] === 'admin' && !is_primary_admin($user)) {
+        http_response_code(403); json_response(false, [], 'Access denied: you do not have permission to view administrator accounts.');
     }
 
     unset($target['password_hash'], $target['otp_hash'], $target['remember_token'], $target['reset_token']);
     json_response(true, ['data' => $target]);
 }
 
-if ($action === 'approve') {
-    csrf_verify_or_die();
-    $id = (int)($_POST['id'] ?? 0);
-    if ($id <= 0) json_response(false, [], 'Invalid user ID.');
-
-    $stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$id]);
-    $target = $stmt->fetch();
-    if (!$target) json_response(false, [], 'User not found.');
-    if ($target['status'] === 'active') json_response(false, [], 'Account is already active.');
-
-    if ($target['role'] === 'admin') {
-        if (!is_primary_admin($user) && !has_admin_permission('approve_admins', $user)) {
-            json_response(false, [], 'Access denied: you do not have permission to approve administrator accounts.');
-        }
-    } else {
-        if (!is_primary_admin($user) && !has_admin_permission('approve_users', $user) && !has_admin_permission('manage_users', $user)) {
-            json_response(false, [], 'Access denied: you do not have permission to approve user accounts.');
-        }
-    }
-
-    $adminTypeSql = ($target['role'] === 'admin' && empty($target['admin_type'])) ? ", admin_type = 'co_admin'" : "";
-    $db->prepare("
-        UPDATE users 
-        SET status = 'active', registration_status = 'approved', reviewed_by = ?, reviewed_at = NOW() {$adminTypeSql}
-        WHERE id = ?
-    ")->execute([$user['id'], $id]);
-
-    // Auto-resolve corresponding AI registration review action if exists
-    try {
-        $db->prepare("
-            UPDATE ai_actions 
-            SET status = 'approved', executed_by = ?, executed_at = NOW() 
-            WHERE target_type = 'users' AND target_id = ? AND action_type = 'registration_review' AND status IN ('new', 'reviewed')
-        ")->execute([$user['id'], $id]);
-    } catch (Exception $e) {
-        error_log('Failed to resolve ai_action on approval: ' . $e->getMessage());
-    }
-
-    // Auto-generate a permanent QR for approved student accounts.
-    if ($target['role'] === 'student') {
-        try {
-            $stmt = $db->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
-            $stmt->execute([$id]);
-            $studentId = $stmt->fetchColumn();
-            if ($studentId) {
-                ensure_student_qr($db, (int)$studentId, $user['id']);
-            }
-        } catch (Exception $e) {
-            error_log('QR generation on account approval failed: ' . $e->getMessage());
-        }
-    } elseif ($target['role'] === 'teacher') {
-        try {
-            $db->prepare("UPDATE advisory_assignments SET status = 'active', start_date = COALESCE(start_date, CURDATE()) WHERE teacher_id = ?")->execute([$id]);
-        } catch (Exception $e) {
-            error_log('Activating teacher advisory assignments failed: ' . $e->getMessage());
-        }
-    }
-
-    // Push notification to user
-    try {
-        push_notification(
-            (int)$id,
-            'account',
-            'Registration Approved',
-            'Your account registration has been approved by the Administrator. You now have full access.',
-            APP_URL . '/auth/login.php',
-            null,
-            'high'
-        );
-    } catch (Throwable $e) {}
-
-    $roleLabel = ($target['role'] === 'admin') ? 'Co-Administrator' : ucfirst($target['role']);
-    log_activity($user['id'], 'Approved user account', 'users', "User ID $id ({$target['role']})");
-    json_response(true, [], "$roleLabel account approved successfully.");
-}
-
-if ($action === 'reject') {
-    csrf_verify_or_die();
-    $id = (int)($_POST['id'] ?? 0);
-    $rejectionReason = trim($_POST['reason'] ?? $_POST['rejection_reason'] ?? 'Rejected during administrative review.');
-    if ($id <= 0) json_response(false, [], 'Invalid user ID.');
-
-    $stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$id]);
-    $target = $stmt->fetch();
-    if (!$target) json_response(false, [], 'User not found.');
-    if ($target['status'] === 'rejected') json_response(false, [], 'Account is already rejected.');
-    if ($target['role'] === 'admin' && !is_primary_admin($user)
-        && !has_admin_permission('approve_admins', $user, $db)) {
-        json_response(false, [], 'Access denied: you do not have permission to reject administrator accounts.');
-    }
-
-    $db->prepare("
-        UPDATE users 
-        SET status = 'rejected', registration_status = 'rejected', rejection_reason = ?, reviewed_by = ?, reviewed_at = NOW() 
-        WHERE id = ?
-    ")->execute([$rejectionReason, $user['id'], $id]);
-
-    // Deactivate any pending advisory assignments
-    try {
-        $db->prepare("UPDATE advisory_assignments SET status = 'inactive' WHERE teacher_id = ?")->execute([$id]);
-    } catch (Throwable $e) {}
-
-    // Auto-resolve corresponding AI registration review action if exists
-    try {
-        $db->prepare("
-            UPDATE ai_actions 
-            SET status = 'rejected', executed_by = ?, executed_at = NOW() 
-            WHERE target_type = 'users' AND target_id = ? AND action_type = 'registration_review' AND status IN ('new', 'reviewed')
-        ")->execute([$user['id'], $id]);
-    } catch (Exception $e) {
-        error_log('Failed to resolve ai_action on rejection: ' . $e->getMessage());
-    }
-
-    // Push notification
-    try {
-        push_notification(
-            (int)$id,
-            'account',
-            'Registration Rejected',
-            "Your account registration was not approved: {$rejectionReason}",
-            null,
-            null,
-            'high'
-        );
-    } catch (Throwable $e) {}
-
-    log_activity($user['id'], 'Rejected user account', 'users', "User ID $id ({$target['role']}): $rejectionReason");
-    json_response(true, [], 'Account rejected successfully.');
-}
-
-if ($action === 'deactivate') {
-    csrf_verify_or_die();
-    $id = (int)($_POST['id'] ?? 0);
-    if ($id <= 0) json_response(false, [], 'Invalid user ID.');
-
-    $stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$id]);
-    $target = $stmt->fetch();
-    if (!$target) json_response(false, [], 'User not found.');
-    if ($target['role'] === 'admin') json_response(false, [], 'Cannot deactivate an admin account.');
-    if ($target['id'] == $user['id']) {
-        json_response(false, [], 'You cannot deactivate your own active session account.');
-    }
-
-    $db->prepare("UPDATE users SET status = 'inactive' WHERE id = ?")->execute([$id]);
-    log_activity($user['id'], 'Deactivated user account', 'users', "User ID $id ({$target['role']})");
-    json_response(true, [], 'Account deactivated successfully.');
-}
-
-if ($action === 'activate') {
-    csrf_verify_or_die();
-    $id = (int)($_POST['id'] ?? 0);
-    if ($id <= 0) json_response(false, [], 'Invalid user ID.');
-
-    $stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$id]);
-    $target = $stmt->fetch();
-    if (!$target) json_response(false, [], 'User not found.');
-    if ($target['status'] === 'active') json_response(false, [], 'Account is already active.');
-    if ($target['role'] === 'admin' && !is_primary_admin($user)) {
-        json_response(false, [], 'Access denied: only the Primary Administrator can activate administrator accounts.');
-    }
-
-    $db->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$id]);
-    log_activity($user['id'], 'Activated user account', 'users', "User ID $id ({$target['role']})");
-    json_response(true, [], 'Account activated successfully.');
-}
-
-if ($action === 'update_user') {
-    csrf_verify_or_die();
-    $id = (int)($_POST['id'] ?? 0);
-    if ($id <= 0) json_response(false, [], 'Invalid user ID.');
-
-    $stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$id]);
-    $target = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$target) json_response(false, [], 'User not found.');
-    if ($target['role'] === 'admin') {
-        json_response(false, [], 'Administrator accounts must be managed through the protected Admin Accounts page.');
-    }
-
-    $firstName  = trim($_POST['first_name'] ?? '');
-    $middleName = trim($_POST['middle_name'] ?? '');
-    $lastName   = trim($_POST['last_name'] ?? '');
-    $phone      = trim($_POST['phone'] ?? '');
-    $gender     = trim($_POST['gender'] ?? '');
-    $dob        = trim($_POST['date_of_birth'] ?? '');
-
-    if ($firstName === '' || $lastName === '') {
-        json_response(false, [], 'First name and Last name are required.');
-    }
-
-    try {
-        $db->beginTransaction();
-
-        $stmt = $db->prepare("
-            UPDATE users 
-            SET first_name = ?, middle_name = ?, last_name = ?, phone = ?, gender = ?, date_of_birth = ?
-            WHERE id = ?
-        ");
-        $stmt->execute([
-            $firstName,
-            $middleName ?: null,
-            $lastName,
-            $phone ?: null,
-            $gender ?: null,
-            $dob ?: null,
-            $id
-        ]);
-
-        if ($target['role'] === 'student') {
-            $studentNo = trim($_POST['student_number'] ?? '');
-            $course    = trim($_POST['course'] ?? '');
-            $yearLevel = trim($_POST['year_level'] ?? '');
-            $section   = trim($_POST['section'] ?? '');
-
-            $db->prepare("
-                UPDATE students 
-                SET student_number = ?, course = ?, year_level = ?, section = ?
-                WHERE user_id = ?
-            ")->execute([$studentNo ?: null, $course ?: null, $yearLevel ?: null, $section ?: null, $id]);
-
-        } elseif ($target['role'] === 'teacher' || $target['role'] === 'adviser') {
-            $empId = trim($_POST['employee_id'] ?? '');
-            $dept  = trim($_POST['department'] ?? '');
-
-            $db->prepare("
-                UPDATE teachers 
-                SET employee_id = ?, department = ?, first_name = ?, last_name = ?, phone = ?
-                WHERE user_id = ?
-            ")->execute([$empId ?: null, $dept ?: null, $firstName, $lastName, $phone ?: null, $id]);
-
-        } elseif ($target['role'] === 'nurse') {
-            $empId   = trim($_POST['employee_id'] ?? '');
-            $license = trim($_POST['license_number'] ?? '');
-
-            $db->prepare("
-                UPDATE nurses 
-                SET employee_id = ?, license_number = ?, gender = ?, date_of_birth = ?, contact_number = ?
-                WHERE user_id = ?
-            ")->execute([$empId ?: null, $license ?: null, $gender ?: null, $dob ?: null, $phone ?: null, $id]);
-        }
-
-        $db->commit();
-        log_activity($user['id'], 'Updated user profile details', 'users', "User ID $id ({$target['role']})");
-        json_response(true, [], 'User information updated successfully.');
-
-    } catch (Exception $e) {
-        if ($db->inTransaction()) $db->rollBack();
-        error_log('User update error: ' . $e->getMessage());
-        json_response(false, [], safe_api_error($e, 'Failed to update this user. Please try again.', 'users/update'));
-    }
-}
-
-if ($action === 'bulk_approve') {
-    csrf_verify_or_die();
-    $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])), function ($v) { return $v > 0; }));
-    if (!$ids) json_response(false, [], 'No accounts selected.');
-
-    $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $stmt = $db->prepare("SELECT id, role, status FROM users WHERE id IN ($placeholders) AND (role != 'admin' OR admin_type = 'co_admin')");
-    $stmt->execute($ids);
-    $targets = array_values(array_filter($stmt->fetchAll(), function ($target) use ($user, $db) {
-        return $target['role'] !== 'admin' || is_primary_admin($user)
-            || has_admin_permission('approve_admins', $user, $db);
-    }));
-
-    if (!$targets) json_response(false, [], 'No eligible accounts selected.');
-
-    $approveIds = [];
-    foreach ($targets as $target) {
-        if ($target['status'] !== 'active') {
-            $approveIds[] = (int)$target['id'];
-        }
-    }
-
-    if (!$approveIds) json_response(false, [], 'Selected accounts are already active.');
-
-    $approvePlaceholders = implode(',', array_fill(0, count($approveIds), '?'));
-    $params = array_merge([$user['id']], $approveIds);
-    $db->prepare("
-        UPDATE users 
-        SET status = 'active', registration_status = 'approved', reviewed_by = ?, reviewed_at = NOW() 
-        WHERE id IN ($approvePlaceholders)
-    ")->execute($params);
-
-    foreach ($targets as $target) {
-        if ($target['role'] === 'student') {
-            try {
-                $stmt = $db->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
-                $stmt->execute([$target['id']]);
-                $studentId = $stmt->fetchColumn();
-                if ($studentId) {
-                    ensure_student_qr($db, (int)$studentId, $user['id']);
-                }
-            } catch (Exception $e) {
-                error_log('QR generation on bulk approval failed: ' . $e->getMessage());
-            }
-        }
-
-        // Auto-resolve AI actions
-        try {
-            $db->prepare("
-                UPDATE ai_actions 
-                SET status = 'approved', executed_by = ?, executed_at = NOW() 
-                WHERE target_type = 'users' AND target_id = ? AND action_type = 'registration_review' AND status IN ('new', 'reviewed')
-            ")->execute([$user['id'], $target['id']]);
-        } catch (Exception $e) {}
-
-        log_activity($user['id'], 'Bulk approved user account', 'users', "User ID {$target['id']} ({$target['role']})");
-    }
-
-    json_response(true, [], count($approveIds) . ' account' . (count($approveIds) > 1 ? 's' : '') . ' approved successfully.');
-}
+json_response(false, [], 'Unknown action.');
 
 if ($action === 'create_doctor') {
     csrf_verify_or_die();

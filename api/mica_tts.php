@@ -91,6 +91,7 @@ try {
 // ------------------------------------------------------------
 // ACTION
 // ------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') mica_tts_error(405,'Use POST.',null,false);
 $action = $_POST['action']
     ?? $_GET['action']
     ?? 'synthesize';
@@ -120,7 +121,7 @@ if ($action === 'synthesize') {
         if (!csrf_verify($csrfToken)) {
             mica_tts_error(
                 403,
-                'Invalid CSRF token. Please refresh the page and try again.'
+                'Invalid CSRF token. Please refresh the page and try again.', null, false
             );
         }
 
@@ -141,6 +142,9 @@ if ($action === 'synthesize') {
     // --------------------------------------------------------
     // TEXT
     // --------------------------------------------------------
+    $requests=array_filter($_SESSION['mica_tts_times']??[],fn($at)=>$at>time()-60);
+    if(count($requests)>=20)mica_tts_error(429,'Voice request limit reached. Try again shortly.',null,false);
+    $requests[]=time();$_SESSION['mica_tts_times']=$requests;
     $text = trim((string)($_POST['text'] ?? ''));
 
     if ($text === '') {
@@ -399,7 +403,7 @@ if ($action === 'synthesize') {
     if ($httpCode < 200 || $httpCode >= 300) {
 
         $errorBody = is_string($response)
-            ? mb_substr($response, 0, 500, 'UTF-8')
+            ? '[provider response redacted]'
             : '';
 
         error_log(

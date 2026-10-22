@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
-require_role('admin');
+require_admin_permission('view_reports');
 $pageTitle = 'Reports';
 ?>
 <!DOCTYPE html>
@@ -22,7 +22,7 @@ $pageTitle = 'Reports';
                 <select class="form-select" name="type" required>
                   <option value="consultations" selected>Clinic Consultations Report</option>
                   <option value="walkin_stats">Walk-in Visits &amp; Triage Report</option>
-                  <option value="inventory">Medicine Inventory &amp; Usage Report</option>
+                  <?php if (can_view_inventory()): ?><option value="inventory">Medicine Inventory &amp; Usage Report</option><?php endif; ?>
                   <option value="health">Health &amp; Vital Signs Monitoring Report</option>
                   <option value="certificates">Medical Certificates Issued Report</option>
                   <option value="emergencies">Emergency &amp; SOS Incidents Report</option>

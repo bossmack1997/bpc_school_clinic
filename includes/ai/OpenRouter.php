@@ -43,7 +43,7 @@ class OpenRouter
         $this->model = $config['model'] ?? (defined('AI_OPENROUTER_MODEL') ? AI_OPENROUTER_MODEL : 'openai/gpt-4o-mini');
         $this->timeout = $config['timeout'] ?? 30;
         $this->connectTimeout = $config['connect_timeout'] ?? 10;
-        $this->maxRetries = $config['max_retries'] ?? 2;
+        $this->maxRetries = max(1,min(3,(int)($config['max_retries'] ?? 2)));
 
         // Check if API is properly configured
         $this->enabled = !empty($this->apiKey)
@@ -157,6 +157,7 @@ class OpenRouter
      */
     private function sendRequest(array $payload, array $headers): array
     {
+        if(!function_exists('curl_init'))return $this->error('HTTP client unavailable.','config_error');
         $jsonPayload = json_encode($payload);
         if ($jsonPayload === false) {
             return $this->error('Failed to encode request payload: ' . json_last_error_msg(), 'internal_error');
@@ -167,7 +168,9 @@ class OpenRouter
             return $this->error('Failed to initialize cURL session', 'internal_error');
         }
 
+        $responseHeaders = '';
         curl_setopt_array($ch, [
+            CURLOPT_HEADERFUNCTION => static function($curl,$line) use (&$responseHeaders){$responseHeaders.=$line;return strlen($line);},
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $jsonPayload,
@@ -191,7 +194,7 @@ class OpenRouter
 
         // Get response headers if available
         $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-        $responseHeaders = curl_getinfo($ch, CURLINFO_HEADER_OUT);
+
 
         curl_close($ch);
 
@@ -250,14 +253,14 @@ class OpenRouter
         $data = json_decode($response, true);
         if ($data === null) {
             $jsonError = json_last_error_msg();
-            $preview = mb_substr($response, 0, 200);
+            $preview = '[redacted]';
             return $this->error('Invalid JSON response: ' . $jsonError . '. Response preview: ' . $preview, 'parse_error', null, $httpCode);
         }
 
         // Check for API error responses
         if (isset($data['error'])) {
             $errorCode    = $data['error']['code'] ?? 'unknown';
-            $errorMessage = $data['error']['message'] ?? json_encode($data['error']);
+            $errorMessage = 'Provider rejected the request.';
 
             // Map API error codes
             $errorType = match ($errorCode) {

@@ -40,10 +40,9 @@ $quickActions = match ($role) {
     'admin' => [
         ['users', 'Pending Registrations', 'Which accounts are pending approval?', 'text-warning'],
         ['bar-chart', 'Account Statistics', 'How many active users do we have?', 'text-primary'],
-        ['package', 'Reorder Requests', 'Which medicines need reordering?', 'text-danger'],
         ['trending-up', 'Clinic Demand Trends', 'How many clinic visits happened this week?', 'text-info'],
-        ['graduation', 'Graduation Review', 'Show graduating students for review', 'text-info'],
-        ['shield-alert', 'Security & Anomalies', 'Show active security and inventory anomalies', 'text-danger'],
+        ['shield-alert', 'Emergency Status Summary', 'Show active and recent SOS emergencies', 'text-danger'],
+        ['package', 'Critical Inventory Alerts', 'Which medicines are low stock or expired?', 'text-danger'],
         ['activity', 'Run Intelligence Scan', '__scan__', 'text-primary'],
         ['chat', 'Voice Assistant', '__open__', 'text-primary'],
     ],
@@ -106,6 +105,7 @@ $quickActions = match ($role) {
         </div>
       </div>
 
+      <p id="micaScanMetadata" class="small text-muted" role="status" aria-live="polite">Scan history loads with the summary. Alerts reflect their last successful verification.</p>
       <!-- Navigation Tabs -->
       <ul class="nav app-pills mb-4" id="micaTabs" role="tablist">
         <li class="nav-item" role="presentation">
@@ -113,7 +113,7 @@ $quickActions = match ($role) {
             <i class="bi bi-lightning-charge-fill me-1 text-warning"></i> AI Action Center
           </button>
         </li>
-        <?php if (in_array($role, ['admin', 'nurse'], true)): ?>
+        <?php if ($role === 'nurse'): ?>
         <li class="nav-item" role="presentation">
           <button class="nav-link" id="tab-reorders-btn" data-bs-toggle="pill" data-bs-target="#tab-reorders" type="button" role="tab">
             <i class="bi bi-box-seam-fill me-1 text-info"></i> Smart Reorder Center
@@ -142,6 +142,7 @@ $quickActions = match ($role) {
               <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-shield-check text-success me-1"></i> Recommended Actions & Alerts</h6>
               <small class="text-muted">Proactive intelligence items requiring review or confirmation (Suggest, Confirm, Execute, Log).</small>
             </div>
+            <label class="small">Alert history <select id="micaAlertScope" class="form-select form-select-sm" onchange="loadRecommendedActions()"><option value="active">Active issues</option><option value="archive">Archived issues</option></select></label>
             <button class="btn btn-sm btn-outline-secondary" onclick="loadRecommendedActions()">
               <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
@@ -156,12 +157,12 @@ $quickActions = match ($role) {
         </div>
 
         <!-- TAB 2: SMART REORDER CENTER -->
-        <?php if (in_array($role, ['admin', 'nurse'], true)): ?>
+        <?php if ($role === 'nurse'): ?>
         <div class="tab-pane fade" id="tab-reorders" role="tabpanel">
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <div>
               <h6 class="fw-bold mb-0"><i class="bi bi-cart-check-fill text-primary me-1"></i> Medicine Reorder Requisitions</h6>
-              <small class="text-muted">AI-calculated replenishment suggestions based on recent 60-day clinic consumption rates.</small>
+              <small class="text-muted">Verified replenishment drafts use configured minimums and recorded consumption. Nurse confirmation is required.</small>
             </div>
             <div class="btn-group btn-group-sm">
               <button class="btn btn-outline-primary active" onclick="loadReorders('all', this)">All</button>
@@ -314,21 +315,76 @@ $quickActions = match ($role) {
 
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
+const micaReorders = new Map();
+const micaUserRole = <?= json_encode($role); ?>;
 
 $(document).ready(function() {
-  loadRecommendedActions();
-  loadDailySummary();
+  if (['admin','nurse'].includes(micaUserRole)) { loadRecommendedActions(); loadDailySummary(); }
+  else { $('#tab-actions-btn,#tab-summary-btn').closest('li').hide(); $('#tab-actions').removeClass('show active'); $('#tab-chat').addClass('show active'); $('#tab-chat-btn').addClass('active'); }
   if (document.getElementById('reordersTableBody')) {
     loadReorders('all');
   }
+  const linkedAlert=Number(new URLSearchParams(location.search).get('alert_id'));
+  if(Number.isSafeInteger(linkedAlert) && linkedAlert>0)loadAlertDetail(linkedAlert);
 });
+
+setInterval(function(){if(!document.hidden && ['admin','nurse'].includes(micaUserRole)) {loadRecommendedActions();loadDailySummary();}},60000);
+
+const micaActionCenterLocks = {
+  recommended: null,
+  summary: null,
+  reorder: null
+};
+
+function actionStatusLabel(status) {
+  const value = (status || 'new').toString();
+  if (value === 'in_progress' || value === 'in-progress') return 'Monitoring';
+  if (value === 'resolved') return 'Resolved';
+  return 'Active';
+}
+
+function showActionMonitoring(title, description, reason, status) {
+  const summary = [
+    'Status: ' + actionStatusLabel(status),
+    'Details: ' + (description || 'No additional detail recorded.'),
+    'Reason: ' + (reason || 'No additional reason provided.')
+  ].join('\n\n');
+
+  if (window.Swal) {
+    Swal.fire({
+      title: title || 'Alert Details',
+      text: summary,
+      icon: 'info',
+      confirmButtonText: 'Close'
+    });
+    return;
+  }
+
+  alert(summary);
+}
+
+function renderMicaLoadError(target, message) {
+  if (!target || !target.length) return;
+  target.html('<div class="col-12 py-4 text-center"><div class="empty-state"><div class="empty-state__icon"><i class="bi bi-exclamation-triangle text-warning"></i></div><h6 class="empty-state__title">Unable to load clinic intelligence.</h6><p class="empty-state__text">' + escapeHtml(message || 'Please try again.') + '</p><button type="button" class="btn btn-sm btn-primary mt-2" onclick="location.reload()">Retry</button></div></div>');
+}
 
 function loadRecommendedActions() {
   const container = $('#actionCardsContainer');
+  if (micaActionCenterLocks.recommended && micaActionCenterLocks.recommended.readyState !== 4) {
+    micaActionCenterLocks.recommended.abort();
+  }
   container.html('<div class="col-12 text-center py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary mb-2"></div><div>Analyzing live clinic records...</div></div>');
 
-  $.get(APP_URL + '/api/ai_assistant.php', { action: 'recommended_actions' }, function(res) {
-    if (res.success && res.data && res.data.length > 0) {
+  micaActionCenterLocks.recommended = $.ajax({
+    url: APP_URL + '/api/ai_assistant.php',
+    method: 'GET',
+    dataType: 'json',
+    timeout: 20000,
+    data: { action: $('#micaAlertScope').val() === 'archive' ? 'archived_actions' : 'recommended_actions' }
+  });
+
+  micaActionCenterLocks.recommended.done(function(res) {
+    if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
       let html = '';
       res.data.forEach(a => {
         let badgeClass = 'app-badge--info';
@@ -336,117 +392,153 @@ function loadRecommendedActions() {
         else if (a.priority === 'high') badgeClass = 'app-badge--warning';
         else if (a.priority === 'medium') badgeClass = 'app-badge--primary';
 
+        const statusBadgeClass = (a.status === 'resolved') ? 'bg-success-subtle text-success' : ((a.status === 'in_progress' || a.status === 'in-progress') ? 'bg-warning-subtle text-warning' : 'bg-primary-subtle text-primary');
+        const monitorText = micaUserRole === 'admin'
+          ? 'Monitoring only â€” MICA auto-tracks this alert.'
+          : 'Operational workflow continues in the relevant clinic module.';
+
         html += `
           <div class="col-md-6 col-lg-4" id="app-action-${a.id}">
-            <div class="app-card h-100">
+            <div class="app-card">
               <div class="app-card__body">
                 <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
-                  <span class="app-badge ${badgeClass}">${escapeHtml(a.priority)}</span>
-                  <span class="app-card__meta">${timeAgo(a.created_at)}</span>
+                  <span class="app-badge ${badgeClass}">${escapeHtml(a.priority === "informational" ? "low" : a.priority)}</span>
+                  <span class="badge ${statusBadgeClass}">${escapeHtml(a.issue_status || actionStatusLabel(a.status))}</span>
                 </div>
+                <small class="text-muted">${a.read_at ? "Read" : "Unread"} · ${escapeHtml(a.target_type)} ${escapeHtml(a.target_id || "group")}</small>
                 <h6 class="app-card__title">${escapeHtml(a.title)}</h6>
                 <p class="text-secondary small mb-2">${escapeHtml(a.description)}</p>
+                <p class="small mb-2"><strong>Next:</strong> Review the verified evidence and follow up in the responsible module.</p>
                 <div class="app-info-strip mb-3">
                   <i class="bi bi-info-circle" aria-hidden="true"></i>
-                  <span><strong>Reason:</strong> ${escapeHtml(a.reason)}</span>
+                  <span><strong>Reason:</strong> ${escapeHtml(a.reason || 'No additional reason recorded.')}</span>
                 </div>
               </div>
-              <div class="app-card__foot">
-                <button class="btn btn-sm btn-outline-success flex-fill" onclick="resolveAction(${a.id}, 'approved')">
-                  <i class="bi bi-check-lg me-1"></i> Acknowledge / Done
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" onclick="resolveAction(${a.id}, 'rejected')" aria-label="Dismiss" title="Dismiss">
-                  <i class="bi bi-x-lg"></i>
-                </button>
+              <div class="app-card__foot flex-column align-items-stretch">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                  <small class="text-muted">${timeAgo(a.created_at)}</small>
+                  <small class="text-muted">${escapeHtml(monitorText)}</small>
+                </div>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-sm btn-outline-primary flex-fill" onclick="loadAlertDetail(${Number(a.id)})">
+                    <i class="bi bi-eye me-1"></i> View Details
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         `;
       });
       container.html(html);
-    } else {
+      return;
+    }
+
+    if (res && res.success && Array.isArray(res.data) && res.data.length === 0) {
       container.html(`
         <div class="col-12 py-5">
           <div class="empty-state">
             <div class="empty-state__icon">${icon('check2-circle')}</div>
-            <h6 class="empty-state__title">No pending action items</h6>
-            <p class="empty-state__text">Clinic inventory, appointments, and emergency queues are currently optimal.</p>
+            <h6 class="empty-state__title">No actions needed.</h6>
+            <p class="empty-state__text">No active alerts are visible for your role. Check the last successful scan time.</p>
           </div>
         </div>
       `);
+      return;
     }
-  }, 'json');
+
+    renderMicaLoadError(container, (res && res.message) || 'Unable to load clinic intelligence. Please try again.');
+  }).fail(function(xhr) {
+    const msg = xhr.status === 401 ? 'Your session expired. Please log in again.' : (xhr.status === 403 ? 'This monitoring view is not available for your account.' : 'Unable to load clinic intelligence. Please try again.');
+    renderMicaLoadError(container, msg);
+  }).always(function() {
+    micaActionCenterLocks.recommended = null;
+  });
 }
 
-function resolveAction(actionId, status) {
-  $.post(APP_URL + '/api/ai_assistant.php', {
-    action: 'update_action_status',
-    action_id: actionId,
-    status: status,
-    csrf_token: csrfToken
-  }, function(res) {
-    if (res.success) {
-      toastSuccess(res.message);
-      $('#app-action-' + actionId).fadeOut(300, function() { $(this).remove(); });
-    } else {
-      toastError(res.message);
-    }
-  }, 'json');
+function loadAlertDetail(id) {
+  $.ajax({url: APP_URL+'/api/ai_assistant.php', method:'POST', dataType:'json',
+    data:{action:'read_alert',action_id:id,csrf_token:csrfToken}}).done(function(res) {
+    if(!res.success || !res.alert) { toastError(res.message || 'Alert unavailable.'); return; }
+    const a=res.alert;
+    const events=(a.events||[]).map(e=>'<li>'+escapeHtml(e.created_at)+' — '+escapeHtml(e.event_type)+': '+escapeHtml(e.details)+'</li>').join('');
+    const body='<p><strong>'+escapeHtml(a.priority)+' · '+escapeHtml(a.issue_status || actionStatusLabel(a.status))+'</strong></p><p>'+escapeHtml(a.description)+'</p><p>Related: '+escapeHtml(a.target_type)+' '+escapeHtml(a.target_id || 'grouped records')+'</p><p>Detected: '+escapeHtml(a.created_at)+'</p><p><strong>Verified reason:</strong> '+escapeHtml(a.reason)+'</p><p>'+escapeHtml(a.evidence_note)+'</p><p><strong>Recommendation:</strong> Review in the responsible module. Reading does not resolve this issue.</p><p><a href="'+escapeHtml(a.navigation_url)+'">Open responsible module</a></p>'+(events?'<details><summary>View recorded progress</summary><ol>'+events+'</ol></details>':'<p>No recorded progress history.</p>');
+    loadRecommendedActions();
+    if(window.Swal) Swal.fire({titleText:a.title,html:body,width:680,confirmButtonText:'Close'});
+    else alert(a.title+'\n'+a.description+'\n'+a.reason);
+  }).fail(function(){toastError('Unable to load alert details.');});
 }
 
 function loadDailySummary() {
-  $.get(APP_URL + '/api/ai_assistant.php', { action: 'daily_summary' }, function(res) {
-    if (res.success && res.metrics) {
-      const m = res.metrics;
-      const html = `
-        <div class="col-6 col-md-3">
-          <div class="card border-0 shadow-sm rounded-4 p-3 text-center bg-light">
-            <h3 class="fw-bold text-primary mb-0">${m.today_appointments}</h3>
-            <small class="text-muted fw-semibold">Today's Appointments</small>
-          </div>
-        </div>
-        <div class="col-6 col-md-3">
-          <div class="card border-0 shadow-sm rounded-4 p-3 text-center bg-light">
-            <h3 class="fw-bold text-warning mb-0">${m.pending_appointments}</h3>
-            <small class="text-muted fw-semibold">Pending Appointments</small>
-          </div>
-        </div>
-        <div class="col-6 col-md-3">
-          <div class="card border-0 shadow-sm rounded-4 p-3 text-center bg-light">
-            <h3 class="fw-bold text-danger mb-0">${m.low_stock_medicines}</h3>
-            <small class="text-muted fw-semibold">Low Stock Medicines</small>
-          </div>
-        </div>
-        <div class="col-6 col-md-3">
-          <div class="card border-0 shadow-sm rounded-4 p-3 text-center bg-light">
-            <h3 class="fw-bold text-info mb-0">${m.expiring_medicines_30d}</h3>
-            <small class="text-muted fw-semibold">Expiring in 30 Days</small>
-          </div>
-        </div>
-      `;
-      $('#summaryMetricsRow').html(html);
+  if (micaActionCenterLocks.summary && micaActionCenterLocks.summary.readyState !== 4) {
+    micaActionCenterLocks.summary.abort();
+  }
 
-      let brief = `
-        <p class="mb-2"><strong>Confirmed Clinic Status:</strong> Today there are <strong>${m.today_appointments}</strong> scheduled appointment(s) and <strong>${m.yesterday_visits}</strong> consultations recorded yesterday.</p>
-        <p class="mb-2"><strong>Inventory Health:</strong> <strong>${m.low_stock_medicines}</strong> medicine item(s) are at or below reorder thresholds, and <strong>${m.expiring_medicines_30d}</strong> batch(es) expire within 30 days.</p>
-        <p class="mb-0"><strong>Emergency Readiness:</strong> <strong>${m.active_emergencies}</strong> active SOS alerts in system.</p>
-      `;
-      $('#executiveBriefingContent').html(brief);
+  const summaryRow = $('#summaryMetricsRow');
+  const briefBox = $('#executiveBriefingContent');
+  summaryRow.html('<div class="col-12 text-center py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary mb-2"></div><div>Loading daily clinic summary...</div></div>');
+
+  micaActionCenterLocks.summary = $.ajax({
+    url: APP_URL + '/api/ai_assistant.php',
+    method: 'GET',
+    dataType: 'json',
+    timeout: 20000,
+    data: { action: 'daily_summary' }
+  });
+
+  micaActionCenterLocks.summary.done(function(res) {
+    if(res && !res.last_scan) $('#micaScanMetadata').text('No successful scan recorded. Run an intelligence scan to verify monitored sources.');
+    if(res && res.last_scan) $('#micaScanMetadata').text('Last successful scan: '+res.last_scan.completed_at+' (Asia/Manila); duration '+res.last_scan.duration_ms+' ms.');
+    if(res && res.last_attempt && res.last_attempt.status !== 'success') $('#micaScanMetadata').append(' Latest attempt: '+res.last_attempt.status+'. Displayed evidence may be stale.');
+    if (res && res.success && res.metrics) {
+      const m = res.metrics;
+      if(m.profile==='mis') {
+        const sys=m.system;const counts=sys.accounts;
+        summaryRow.html(Object.entries(counts).map(([key,value])=>'<div class="col-6 col-md-3"><div class="card p-3"><strong>'+escapeHtml(value)+'</strong><span>'+escapeHtml(key)+'</span></div></div>').join(''));
+        briefBox.text('Database: '+(sys.database_connected?'connected':'unavailable')+'; failed sign-ins (24h): '+sys.failed_logins_24h+'; latest registered backup: '+(sys.last_backup?.status || 'not recorded')+'. Updated '+sys.generated_at);return;
+      }
+      const metric = value => value === null || value === undefined ? 'Unavailable' : escapeHtml(value);
+      const metrics=[['Consultations today',m.today_visits],['Consultations yesterday',m.yesterday_visits],['Waiting in queue',m.waiting_queue],['Active SOS',m.active_emergencies],['Pending account reviews',m.pending_registrations],['Low-stock medicines',m.low_stock_medicines],['Expired medicines',m.expired_medicines],['Expiring within 30 days',m.expiring_medicines_30d]];
+      summaryRow.html(metrics.map(([label,value])=>'<div class="col-6 col-md-3"><div class="card border-0 shadow-sm p-3"><strong class="fs-4">'+metric(value)+'</strong><span class="small text-muted">'+label+'</span></div></div>').join(''));
+      const brief='<p>Verified database counts as of '+escapeHtml(m.generated_at)+' (Asia/Manila).</p><p>Unavailable values are outside your access or could not be retrieved. Consultations count recorded encounters, not unique patients. The nurse handles clinical follow-up; Administration reviews accounts.</p>';
+      briefBox.html(brief);
+      return;
     }
-  }, 'json');
+
+    summaryRow.html('<div class="col-12 text-center py-4 text-muted">Daily summary is unavailable right now.</div>');
+    briefBox.html('<div class="text-warning">Unable to load the live clinic briefing from the database.</div>');
+  }).fail(function(xhr) {
+    const msg = xhr.status === 401 ? 'Your session expired. Please log in again.' : 'Unable to load clinic intelligence. Please try again.';
+    summaryRow.html('<div class="col-12 text-center py-4 text-muted">' + escapeHtml(msg) + '</div>');
+    briefBox.html('<div class="text-warning">' + escapeHtml(msg) + '</div>');
+  }).always(function() {
+    micaActionCenterLocks.summary = null;
+  });
 }
 
 function loadReorders(status, btn) {
   if (btn) {
     $(btn).addClass('active').siblings().removeClass('active');
   }
+  if (micaActionCenterLocks.reorder && micaActionCenterLocks.reorder.readyState !== 4) {
+    micaActionCenterLocks.reorder.abort();
+  }
+
   const tbody = $('#reordersTableBody');
   tbody.html('<tr><td colspan="8" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary mb-1"></div><div>Fetching reorders...</div></td></tr>');
 
-  $.get(APP_URL + '/api/ai_assistant.php', { action: 'reorder_list', status: status }, function(res) {
-    if (res.success && res.data && res.data.length > 0) {
+  micaActionCenterLocks.reorder = $.ajax({
+    url: APP_URL + '/api/ai_assistant.php',
+    method: 'GET',
+    dataType: 'json',
+    timeout: 20000,
+    data: { action: 'reorder_list', status: status }
+  });
+
+  micaActionCenterLocks.reorder.done(function(res) {
+    if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
       let html = '';
       res.data.forEach(r => {
+        micaReorders.set(Number(r.id),r);
         let statusBadge = (r.status === 'for_approval')
           ? '<span class="badge bg-warning text-dark">For Approval</span>'
           : (r.status === 'approved' ? '<span class="badge bg-success">Approved</span>' : '<span class="badge bg-danger">Rejected</span>');
@@ -454,7 +546,7 @@ function loadReorders(status, btn) {
         let actions = '';
         if (r.status === 'for_approval') {
           actions = `
-            <button class="btn btn-sm btn-success" onclick="openApproveModal(${r.id}, '${escapeHtml(r.medicine_name)}', ${r.suggested_quantity})">
+            <button class="btn btn-sm btn-success" onclick="approveCachedReorder(${Number(r.id)})">
               <i class="bi bi-check-lg"></i> Approve
             </button>
             <button class="btn btn-sm btn-outline-danger" onclick="rejectReorder(${r.id})">
@@ -463,7 +555,7 @@ function loadReorders(status, btn) {
           `;
         } else if (r.status === 'approved') {
           actions = `
-            <button class="btn btn-sm btn-primary" onclick="openPrintSlip(${JSON.stringify(r).replace(/"/g, '&quot;')})">
+            <button class="btn btn-sm btn-primary" onclick="printCachedReorder(${Number(r.id)})">
               <i class="bi bi-printer"></i> Print Slip
             </button>
           `;
@@ -483,11 +575,20 @@ function loadReorders(status, btn) {
         `;
       });
       tbody.html(html);
-    } else {
-      tbody.html('<tr><td colspan="8" class="text-center py-4 text-muted">No reorder requisitions found.</td></tr>');
+      return;
     }
-  }, 'json');
+
+    tbody.html('<tr><td colspan="8" class="text-center py-4 text-muted">No reorder requisitions found.</td></tr>');
+  }).fail(function(xhr) {
+    const msg = xhr.status === 401 ? 'Your session expired. Please log in again.' : 'Reorder requests are temporarily unavailable.';
+    tbody.html('<tr><td colspan="8" class="text-center py-4 text-muted">' + escapeHtml(msg) + '</td></tr>');
+  }).always(function() {
+    micaActionCenterLocks.reorder = null;
+  });
 }
+
+function approveCachedReorder(id) { const r=micaReorders.get(id); if(r) openApproveModal(id,r.medicine_name,r.suggested_quantity); }
+function printCachedReorder(id) { const r=micaReorders.get(id); if(r) openPrintSlip(r); }
 
 function openApproveModal(id, medName, suggestedQty) {
   $('#modalReorderId').val(id);
@@ -569,28 +670,82 @@ function printRequisitionSlip() {
   window.print();
 }
 
+let micaScanRunning = false;
 function triggerAutomationScan() {
+  if (micaScanRunning) return;
+  micaScanRunning = true;
   const btn = $('#btnRunScan');
   btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Scanning...');
-  $.post(APP_URL + '/api/ai_assistant.php', { action: 'run_automation', csrf_token: csrfToken }, function(res) {
+
+  $.ajax({
+    url: APP_URL + '/api/ai_assistant.php',
+    method: 'POST',
+    dataType: 'json',
+    timeout: 60000,
+    data: { action: 'run_automation', csrf_token: csrfToken }
+  }).done(function(res) {
     btn.prop('disabled', false).html('<i class="bi bi-cpu-fill me-1"></i> Run Intelligence Scan');
-    if (res.success) {
+    if (res && res.success) {
       toastSuccess(res.message || 'Scan completed successfully.');
+      const r=res.data||{}; $('#micaScanMetadata').text('Scan complete: '+r.evaluated+' issues detected; '+r.new+' new, '+r.updated+' updated, '+r.resolved+' resolved, '+r.invalidated+' invalidated; '+r.duration_ms+' ms.');
       loadRecommendedActions();
       loadDailySummary();
       if (document.getElementById('reordersTableBody')) {
         loadReorders('all');
       }
+    } else {
+      toastError((res && res.message) || 'Scan completed with no actionable result.');
     }
-  }, 'json').fail(function() {
+  }).fail(function(xhr) {
     btn.prop('disabled', false).html('<i class="bi bi-cpu-fill me-1"></i> Run Intelligence Scan');
-    toastError('Scan failed.');
-  });
+    const msg = xhr.responseJSON?.message || (xhr.status === 401 ? 'Your session expired. Please log in again.' : 'Scan did not complete in this request. Check the latest scan status before retrying.');
+    toastError(msg);
+  }).always(function(){micaScanRunning=false;});
 }
 
 function askMicaDirect(text) {
   $('#directQueryInput').val(text);
   submitDirectQuery();
+}
+
+function renderMicaMarkdown(text) {
+  const source = String(text || '').trim();
+  if (!source) {
+    return '<p class="mb-0 text-muted">No answer available.</p>';
+  }
+
+
+  const formatInline = function(value) {
+    let out = escapeHtml(value)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    return out.replace(/\n/g, '<br>');
+  };
+
+  const blocks = source.split(/\n\s*\n+/).filter(Boolean);
+  let html = '';
+
+  blocks.forEach(function(block) {
+    const lines = block.split(/\n/).map(function(line) {
+      return line.trim();
+    }).filter(Boolean);
+
+    if (lines.length && lines.every(function(line) {
+      return /^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line);
+    })) {
+      const items = lines.map(function(line) {
+        return '<li>' + formatInline(line.replace(/^(?:[-*]|\d+\.)\s+/, '')) + '</li>';
+      }).join('');
+      html += '<ul class="mb-2 ps-3">' + items + '</ul>';
+      return;
+    }
+
+    html += '<p class="mb-2">' + formatInline(block) + '</p>';
+  });
+
+  return html;
 }
 
 function submitDirectQuery() {
@@ -601,22 +756,43 @@ function submitDirectQuery() {
   const respBox = $('#directQueryResponse');
   respBox.removeClass('d-none').html('<div class="text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Consulting MICA live database...</div>');
 
-  $.post(APP_URL + '/api/ai_assistant.php', {
-    action: 'chat',
-    message: query,
-    csrf_token: csrfToken
-  }, function(res) {
-    if (res.success) {
-      let formatted = marked.parse(res.reply || '');
-      respBox.html('<div class="d-flex align-items-center gap-2 mb-2"><span class="badge bg-primary">MICA Intelligence</span> <small class="text-muted">' + escapeHtml(res.source || 'grounded') + '</small></div>' + formatted);
-    } else {
-      respBox.html('<span class="text-danger">' + escapeHtml(res.message || 'Error executing query.') + '</span>');
+  $.ajax({
+    url: APP_URL + '/api/ai_assistant.php',
+    method: 'POST',
+    dataType: 'json',
+    timeout: 20000,
+    data: {
+      action: 'chat',
+      message: query,
+      csrf_token: csrfToken
     }
-  }, 'json');
+  }).done(function(res) {
+    if (res && res.success) {
+      const reply = res.reply || 'No answer available.';
+      const source = escapeHtml(res.source || 'grounded');
+      respBox.html('<div class="d-flex align-items-center gap-2 mb-2"><span class="badge bg-primary">MICA Intelligence</span> <small class="text-muted">' + source + '</small></div>' + renderMicaMarkdown(reply));
+    } else {
+      respBox.html('<div class="text-danger"><strong>MICA request failed.</strong><br>' + escapeHtml(res && res.message ? res.message : 'Error executing query.') + '</div>');
+    }
+  }).fail(function(xhr) {
+    let msg = 'Unable to complete this MICA request right now.';
+    if (xhr.status === 401) {
+      msg = 'Your session expired. Please log in again.';
+    } else if (xhr.status === 403) {
+      msg = 'This request is not permitted for your account.';
+    } else if (xhr.status === 429) {
+      msg = 'Too many requests. Please wait a moment and try again.';
+    } else if (xhr.status === 0) {
+      msg = 'Connection failed. Please check your internet connection.';
+    } else if (xhr.status >= 500) {
+      msg = 'MICA server is unavailable. Please try again shortly.';
+    }
+    respBox.html('<div class="text-danger"><strong>MICA request failed.</strong><br>' + escapeHtml(msg) + '</div>');
+  });
 }
 
 function escapeHtml(str) {
-  return String(str || '').replace(/[&<>"']/g, function (c) {
+  return String(str ?? '').replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }

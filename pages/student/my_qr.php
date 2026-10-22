@@ -8,7 +8,9 @@ $pageTitle = 'Smart Health Pass';
 <head><?php include __DIR__ . '/../../includes/head.php'; ?>
 <style>
   .health-pass-page { background-color: #FAFAFC; }
-</style></head>
+</style>
+<link rel="stylesheet" href="<?= asset_url('css/patient-activity.css') . '?v=' . filemtime(__DIR__ . '/../../assets/css/patient-activity.css') ?>">
+</head>
 <body class="health-pass-page">
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
@@ -127,32 +129,12 @@ $pageTitle = 'Smart Health Pass';
         </div>
       </div>
 
-      <!-- ===== Visit Timeline ===== -->
-      <div class="hp-timeline-card mb-4">
-        <div class="hp-timeline-header"><i class="bi bi-clock-history"></i> Visit Timeline</div>
-        <div id="qrTimeline" class="hp-minimal-timeline">
-          <div class="text-center py-3 text-muted small">Loading...</div>
-        </div>
-      </div>
-
-      <!-- ===== Searchable Scan History Table ===== -->
-      <div class="hp-history-card">
-        <div class="hp-history-title"><i class="bi bi-table"></i> QR Scan History</div>
-        <div class="hp-history-table table-responsive">
-          <table class="table table-hover align-middle" id="scanHistoryTable" style="width:100%">
-            <thead>
-              <tr>
-                <th>Date</th><th>Time</th><th>Purpose</th><th>Scanner</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
+      <?php $activityAutoLoad = true; include __DIR__ . '/../../includes/patient_activity_sections.php'; ?>
     </div>
   </div>
 </div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+<script src="<?= asset_url('js/patient-activity.js') . '?v=' . filemtime(__DIR__ . '/../../assets/js/patient-activity.js') ?>"></script>
 <script>
 (function () {
   'use strict';
@@ -174,10 +156,10 @@ $pageTitle = 'Smart Health Pass';
       data: { action: 'student_health_pass' },
       success: function (res) {
         if (!res.success) { toastError(res.message || 'Failed to load health pass.'); return; }
+        const refreshActivity = healthPassData !== null;
         healthPassData = res;
         renderHealthPass(res);
-        loadQrTimeline();
-        loadScanHistory();
+        if (refreshActivity) window.BPCPatientActivity.refresh();
       },
       error: function (jqXHR) {
         if (jqXHR.status === 401) {
@@ -379,102 +361,6 @@ $pageTitle = 'Smart Health Pass';
     }
   }
 
-  // ============================================================
-  // QR Timeline — Minimalist vertical timeline
-  // ============================================================
-  const timelineIcons = {
-    'visit':      'bi bi-credit-card-2-front',
-    'consultation': 'bi bi-stethoscope',
-    'queue':      'bi bi-ticket-detailed',
-    'certificate': 'bi bi-file-medical',
-    'medicine':   'bi bi-capsule',
-    'scan':       'bi bi-qr-code-scan',
-    'appointment': 'bi bi-calendar-event',
-    'vaccination': 'bi bi-syringe',
-    'default':    'bi bi-circle'
-  };
-
-  function getTimelineIcon(type) {
-    return 'bi ' + (timelineIcons[type] || timelineIcons['default']);
-  }
-
-  const timelineStatusMap = {
-    'completed': { cls: 'bg-success-subtle text-success', icon: 'bi bi-check-lg' },
-    'success':   { cls: 'bg-success-subtle text-success', icon: 'bi bi-check-lg' },
-    'serving':   { cls: 'bg-info-subtle text-info', icon: 'bi bi-arrow-right-circle' },
-    'pending':   { cls: 'bg-warning-subtle text-warning', icon: 'bi bi-hourglass' },
-    'duplicate': { cls: 'bg-warning-subtle text-warning', icon: 'bi bi-exclamation-triangle' },
-    'error':     { cls: 'bg-danger-subtle text-danger', icon: 'bi bi-exclamation-octagon' }
-  };
-
-  function loadQrTimeline() {
-    $.get(APP + '/api/qr_codes.php', { action: 'student_qr_timeline', limit: 15 }, function (res) {
-      if (!res.success || !res.timeline || !res.timeline.length) {
-        $('#qrTimeline').html('<div class="text-center py-4 text-muted small"><i class="bi bi-clock-history fs-4 d-block mb-1"></i>No timeline events yet. Scan your QR at the clinic to begin.</div>');
-        return;
-      }
-      const events = res.timeline;
-      let html = '<div class="hp-minimal-timeline">';
-      events.forEach(function (e, i) {
-        const isFirst = i === 0;
-        const statusMap = timelineStatusMap[e.status] || { cls: 'bg-secondary-subtle text-secondary', icon: 'bi bi-circle' };
-        const iconClass = getTimelineIcon(e.type || e.icon_type || '');
-        const statusBadge = `<span class="hp-event-status ${statusMap.cls}"><i class="${statusMap.icon} me-1"></i>${escapeHtml(e.status || '')}</span>`;
-
-        html += '<div class="hp-timeline-item">';
-        html += '<div class="hp-timeline-marker ' + (isFirst ? 'bg-success-subtle text-success' : '') + '"><i class="' + iconClass + '"></i></div>';
-        html += '<div class="hp-event-content">';
-        html += '<div class="d-flex justify-content-between align-items-center mb-1">';
-        html += '<span class="hp-event-title">' + escapeHtml(e.title || '') + '</span>';
-        html += statusBadge;
-        html += '</div>';
-        if (e.detail) html += '<div class="hp-event-detail">' + escapeHtml(e.detail || '') + '</div>';
-        if (e.timestamp) html += '<div class="hp-event-time">' + formatDateTime(e.timestamp) + '</div>';
-        html += '</div>';
-        html += '</div>';
-      });
-      html += '</div>';
-      $('#qrTimeline').html(html);
-      $('#cardTimeline').text(events.length + 'events');
-    }, 'json');
-  }
-
-  // ============================================================
-  // Searchable Scan History Table
-  // ============================================================
-  function loadScanHistory() {
-    if (!healthPassData || !healthPassData.student) return;
-    $.get(APP + '/api/qr_codes.php', {
-      action: 'scan_logs',
-      limit: 50,
-      search: healthPassData.student.student_number || '',
-    }, function (res) {
-      if (!res.success) return;
-      const rows = (res.data || []).map(function (l) {
-        const dt = (l.scan_time || '').split(' ');
-        const st = l.status === 'success' ? '<span class="badge bg-success-subtle text-success">Success</span>' :
-                   l.status === 'duplicate' ? '<span class="badge bg-warning-subtle text-warning">Duplicate</span>' :
-                   l.status === 'expired' ? '<span class="badge bg-info-subtle text-info">Expired</span>' :
-                   '<span class="badge bg-danger-subtle text-danger">' + escapeHtml(l.status || 'Error') + '</span>';
-        return [
-          dt[0] || '—',
-          dt[1] || '—',
-          escapeHtml(l.purpose || 'check-in'),
-          escapeHtml(l.scanner_name || '—'),
-          st,
-        ];
-      });
-      $('#scanHistoryTable').DataTable({
-        data: rows,
-        columns: [null, null, null, null, null],
-        pageLength: 10,
-        order: [[0, 'desc']],
-        destroy: true,
-      });
-    }, 'json');
-  }
-
-  // ============================================================
   // Download / Print QR
   // ============================================================
   function getCleanQrDataUrl() {

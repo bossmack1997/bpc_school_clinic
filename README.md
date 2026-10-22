@@ -31,3 +31,29 @@ The primary navigation links are defined in `components/sidebar.php`; the role d
 The `scratch/` directory contains audit and test utilities. Review a script before running it against a database with real records: some workflow test scripts change queue, inventory, or notification data. The full role-by-role workflows require authenticated test accounts and should be exercised in a browser against a backed-up test database.
 
 See [AUDIT.md](AUDIT.md) for the latest inventory, verified repairs, and test results.
+
+## Hostinger production configuration
+
+Keep the XAMPP `.env` unchanged. On Hostinger, create a separate private environment configuration (preferably outside `public_html`, selected with `APP_ENV_FILE`, or through server environment variables):
+
+```dotenv
+APP_ENV=production
+APP_URL=https://your-production-domain.example
+APP_KEY=<unique-random-64-hex-character-key>
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=u962995739_bpc_clinic
+DB_USER=u962995739_bpc_user
+DB_PASS=<read-from-the-private-production-environment>
+DB_CHARSET=utf8mb4
+```
+
+Confirm `DB_HOST` in hPanel's database management screen. `localhost` is appropriate only when the PHP application and MySQL database are hosted in the same applicable Hostinger environment; remote database access uses the host details shown by hPanel.
+
+After importing a reviewed backup without dropping existing production data, run this read-only check from Hostinger's terminal:
+
+```bash
+php setup/verify_database.php
+```
+
+For XAMPP, use `php setup/verify_database.php --allow-local`. The checker never prints the database password. It verifies the active PDO connection, database/host identity, charset, required tables and columns, centralized connection usage, HTTPS production URL, and private-directory protection.

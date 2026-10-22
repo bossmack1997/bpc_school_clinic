@@ -1,0 +1,33 @@
+.patient-activity-sections { margin-top:20px; padding-bottom:90px; scroll-margin-bottom:100px; }
+.patient-activity-sections .pa-card { border:1px solid var(--border,#e4e9e6); border-radius:14px; background:var(--surface,#fff); overflow:hidden; margin-bottom:14px; }
+.patient-activity-sections .pa-heading { margin:0; font-size:14px; font-weight:650; color:var(--text-primary,#253d30); }
+.patient-activity-sections .pa-toggle { display:flex; align-items:center; justify-content:space-between; width:100%; border:0; background:transparent; color:inherit; text-align:left; padding:16px 18px; font:inherit; gap:12px; }
+.patient-activity-sections .pa-heading > i,.patient-activity-sections .pa-toggle > span > i { color:var(--primary,#087443); margin-right:7px; }
+.patient-activity-sections .pa-count { display:inline-block; margin-left:6px; padding:2px 7px; border-radius:12px; background:#edf6f0; color:#326247; font-size:11px; font-weight:600; vertical-align:middle; }
+.patient-activity-sections .pa-chevron { color:#75867c; transition:transform 250ms ease; }
+.patient-activity-sections .pa-toggle[aria-expanded="true"] .pa-chevron { transform:rotate(180deg); }
+.patient-activity-sections .collapsing { transition:height 250ms ease; }
+.patient-activity-sections .pa-scan-heading { display:flex; align-items:center; padding:16px 18px 0; }
+.patient-activity-sections .pa-body { padding:10px 18px 16px; }
+.patient-activity-sections .pa-empty { color:var(--text-muted,#728079); font-size:12px; padding:12px 0; margin:0; }
+.patient-activity-sections .hp-minimal-timeline { padding:2px 0 0; margin:0; }
+.patient-activity-sections .hp-minimal-timeline::before { left:15px; display:none; }
+.patient-activity-sections .hp-minimal-timeline:has(.hp-timeline-item)::before { display:block; }
+.patient-activity-sections .hp-timeline-item { display:flex; align-items:flex-start; gap:12px; margin-bottom:16px; padding-left:0; }
+.patient-activity-sections .hp-timeline-marker { position:relative; left:auto; top:auto; flex:0 0 30px; width:30px; height:30px; border-radius:50%; background:#edf6f0; color:#16804a; display:flex; align-items:center; justify-content:center; }
+.patient-activity-sections .hp-event-content { flex:1; min-width:0; padding-top:2px; }
+.patient-activity-sections .pa-event-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap; }
+.patient-activity-sections .hp-event-title,.patient-activity-sections .pa-scan-title { font-size:13px; font-weight:600; color:var(--text-primary,#253d30); }
+.patient-activity-sections .hp-event-detail { font-size:12px; color:var(--text-secondary,#56685c); overflow-wrap:anywhere; margin:3px 0; }
+.patient-activity-sections .hp-event-time,.patient-activity-sections .pa-scan-meta { color:var(--text-muted,#758078); font-size:11px; line-height:1.6; }
+.patient-activity-sections .pa-status { display:inline-flex; border-radius:10px; padding:3px 7px; font-size:10px; font-weight:600; white-space:nowrap; }
+.patient-activity-sections .pa-status-success { background:#e8f5ed; color:#24633d; }
+.patient-activity-sections .pa-status-warning { background:#fff4d9; color:#805f12; }
+.patient-activity-sections .pa-status-error { background:#ffebeb; color:#a43b3b; }
+.patient-activity-sections .pa-status-neutral { background:#eef2f6; color:#526479; }
+.patient-activity-sections .pa-scan-row { padding:11px 12px; margin-top:8px; border:1px solid var(--border,#e8ece9); border-radius:10px; background:var(--surface,#fff); }
+.patient-activity-sections .pa-more { margin-top:10px; border-radius:18px; font-size:12px; }
+.patient-activity-sections [hidden] { display:none!important; }
+.patient-activity-sections button:focus-visible { outline:3px solid #6ba9dc; outline-offset:-3px; }
+@media(max-width:575px) { .patient-activity-sections .pa-toggle { padding:14px; } .patient-activity-sections .pa-body { padding:10px 14px 14px; } .patient-activity-sections .pa-scan-heading { padding:14px 14px 0; } }
+@media(prefers-reduced-motion:reduce) { .patient-activity-sections .collapsing,.patient-activity-sections .pa-chevron { transition:none; } }

@@ -48,7 +48,7 @@ $pageDescription = 'Respond to active SOS emergency alerts';
                 <span class="dbg-action__title">Live Queue</span>
                 <span class="dbg-action__desc">See who is waiting</span>
               </a>
-              <a class="dbg-action dbg-action--blue" href="<?= APP_URL ?>/pages/nurse/walkin.php">
+              <a class="dbg-action dbg-action--blue" href="<?= APP_URL ?>/pages/nurse/queue.php">
                 <span class="dbg-action__icon"><i class="bi bi-person-plus"></i></span>
                 <span class="dbg-action__title">Walk-in</span>
                 <span class="dbg-action__desc">Register a patient</span>
@@ -168,7 +168,7 @@ $pageDescription = 'Respond to active SOS emergency alerts';
       url: APP_URL + '/api/emergencies.php',
       method: 'GET',
       dataType: 'json',
-      data: { action: 'list' },
+      data: { action: 'list', history: 1 },
       success: function (res) {
         if (res && res.success && Array.isArray(res.data)) render(res.data);
         else errorState();
@@ -197,8 +197,8 @@ $pageDescription = 'Respond to active SOS emergency alerts';
         }
         busy = false;
         load();
-      }, 'json').fail(function () {
-        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Connection error', text: 'Unable to reach the server.' });
+      }, 'json').fail(function (xhr) {
+        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Connection error', text: (xhr.responseJSON && xhr.responseJSON.message) || (xhr.status ? 'Server error (HTTP '+xhr.status+').' : 'Connection lost. Check status before retrying.') });
         busy = false;
       });
     };
@@ -211,7 +211,7 @@ $pageDescription = 'Respond to active SOS emergency alerts';
         showCancelButton: true,
         confirmButtonText: 'Mark resolved',
         confirmButtonColor: '#DC3545',
-        preConfirm: function (notes) { return { resolution_notes: notes || '' }; }
+        preConfirm: function (notes) { if(!notes || !notes.trim()){ Swal.showValidationMessage('Enter resolution notes.'); return false; } return { resolution_notes: notes.trim() }; }
       }).then(function (r) {
         if (!r.isConfirmed) { busy = false; return; }
         send({ resolution_notes: r.value.resolution_notes });

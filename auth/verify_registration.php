@@ -10,6 +10,7 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/ai/MICARegistrationValidator.php';
 require_once __DIR__ . '/../includes/mail.php';
+require_once __DIR__ . '/../includes/account_monitoring.php';
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
@@ -22,7 +23,7 @@ if (is_logged_in()) {
 $db = getDB();
 $validator = new MICARegistrationValidator($db);
 
-$userId = (int)($_SESSION['pending_verification_user_id'] ?? $_REQUEST['uid'] ?? 0);
+$userId = (int)($_SESSION['pending_verification_user_id'] ?? 0);
 if ($userId <= 0) {
     set_flash('info', 'No pending registration found to verify. Please register or sign in.');
     redirect('login.php');
@@ -65,78 +66,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {  
             $verifyResult = $validator->verifyOtp($userId, $otp);
 
-            if ($verifyResult['status'] === 'verified') {
-                // Refresh user record
-                $stmt->execute([$userId]);
-                $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                // Auto-approve students after OTP verification (no admin review needed)
-                // Staff (nurse, teacher, admin) still require admin review
-                $regStatus = $user['registration_status'] ?? 'review';
-                $isStudent = ($user['role'] === 'student');
-
-                // Check for Initial Admin Setup: If zero active primary administrators exist, auto-activate as primary admin
-                if ($user['role'] === 'admin') {
-                    $hasPrimary = has_active_primary_admin($db);
-                    if (!$hasPrimary) {
-                        $regStatus = 'approved';
-                        $db->prepare("UPDATE users SET registration_status = 'approved', admin_type = 'primary_admin' WHERE id = ?")->execute([$userId]);
-                    } else {
-                        $regStatus = 'review';
-                        $db->prepare("UPDATE users SET registration_status = 'review', admin_type = 'co_admin' WHERE id = ?")->execute([$userId]);
-                    }
-                } elseif ($isStudent) {
-                    // Students: Auto-approve after email verification
-                    $regStatus = 'approved';
-                    $db->prepare("UPDATE users SET registration_status = 'approved' WHERE id = ?")->execute([$userId]);
-                }
-
-                if ($regStatus === 'approved') {
-                    // Auto-activate account
-                    $db->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$userId]);
-
-                    if ($user['role'] === 'student') {
-                        try {
-                            $stmtSt = $db->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
-                            $stmtSt->execute([$userId]);
-                            $studentId = $stmtSt->fetchColumn();
-                            if ($studentId) {
-                                ensure_student_qr($db, (int)$studentId, $userId);
-                            }
-                        } catch (Exception $e) {
-                            error_log('QR generation on verified registration: ' . $e->getMessage());
-                        }
-                    }
-
-                    $msg = ($user['role'] === 'admin' && isset($hasPrimary) && !$hasPrimary)
-                        ? 'Initial System Administrator verified and activated! You may now sign in.'
-                        : 'Institutional email verified! Your account is active. You may now sign in.';
-
-                    log_activity($userId, 'Verified institutional email ownership & activated account', 'auth');
-                    unset($_SESSION['pending_verification_user_id']);
-                    unset($_SESSION['demo_registration_otp']);
-
-                    set_flash('success', $msg);
-                    redirect('login.php');
-
-                } elseif ($regStatus === 'review') {
-                    // Place into Admin Review Queue
-                    $db->prepare("UPDATE users SET status = 'pending' WHERE id = ?")->execute([$userId]);
-
-                    log_activity($userId, 'Verified institutional email ownership (account queued for administrative review)', 'auth');
-                    unset($_SESSION['pending_verification_user_id']);
-                    unset($_SESSION['demo_registration_otp']);
-
-                    set_flash('info', 'Institutional email verified! Your account registration is undergoing clinic administrative review. You will be able to sign in once approved.');
-                    redirect('login.php');
-
-                } else {
-                    $rejectionReason = $user['rejection_reason'] ?: 'Account failed institutional verification.';
-                    $db->prepare("UPDATE users SET status = 'rejected' WHERE id = ?")->execute([$userId]);
-                    unset($_SESSION['pending_verification_user_id']);
-                    set_flash('danger', 'Registration rejected: ' . e($rejectionReason));
-                    redirect('login.php');
-                }
+            if (in_array($verifyResult['status'],['verified','already_verified'],true)) {
+                $state=(new AccountMonitoringService($db))->finishVerification($userId);
+                log_activity($userId,'Completed OTP and identity eligibility evaluation','auth','Account state: '.$state);
+                unset($_SESSION['pending_verification_user_id'],$_SESSION['demo_registration_otp']);
+                set_flash($state==='active'?'success':'info',$state==='active'?'Email and trusted identity verified. Your account is active.':'Email verified. Identity or role eligibility requires authorized review.');
+                redirect('login.php');
             } else {
                 $errors[] = $verifyResult['message'];
             }
@@ -166,7 +101,7 @@ $pageTitle = 'Verify Email Ownership';
       <div class="text-center mb-4">
         <div class="auth-icon auth-icon--compact d-inline-flex mb-3"><i class="bi bi-shield-check"></i></div>
         <h4 class="mb-1 fw-bold">Verify Institutional Email</h4>
-        <p class="text-muted small mb-0">We sent a 6-digit One-Time Password (OTP) to:</p>
+        <p class="text-muted small mb-0">Enter the email verification code for:</p>
         <p class="fw-bold text-dark mt-1 mb-0"><i class="bi bi-envelope-check text-success me-1"></i><?= e($maskedEmail) ?></p>
       </div>
 
@@ -184,11 +119,6 @@ $pageTitle = 'Verify Email Ownership';
         </div>
       <?php endif; ?>
 
-      <?php if (defined('APP_ENV') && APP_ENV === 'local' && !empty($_SESSION['demo_registration_otp'])): ?>
-        <div class="alert alert-warning py-2 small mb-3">
-          <i class="bi bi-info-circle-fill me-1"></i><strong>Local Dev Demo OTP:</strong> <code><?= e($_SESSION['demo_registration_otp']) ?></code>
-        </div>
-      <?php endif; ?>
 
       <form method="POST" id="verifyForm">
         <?= csrf_field() ?>

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
-require_role('admin');
+require_admin_permission('view_audit_logs');
 header('Content-Type: application/json');
 
 $db = getDB();

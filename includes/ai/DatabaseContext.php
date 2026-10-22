@@ -311,38 +311,9 @@ class DatabaseContext
     {
         $role = $this->getRole();
 
-        if ($role === 'student') {
-            // Students see available medicine catalog
-            $stmt = $this->db->query("
-                SELECT id, medicine_name, category, (quantity > 0) AS is_available, unit
-                FROM medicines WHERE is_archived = 0
-                ORDER BY medicine_name ASC
-            ");
-            return $stmt->fetchAll();
-        }
-
-        if ($role === 'nurse') {
-            $stmt = $this->db->query("
-                SELECT id, medicine_name, category, quantity, unit, reorder_level, expiration_date, batch_number,
-                       CASE WHEN expiration_date IS NOT NULL AND expiration_date <= CURDATE() THEN 1 ELSE 0 END AS is_expired,
-                       CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END AS is_low
-                FROM medicines WHERE is_archived = 0
-                ORDER BY medicine_name
-            ");
-            return $stmt->fetchAll();
-        }
-
-        // Admin — analytics only
-        $stmt = $this->db->query("
-            SELECT 
-                COUNT(*) AS total_medicines,
-                SUM(quantity) AS total_units,
-                SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) AS low_stock_count,
-                SUM(CASE WHEN expiration_date IS NOT NULL AND expiration_date < CURDATE() THEN 1 ELSE 0 END) AS expired_count,
-                ROUND(AVG(quantity), 0) AS average_quantity
-            FROM medicines WHERE is_archived = 0
-        ");
-        return $stmt->fetchAll();
+        if(!can_view_inventory($this->user,$this->db))return [];
+        require_once __DIR__.'/../medicine_inventory_service.php';
+        return array_values((new MedicineInventoryService($this->db))->snapshot());
     }
 
     // ================================================================
@@ -822,11 +793,10 @@ class DatabaseContext
                 $activeSos = (int)$sosStmt->fetchColumn();
                 $parts[] = "- Active SOS Alerts: {$activeSos}";
 
-                $lowMedStmt = $this->db->query("SELECT COUNT(*) FROM medicine_inventory WHERE quantity <= min_quantity OR is_available = 0");
-                $lowMedStmt = $this->db->query("SELECT COUNT(*) FROM medicines WHERE is_archived = 0 AND quantity <= reorder_level");
-                $lowMeds = (int)$lowMedStmt->fetchColumn();
-                $parts[] = "- Low Stock / Unavailable Medicines: {$lowMeds}";
-                $parts[] = "- Low Stock / Alert Medicines: {$lowMeds}";
+                
+                $lowMedStmt = can_view_inventory($this->user,$this->db)?$this->db->query("SELECT COUNT(*) FROM medicines WHERE is_archived=0 AND quantity<=reorder_level"):null;
+                $lowMeds = $lowMedStmt?(int)$lowMedStmt->fetchColumn():0;
+                if(can_view_inventory($this->user,$this->db))$parts[] = "- Low Stock / Alert Medicines: {$lowMeds}";
             } catch (PDOException $e) { /* fallback */ }
         }
 

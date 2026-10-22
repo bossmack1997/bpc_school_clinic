@@ -44,7 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!$user || !password_verify($password, $user['password_hash'])) {
                 login_rate_limit_record_failure($clientIp, $identifier);
+                if($user)login_rate_limit_increment_user((int)$user['id']);
                 $errors[] = 'Invalid username or password.';
+            } elseif ($user['status'] === 'pending' && !$user['email_verified']) {
+                // Resume only after proving password ownership; never trust a public account ID.
+                session_regenerate_id(true);
+                $_SESSION['pending_verification_user_id']=(int)$user['id'];
+                redirect('verify_registration.php');
             } elseif ($user['status'] !== 'active') {
                 login_rate_limit_clear($clientIp);
                 $errors[] = 'Your account is not active yet. Please contact the system administrator.';

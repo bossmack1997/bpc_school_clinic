@@ -17,18 +17,21 @@
    1. TOKENS
    ------------------------------------------------------------------ */
 :root {
-  --primary: #15803d;
-  --primary-dark: #14532d;
-  --primary-darker: #052e16;
-  --primary-light: #dcfce7;
-  --primary-lighter: #f0fdf4;
-  --primary-border: #86efac;
-  --brand-accent: #16a34a;
-  --success: #15803d;
+  /* Keep override consumers tied to theme.css instead of defining a second green palette. */
+  --primary: var(--bpc-green-600, #0b6b3a);
+  --primary-dark: var(--bpc-green-800, #084828);
+  --primary-darker: var(--bpc-green-900, #06361e);
+  --primary-light: var(--bpc-green-100, #dcf3e4);
+  --primary-lighter: var(--bpc-green-50, #effaf3);
+  --primary-border: var(--bpc-green-200, #b9e7c9);
+  --brand-accent: var(--bpc-green-500, #269653);
 
-  --mica-primary: #14532d;
-  --mica-primary-dark: #052e16;
-  --mica-accent: #16a34a;
+  /* Success remains distinct from the BPC primary action color. */
+  --success: #047857;
+
+  --mica-primary: var(--bpc-green-800, #084828);
+  --mica-primary-dark: var(--bpc-green-900, #06361e);
+  --mica-accent: var(--bpc-green-500, #269653);
 
   --sidebar-width: 256px;
   --sidebar-collapsed-width: 72px;
@@ -176,10 +179,6 @@ body:has(.sos-floating-widget) .pwa-install-banner { display: none; }
     --fab-h: 44px;
     --top-reserve: calc(var(--header-height) + 8px);
   }
-  body:has(.sos-floating-widget) {
-    --top-reserve: calc(var(--header-height) + 16px + var(--sos-h, 0px));
-  }
-
   .mica-fab {
     bottom: calc(var(--dock-edge) + env(safe-area-inset-bottom, 0px));
   }
@@ -193,18 +192,52 @@ body:has(.sos-floating-widget) .pwa-install-banner { display: none; }
     max-height: none !important;
   }
 
-  /* SOS moves under the topbar; the MICA panel shrinks to leave room */
+  /* Keep SOS in the bottom-left dock, including while MICA is open. */
   .sos-floating-widget,
   body:has(.mica-widget.open) .sos-floating-widget,
   .mica-widget.open ~ .sos-floating-widget,
   .sos-floating-widget.mica-open-dock {
-    top: calc(var(--header-height) + 8px) !important;
-    bottom: auto !important;
+    top: auto !important;
+    bottom: calc(var(--dock-edge) + env(safe-area-inset-bottom, 0px)) !important;
     left: var(--dock-edge) !important;
-    right: var(--dock-edge) !important;
-    width: auto;
-    max-width: none !important;
+    right: auto !important;
+    width: min(360px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
     min-width: 0;
+  }
+
+  .sos-floating-widget.is-minimized,
+  body:has(.mica-widget.open) .sos-floating-widget.is-minimized,
+  .mica-widget.open ~ .sos-floating-widget.is-minimized {
+    left: var(--dock-edge) !important;
+    right: auto !important;
+    width: max-content !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  /* The active emergency remains available as one discreet shield button. */
+  .sos-floating-widget.is-minimized {
+    width: 48px !important;
+    height: 48px;
+    max-width: 48px !important;
+    border-radius: 50%;
+  }
+  .sos-floating-widget.is-minimized .sos-widget-bar {
+    width: 100%;
+    height: 100%;
+    padding: 0 !important;
+    border-radius: inherit;
+  }
+  .sos-floating-widget.is-minimized .sos-toggle-area { display: none; }
+  .sos-floating-widget.is-minimized .sos-widget-actions { width: 100%; height: 100%; }
+  .sos-floating-widget.is-minimized .sos-minimize-toggle-btn {
+    width: 100%;
+    height: 100%;
+    flex-basis: 100%;
+    border-radius: inherit;
+    color: #fff;
+    background: var(--danger, #b91c1c);
+    font-size: 1.1rem;
   }
 
   .pwa-install-banner {
@@ -221,8 +254,6 @@ body:has(.sos-floating-widget) .pwa-install-banner { display: none; }
     width: auto;
     align-items: stretch;
   }
-  /* with an SOS banner on screen, toasts stack underneath it */
-  body:has(.sos-floating-widget) .app-toast-stack { top: var(--top-reserve); }
 }
 
 /* keep the last table row / button clear of the floating button */
@@ -253,67 +284,26 @@ body:has(.sos-floating-widget) .pwa-install-banner { display: none; }
   .topbar-clock { display: none; }
 }
 
-/* ------------------------------------------------------------------
-   7. REGISTRATION
-   Old rules fought each other (fixed-height card in one file, natural
-   flow in another), so the green panel stopped short of the card's
-   bottom edge. Now the green column is painted on the card itself and
-   the panel content sticks while the form scrolls the page.
-   ------------------------------------------------------------------ */
-.auth-wrapper--register {
-  height: auto;
-  min-height: 100vh;
-  padding: 24px;
-  overflow: clip;
-  align-items: flex-start;
-  justify-content: center;
-}
-.auth-wrapper--register::before,
-.auth-wrapper--register::after { content: none; }
-
-.auth-card--register {
-  --reg-side: 300px;
-  width: min(100%, 1180px);
-  max-width: 1180px;
-  height: auto;
-  min-height: 0;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: var(--reg-side) minmax(0, 1fr);
-  overflow: clip;               /* rounds corners without breaking sticky */
-  border-radius: 20px;
-  background:
-    linear-gradient(165deg, #15803d 0%, #14532d 55%, #052e16 100%) left top / var(--reg-side) 100% no-repeat,
-    var(--surface, #fff);
-}
-.auth-card--register .auth-side {
-  position: sticky;
-  top: 0;
-  align-self: start;
-  height: auto;
-  max-height: 100vh;
-  overflow-y: auto;
-  background: transparent;
-  justify-content: flex-start;
-  padding: 32px 28px;
-}
-.auth-card--register .auth-side::before,
-.auth-card--register .auth-side::after { content: none; }
-
-.auth-card--register .auth-form-side {
-  height: auto;
-  max-height: none;
-  overflow: visible;
-  padding: 36px clamp(24px, 4vw, 56px) 44px;
-}
-
-@media (max-width: 991.98px) {
-  .auth-wrapper--register { padding: 16px 12px 32px; }
-  .auth-card--register {
-    --reg-side: 0px;
-    grid-template-columns: minmax(0, 1fr);
-    background: var(--surface, #fff);
-    max-width: 760px;
+/* Phones keep a compact live Manila clock visible in the topbar. */
+@media (max-width: 767.98px) {
+  .topbar-clock {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 2px 5px;
+    border: 0;
+    background: transparent;
+    font-size: .65rem;
+    line-height: 1.15;
   }
-  .auth-card--register .auth-side { display: none; }
+  .topbar-clock > .bi-clock { display: none; }
+  .topbar-clock-date { display: block; font-size: .6rem; }
 }
+
+@media (max-width: 379.98px) {
+  .topbar .welcome-text { display: none; }
+}
+
+

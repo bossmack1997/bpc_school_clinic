@@ -367,7 +367,7 @@ window.__initNotificationUI = function () {
   // ============================================================
   function showNotificationDetails(id) {
     if (!id) return;
-    $.get(APP + '/api/notifications.php', { action: 'details', id }, function (res) {
+    $.post(APP + '/api/notifications.php', { action: 'details', id, csrf_token: csrf }, function (res) {
       if (!res.success) return;
       const n = res.data;
 
@@ -434,20 +434,20 @@ window.__initNotificationUI = function () {
   // ============================================================
   function openNotifSos(n) {
     const sos = n.sos || {};
-    const hasGps = sos.latitude != null && sos.longitude != null && sos.latitude !== '' && sos.longitude !== '';
+    const hasGps = bpcSosHasGps(sos);
     const mapsUrl = hasGps ? 'https://www.google.com/maps?q=' + encodeURIComponent(sos.latitude + ',' + sos.longitude) : '#';
     const isManual = sos.location_source === 'manual' || (!hasGps && sos.location);
-    const statusLabels = { active: 'Active', responded: 'Responded', resolved: 'Resolved', false_alarm: 'False Alarm' };
+    const statusLabels = {new:'New',active:'Active',acknowledged:'Accepted',responding:'Responding',responded:'Responded',resolved:'Resolved',cancelled:'Cancelled',false_alarm:'False Alarm'};
     const statusColors = { active: 'danger', responded: 'warning text-dark', resolved: 'success', false_alarm: 'secondary' };
 
     let locationHtml = '';
     if (hasGps) {
       const latF = Number(sos.latitude).toFixed(6);
       const lngF = Number(sos.longitude).toFixed(6);
-      const accLabel = sos.location_accuracy ? 'Accuracy: ±' + escapeHtml(sos.location_accuracy) : 'Accuracy: ±8 meters';
+      const accLabel = escapeHtml(bpcSosAccuracyLabel(sos.location_accuracy));
       locationHtml =
         `<div class="p-3 bg-light rounded-3 border border-danger-subtle">
-           <div class="fw-bold text-danger mb-1"><i class="bi bi-crosshair me-1"></i> Current Location (Live GPS):</div>
+           <div class="fw-bold text-danger mb-1"><i class="bi bi-crosshair me-1"></i> Reported GPS estimate:</div>
            <div class="fs-6 fw-bold text-dark mb-1">${latF}, ${lngF}</div>
            <div class="small text-muted mb-2">${accLabel} · Updated: ${escapeHtml(formatFull(sos.location_updated_at || sos.sos_created_at))}</div>
            <a href="${mapsUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-danger">
@@ -489,20 +489,22 @@ window.__initNotificationUI = function () {
          ${locationHtml}
        </div>`;
 
-    $('#notifSosBody').html(html);
+    $('#notifSosBody').html(html + '<hr><div class="small">Role: '+escapeHtml(sos.reporter_role || 'Unknown')+'<br>Responder: '+escapeHtml(sos.responder_name || 'Unassigned')+'<br>Accepted: '+escapeHtml(sos.acknowledged_at || 'Pending')+'<br>Responding: '+escapeHtml(sos.responded_at || 'Pending')+'</div>');
     $('#notifSosModal').data('sos', sos);
     $('#notifSosModal').data('notif-id', n.id);
 
     // Show Accept/Resolve only for staff
     const isStaff = (window.MICA_USER && (window.MICA_USER.role === 'nurse' || window.MICA_USER.role === 'admin'));
     const $footer = $('#notifSosFooter');
-    if (isStaff) {
+    if (isStaff && sos.can_respond !== false) {
       $footer.show();
       const st = sos.sos_status || 'active';
       const $accept = $('#sosAcceptBtn2'); // renamed to avoid clash
       const $resolve = $('#sosResolveBtn2');
-      if (st === 'resolved' || st === 'false_alarm') { $accept.prop('disabled', true); $resolve.prop('disabled', true); }
-      else if (st === 'responded') { $accept.prop('disabled', true); $resolve.prop('disabled', false); }
+      $accept.toggle(['new','active'].includes(st));
+      $resolve.toggle(!['resolved','cancelled','false_alarm'].includes(st));
+      if (['resolved','cancelled','false_alarm'].includes(st)) { $accept.prop('disabled', true); $resolve.prop('disabled', true); }
+      else if (['acknowledged','responding','responded'].includes(st)) { $accept.prop('disabled', true); $resolve.prop('disabled', false); }
       else { $accept.prop('disabled', false); $resolve.prop('disabled', false); }
     } else {
       $footer.hide();
@@ -514,21 +516,11 @@ window.__initNotificationUI = function () {
   // Accept / Resolve SOS
   $(document).on('click', '#sosAcceptBtn2', function () { updateSosStatus2('accept'); });
   $(document).on('click', '#sosResolveBtn2', function () { updateSosStatus2('resolve'); });
-  function updateSosStatus2(status) {
+  async function updateSosStatus2(status) {
     const modalEl = document.getElementById('notifSosModal');
     const sos = $(modalEl).data('sos') || {};
-    const emergencyId = sos.emergency_id;
-    if (!emergencyId) return;
-    $.post(APP + '/api/ai_assistant.php', {
-      action: 'sos_update_status', emergency_id: emergencyId, status, csrf_token: csrf,
-    }, function (res) {
-      if (res && res.success) {
-        Swal.fire({ icon: 'success', title: 'SOS ' + (status === 'accept' ? 'Accepted' : 'Resolved'), timer: 2000, showConfirmButton: false });
-        loadNotifCenter();
-      } else {
-        toastError((res && res.message) || 'Failed to update SOS status.');
-      }
-    }, 'json');
+    const result = await bpcSosAction(sos.emergency_id, status, '#sosAcceptBtn2, #sosResolveBtn2');
+    if (result) { BPCModal.hide('notifSosModal'); loadNotifCenter(); }
   }
 
   // ============================================================

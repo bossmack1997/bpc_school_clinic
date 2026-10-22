@@ -220,6 +220,8 @@ if ($action === 'checkin') {
     if (!$user) {
         q_json(false, [], 'Authentication required to check in.');
     }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') q_json(false, [], 'Use POST to join the queue.');
+    csrf_verify_or_die();
 
     // Rate-limiting / Cooldown
     $patientType = $_POST['patient_type'] ?? ($user['role'] === 'teacher' ? 'teacher' : 'student');
@@ -255,11 +257,17 @@ if ($action === 'checkin') {
             $fullName = trim($_POST['full_name'] ?? 'Walk-in Patient');
         }
     }
+    if(in_array($user['role'],['student','teacher'],true)&&mb_strlen($complaint)<3)q_json(false,[],'Please describe the purpose of your clinic visit.');
+
+    $identityId=$teacherId?:$studentId;
+    $lockName=$identityId?'bpc_queue_'.$patientType.'_'.(int)$identityId:null;
+    if($lockName){$lockStmt=$db->prepare('SELECT GET_LOCK(?,5)');$lockStmt->execute([$lockName]);if((int)$lockStmt->fetchColumn()!==1)q_json(false,[],'Queue check-in is busy. Please try again.');}
 
     // 1. Duplicate check-in prevention
     if ($studentId) {
         $existing = get_active_patient_queue_ticket($db, $studentId, 'student');
         if ($existing) {
+            if($lockName)$db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
             q_json(true, [
                 'queue_number' => $existing['queue_number'],
                 'queue_id'     => $existing['id'],
@@ -270,6 +278,7 @@ if ($action === 'checkin') {
     } elseif ($teacherId) {
         $existing = get_active_patient_queue_ticket($db, $teacherId, 'teacher');
         if ($existing) {
+            if($lockName)$db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
             q_json(true, [
                 'queue_number' => $existing['queue_number'],
                 'queue_id'     => $existing['id'],
@@ -304,13 +313,17 @@ if ($action === 'checkin') {
         ]);
         $queueId = (int)$db->lastInsertId();
 
+        $patientDisplayName=$fullName?:trim(($user['first_name']??'').' '.($user['last_name']??''));
+        $visitNumber='BPC-CL-'.date('Ymd').'-'.str_pad((string)$queueId,4,'0',STR_PAD_LEFT);
+        $visitStmt=$db->prepare("INSERT INTO walk_in_visits(queue_id,student_id,is_temp_visitor,temp_full_name,visit_number,visit_date,arrival_time,visit_type,chief_complaint,priority_level,status) VALUES(?,?,?, ?,?,CURDATE(),NOW(),'walk-in',?,?,'waiting')");
+        $visitStmt->execute([$queueId,$studentId,$studentId?0:1,$studentId?null:$patientDisplayName,$visitNumber,$complaint,$priority]);
+
         if ($studentId) {
             $db->prepare("UPDATE students SET last_checkin_at = NOW() WHERE id = ?")->execute([$studentId]);
         }
 
         // Notify nurses
         $nurses = $db->query("SELECT user_id FROM nurses")->fetchAll();
-        $patientDisplayName = $fullName ?: ($user['first_name'] . ' ' . $user['last_name']);
         foreach ($nurses as $nurse) {
             push_notification(
                 (int)$nurse['user_id'],
@@ -325,6 +338,7 @@ if ($action === 'checkin') {
 
         log_activity($user['id'], 'Queue Check-in', 'queue', "Ticket #{$queueNumber} issued for {$patientDisplayName}");
         $db->commit();
+        if($lockName)$db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
 
         q_json(true, [
             'queue_id'               => $queueId,
@@ -335,7 +349,8 @@ if ($action === 'checkin') {
             'is_existing'            => false,
         ], "Check-in successful! Your queue number is {$queueNumber}.");
     } catch (Exception $e) {
-        $db->rollBack();
+        if($db->inTransaction())$db->rollBack();
+        if($lockName)$db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
         q_json(false, [], safe_api_error($e, 'Check-in failed. Please try again.', 'queue/checkin'));
     }
 }
@@ -344,8 +359,14 @@ if ($action === 'checkin') {
 // NURSE-ONLY ACTIONS (call_next, recall, start_serving, complete, skip, cancel, queue_list)
 // =====================================================================
 require_login();
+if($user['role']==='admin'&&!is_primary_admin($user))admin_access_denied('Clinical queue controls are restricted to authorized clinic staff.');
 if (!in_array($user['role'], ['nurse', 'admin'], true)) {
     q_json(false, [], 'Access denied. Nurse or Administrator privileges required.');
+}
+
+require_once __DIR__ . '/../includes/queue_consultation.php';
+if (in_array($action, ['start_serving', 'save_consultation_draft', 'complete_consultation_full', 'get_patient_medical_summary'], true) && $user['role'] !== 'nurse') {
+    q_json(false, [], 'Only nurses can access consultations.');
 }
 
 // =====================================================================
@@ -369,7 +390,7 @@ if ($action === 'queue_list') {
     }
 
     $stmt = $db->prepare("
-        SELECT q.id, q.queue_number, q.student_id, q.teacher_id, q.patient_type, q.full_name,
+        SELECT q.id, q.queue_number, q.student_id, q.teacher_id, CASE WHEN q.student_id IS NULL AND q.teacher_id IS NULL THEN 'guest' ELSE q.patient_type END AS patient_type, q.full_name,
                q.visit_type, q.priority, q.status, q.estimated_wait_minutes, q.called_at, q.served_at, q.completed_at, q.created_at,
                COALESCE(CONCAT(us.first_name, ' ', us.last_name), CONCAT(ut.first_name, ' ', ut.last_name), q.full_name, 'Guest Patient') AS patient_name,
                COALESCE(us.email, ut.email) AS email,
@@ -577,6 +598,15 @@ if ($action === 'start_serving') {
 
     $db->beginTransaction();
     try {
+        $ticket = queue_consultation_lock($db, $ticketId);
+        $existingStmt = $db->prepare('SELECT * FROM walk_in_visits WHERE queue_id = ? LIMIT 1 FOR UPDATE');
+        $existingStmt->execute([$ticketId]);
+        $existingVisit = $existingStmt->fetch(PDO::FETCH_ASSOC);
+        if ($existingVisit) {
+            if (isset($_POST['draft_version']) && $_POST['draft_version'] === '') throw new DomainException('Another nurse has opened this consultation. Reopen the patient to review the saved record.');
+            queue_consultation_check_version($existingVisit);
+        }
+        $visit = queue_consultation_visit($db, $ticket, (int)$user['id']);
         $db->prepare("
             UPDATE queue_numbers
             SET status = 'serving',
@@ -592,13 +622,52 @@ if ($action === 'start_serving') {
             WHERE queue_id = ?
         ")->execute([$ticketId]);
 
+        $revisionStmt = $db->prepare('SELECT * FROM walk_in_visits WHERE id = ?');
+        $revisionStmt->execute([$visit['id']]);
+        $revision = queue_consultation_version($revisionStmt->fetch(PDO::FETCH_ASSOC));
         log_activity($user['id'], 'Started Consultation', 'queue', "Started serving ticket ID #{$ticketId}");
         $db->commit();
 
-        q_json(true, ['ticket_id' => $ticketId, 'status' => 'serving'], 'Patient is now in consultation.');
-    } catch (Exception $e) {
+        q_json(true, ['ticket_id' => $ticketId, 'status' => 'serving', 'walk_in_id' => $visit['id'], 'draft_version' => $revision], 'Patient is now in consultation.');
+    } catch (Throwable $e) {
         $db->rollBack();
-        q_json(false, [], safe_api_error($e, 'Failed to update the queue status. Please try again.', 'queue/update_status'));
+        q_json(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Failed to update the queue status. Please try again.', 'queue/update_status'));
+    }
+}
+
+if ($action === 'save_consultation_draft') {
+    csrf_verify_or_die();
+    $ticketId = (int)($_POST['ticket_id'] ?? 0);
+    try {
+        $db->beginTransaction();
+        $pendingMedicines = json_decode($_POST['medicines'] ?? '[]', true);
+        if (!is_array($pendingMedicines) || !array_is_list($pendingMedicines)) throw new DomainException('Invalid medication draft.');
+        foreach ($pendingMedicines as $medicine) {
+            if (!is_array($medicine) || !filter_var($medicine['medicine_id'] ?? 0, FILTER_VALIDATE_INT) || (int)$medicine['medicine_id'] <= 0 || !filter_var($medicine['quantity'] ?? 0, FILTER_VALIDATE_INT) || (int)$medicine['quantity'] <= 0) throw new DomainException('Select a valid medicine and a positive whole-number quantity.');
+        }
+        $ticket = queue_consultation_lock($db, $ticketId);
+        $visit = queue_consultation_visit($db, $ticket, (int)$user['id']);
+        queue_consultation_check_version($visit);
+        queue_consultation_save($db, (int)$visit['id'], $_POST);
+        $db->prepare("UPDATE queue_numbers SET status = 'serving', served_at = COALESCE(served_at, NOW()) WHERE id = ?")->execute([$ticketId]);
+        $db->prepare("UPDATE walk_in_visits SET status = 'in_consultation', consultation_started_at = COALESCE(consultation_started_at, NOW()) WHERE id = ?")->execute([$visit['id']]);
+        $stmt = $db->prepare('SELECT * FROM walk_in_visits WHERE id = ?');
+        $stmt->execute([$visit['id']]);
+        $saved = $stmt->fetch(PDO::FETCH_ASSOC);
+        log_activity($user['id'], 'Saved Consultation Draft', 'walkin', 'Visit #' . $visit['visit_number']);
+        $db->prepare("INSERT INTO visit_logs (walk_in_id, action, details, performed_by) VALUES (?, 'consultation_updated', 'Saved from Clinic Queue', ?)")->execute([$visit['id'], $user['id']]);
+        $db->commit();
+        // Pending dispensing/certificate choices are drafts, never stock deductions.
+        $_SESSION['queue_consultation_drafts'][$ticketId] = [
+            'medicines' => $pendingMedicines,
+            'issue_certificate' => !empty($_POST['issue_certificate']),
+            'certificate_type' => $_POST['certificate_type'] ?? 'Clinic Visit Pass',
+            'certificate_purpose' => $_POST['certificate_purpose'] ?? '',
+        ];
+        q_json(true, ['walk_in_id' => $visit['id'], 'draft_version' => queue_consultation_version($saved)], 'Draft saved.');
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        q_json(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Unable to save draft.', 'queue/draft'));
     }
 }
 
@@ -669,15 +738,16 @@ if ($action === 'cancel_ticket') {
 
     $db->beginTransaction();
     try {
+        queue_consultation_lock($db, $ticketId);
         $db->prepare("UPDATE queue_numbers SET status = 'cancelled' WHERE id = ?")->execute([$ticketId]);
         $db->prepare("UPDATE walk_in_visits SET status = 'cancelled' WHERE queue_id = ?")->execute([$ticketId]);
         log_activity($user['id'], 'Cancelled Queue Ticket', 'queue', "Cancelled ticket ID #{$ticketId}");
         $db->commit();
 
         q_json(true, ['ticket_id' => $ticketId, 'status' => 'cancelled'], 'Ticket cancelled.');
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         $db->rollBack();
-        q_json(false, [], safe_api_error($e, 'Failed to cancel this ticket. Please try again.', 'queue/cancel'));
+        q_json(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Failed to cancel this ticket. Please try again.', 'queue/cancel'));
     }
 }
 
@@ -692,17 +762,17 @@ if ($action === 'get_patient_medical_summary') {
 
     try {
         $stmt = $db->prepare("
-            SELECT q.id, q.queue_number, q.student_id, q.teacher_id, q.patient_type, q.full_name,
+            SELECT q.id, q.queue_number, q.student_id, q.teacher_id, CASE WHEN q.student_id IS NULL AND q.teacher_id IS NULL THEN 'guest' ELSE q.patient_type END AS patient_type, q.full_name,
                    q.visit_type, q.priority, q.status, q.estimated_wait_minutes, q.called_at, q.served_at, q.completed_at, q.created_at,
                    COALESCE(CONCAT(us.first_name, ' ', us.last_name), CONCAT(ut.first_name, ' ', ut.last_name), q.full_name, 'Guest Patient') AS patient_name,
                    COALESCE(us.id, ut.id) AS user_id,
                    COALESCE(us.email, ut.email) AS email,
                    COALESCE(us.phone, ut.phone) AS phone,
                    COALESCE(us.profile_picture, ut.profile_picture) AS profile_picture,
-                   COALESCE(us.gender, s.gender) AS gender,
-                   COALESCE(us.date_of_birth, s.birthdate) AS birthdate,
-                   TIMESTAMPDIFF(YEAR, COALESCE(us.date_of_birth, s.birthdate), CURDATE()) AS age,
-                   s.id AS student_id_record, s.student_number, s.course, s.year_level, s.section, s.blood_type, s.allergies,
+                   COALESCE(us.gender, ut.gender, s.gender) AS gender,
+                   COALESCE(us.date_of_birth, ut.date_of_birth, s.birthdate) AS birthdate,
+                   TIMESTAMPDIFF(YEAR, COALESCE(us.date_of_birth, ut.date_of_birth, s.birthdate), CURDATE()) AS age,
+                   s.id AS student_id_record, s.student_number, s.course, s.year_level, s.section, COALESCE(s.blood_type, t.blood_type) AS blood_type, COALESCE(s.allergies, t.allergies) AS allergies,
                    t.id AS teacher_id_record, t.employee_id, t.department,
                    w.id AS walkin_id, w.chief_complaint AS initial_complaint, w.priority_level
             FROM queue_numbers q
@@ -751,6 +821,11 @@ if ($action === 'get_patient_medical_summary') {
             $vStmt = $db->prepare("SELECT * FROM health_monitoring WHERE student_id = ? ORDER BY recorded_at DESC LIMIT 1");
             $vStmt->execute([$sid]);
             $latestVitals = $vStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        } elseif (!empty($patient['teacher_id_record'])) {
+            $tid=(int)$patient['teacher_id_record'];
+            $cStmt=$db->prepare("SELECT c.id,c.consultation_date,c.chief_complaint,c.diagnosis,c.treatment,c.vital_signs,COALESCE(CONCAT(un.first_name,' ',un.last_name),'Clinic Nurse') nurse_name FROM consultations c LEFT JOIN nurses n ON n.id=c.nurse_id LEFT JOIN users un ON un.id=n.user_id WHERE c.teacher_id=? AND c.patient_type='teacher' ORDER BY c.consultation_date DESC LIMIT 5");
+            $cStmt->execute([$tid]);$recentVisits=$cStmt->fetchAll(PDO::FETCH_ASSOC)?:[];
+            if($recentVisits&&!empty($recentVisits[0]['vital_signs']))$latestVitals=json_decode($recentVisits[0]['vital_signs'],true)?:null;
         }
 
         // Available inventory for dispensing
@@ -762,10 +837,23 @@ if ($action === 'get_patient_medical_summary') {
         ");
         $medicines = $medsStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+        $visitStmt = $db->prepare('SELECT * FROM walk_in_visits WHERE queue_id = ? LIMIT 1');
+        $visitStmt->execute([$ticketId]);
+        $visit = $visitStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $dispensing = [];
+        if ($visit) {
+            $dispStmt = $db->prepare('SELECT md.quantity, md.dosage_instructions, md.dispensed_at, m.medicine_name FROM medicine_dispensing md JOIN medicines m ON m.id = md.medicine_id WHERE md.walk_in_id = ? ORDER BY md.dispensed_at');
+            $dispStmt->execute([$visit['id']]);
+            $dispensing = $dispStmt->fetchAll(PDO::FETCH_ASSOC);
+        }
         q_json(true, [
             'patient'        => $patient,
             'medical_record' => $medicalRecord,
             'recent_visits'  => $recentVisits,
+            'visit' => $visit,
+            'draft_version' => queue_consultation_version($visit),
+            'draft_options' => $_SESSION['queue_consultation_drafts'][$ticketId] ?? [],
+            'dispensing' => $dispensing,
             'latest_vitals'  => $latestVitals,
             'medicines'      => $medicines,
         ]);
@@ -798,9 +886,10 @@ if ($action === 'complete_consultation_full') {
 
     $symptoms = trim($_POST['symptoms'] ?? '');
     $assessment = trim($_POST['assessment'] ?? '');
-    $diagnosis = trim($_POST['diagnosis'] ?? 'General Consultation');
+    $diagnosis = trim($_POST['diagnosis'] ?? '');
     $treatment = trim($_POST['treatment'] ?? '');
     $recommendation = trim($_POST['recommendation'] ?? '');
+    if ($assessment === '' || $diagnosis === '' || $treatment === '') q_json(false, [], 'Assessment, diagnosis, and treatment are required before completing a consultation.');
     $needFollowUp = !empty($_POST['need_follow_up']) ? 1 : 0;
     $followUpDate = !empty($_POST['follow_up_date']) ? $_POST['follow_up_date'] : null;
 
@@ -836,8 +925,21 @@ if ($action === 'complete_consultation_full') {
         $medicinesList = is_array($rawMeds) ? $rawMeds : [];
     }
 
+    if ((is_string($rawMeds) && json_last_error() !== JSON_ERROR_NONE) || !is_array($medicinesList) || !array_is_list($medicinesList)) {
+        q_json(false, [], 'Invalid medication list. Review the selected medicines.');
+    }
+    foreach ($medicinesList as $medItem) {
+        if (!is_array($medItem) || !filter_var($medItem['medicine_id'] ?? 0, FILTER_VALIDATE_INT) || (int)$medItem['medicine_id'] <= 0 || !filter_var($medItem['quantity'] ?? 0, FILTER_VALIDATE_INT) || (int)$medItem['quantity'] <= 0) {
+            q_json(false, [], 'Select a valid medicine and a positive whole-number quantity.');
+        }
+    }
+
     $db->beginTransaction();
     try {
+        $ticket = queue_consultation_lock($db, $ticketId);
+        $lockedVisit = queue_consultation_visit($db, $ticket, (int)$user['id']);
+        queue_consultation_check_version($lockedVisit);
+        queue_consultation_save($db, (int)$lockedVisit['id'], $_POST);
         // 1. Create or Update walk_in_visits
         $wStmt = $db->prepare("SELECT id FROM walk_in_visits WHERE queue_id = ? LIMIT 1");
         $wStmt->execute([$ticketId]);
@@ -899,17 +1001,18 @@ if ($action === 'complete_consultation_full') {
         }
 
         // 2. Insert authoritative record into consultations table
+        $vitalSigns=json_encode(['temperature'=>$temperature,'blood_pressure'=>$bpString,'heart_rate'=>$heartRate,'respiratory_rate'=>$respRate,'oxygen_saturation'=>$o2Sat,'height_cm'=>$heightCm,'weight_kg'=>$weightKg,'bmi'=>$bmi,'bmi_status'=>$bmiStatus],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         $consultStmt = $db->prepare("
             INSERT INTO consultations (
                 student_id, nurse_id, visit_type, consultation_date,
                 chief_complaint, diagnosis, treatment, remarks, follow_up_date,
-                patient_type, teacher_id
-            ) VALUES (?, ?, 'walk-in', NOW(), ?, ?, ?, ?, ?, ?, ?)
+                patient_type, teacher_id, vital_signs
+            ) VALUES (?, ?, 'walk-in', NOW(), ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $consultStmt->execute([
             $ticket['student_id'], $nurseId,
             $chiefComplaint, $diagnosis, $treatment, $recommendation, $followUpDate,
-            $ticket['patient_type'], $ticket['teacher_id']
+            $ticket['patient_type'], $ticket['teacher_id'], $vitalSigns
         ]);
         $consultationId = (int)$db->lastInsertId();
 
@@ -936,12 +1039,13 @@ if ($action === 'complete_consultation_full') {
 
             if ($medId > 0 && $qty > 0) {
                 // Check stock
-                $mCheck = $db->prepare("SELECT id, medicine_name, quantity, reorder_level FROM medicines WHERE id = ? FOR UPDATE");
+                $mCheck = $db->prepare("SELECT id, medicine_name, quantity, reorder_level FROM medicines WHERE id = ? AND is_archived = 0 AND (expiration_date IS NULL OR expiration_date >= CURDATE()) FOR UPDATE");
                 $mCheck->execute([$medId]);
                 $medData = $mCheck->fetch(PDO::FETCH_ASSOC);
 
+                if (!$medData || $qty > (int)$medData['quantity']) throw new DomainException('A selected medicine is unavailable or has insufficient usable stock. Review the medication quantities.');
                 if ($medData) {
-                    $deductQty = min($qty, $medData['quantity']);
+                    $deductQty = $qty;
                     if ($deductQty > 0) {
                         // Deduct stock and update status
                         $db->prepare("UPDATE medicines SET quantity = quantity - ? WHERE id = ?")->execute([$deductQty, $medId]);
@@ -983,6 +1087,12 @@ if ($action === 'complete_consultation_full') {
                 }
             }
         }
+
+        // Link all dispensing, including medicine given before completion, to medical history.
+        $db->prepare('INSERT INTO consultation_medicines (consultation_id, medicine_id, quantity, dosage_instructions, dispensed_by)
+            SELECT ?, medicine_id, quantity, dosage_instructions, dispensed_by FROM medicine_dispensing WHERE walk_in_id = ?')
+            ->execute([$consultationId, $walkInId]);
+        $db->prepare("INSERT INTO visit_logs (walk_in_id, action, details, performed_by) VALUES (?, 'completed', 'Completed from Clinic Queue', ?)")->execute([$walkInId, $user['id']]);
 
         // 5. Generate Certificate if requested
         $certNumber = null;
@@ -1035,10 +1145,14 @@ if ($action === 'complete_consultation_full') {
         if ($ticket['student_id']) {
             $sName = $db->query("SELECT CONCAT(u.first_name, ' ', u.last_name) FROM students s JOIN users u ON u.id = s.user_id WHERE s.id = " . (int)$ticket['student_id'])->fetchColumn();
             if ($sName) $patientName = $sName;
+        } elseif ($ticket['teacher_id']) {
+            $tName=$db->query("SELECT CONCAT(u.first_name,' ',u.last_name) FROM teachers t JOIN users u ON u.id=t.user_id WHERE t.id=".(int)$ticket['teacher_id'])->fetchColumn();
+            if($tName)$patientName=$tName;
         }
         log_activity($user['id'], 'Completed Consultation', 'clinic', "Completed consultation for {$patientName}. Diagnosis: {$diagnosis}");
 
         $db->commit();
+        unset($_SESSION['queue_consultation_drafts'][$ticketId]);
 
         q_json(true, [
             'ticket_id'         => $ticketId,
@@ -1048,9 +1162,9 @@ if ($action === 'complete_consultation_full') {
             'low_stock_alerts'  => $lowStockWarnings,
         ], "Consultation completed successfully! Medical records, inventory, and queue updated.");
 
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         $db->rollBack();
-        q_json(false, [], safe_api_error($e, 'Failed to complete the consultation. Please try again.', 'queue/complete_consultation'));
+        q_json(false, [], $e instanceof DomainException ? $e->getMessage() : safe_api_error($e, 'Failed to complete the consultation. Please try again.', 'queue/complete_consultation'));
     }
 }
 

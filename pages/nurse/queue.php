@@ -16,6 +16,7 @@ $pageTitle = 'Clinic Queue Management';
 <html lang="en">
 <head>
   <?php include __DIR__ . '/../../includes/head.php'; ?>
+  <link rel="stylesheet" href="<?= asset_url('css/queue-consultation.css') ?>">
 </head>
 <body>
 <div class="app-wrapper">
@@ -75,9 +76,9 @@ $pageTitle = 'Clinic Queue Management';
       </div>
 
       <!-- Main Layout -->
-      <div class="row g-4">
+      <div class="queue-consultation-layout">
         <!-- Left Column: Command Center / Now Serving -->
-        <div class="col-xl-5">
+        <div class="queue-list-panel">
           <!-- Call Next Button -->
           <div class="mb-3">
             <button type="button" class="app-btn-hero" id="callNextBtn" onclick="callNextPatient()">
@@ -136,16 +137,15 @@ $pageTitle = 'Clinic Queue Management';
           <div class="card p-3 shadow-sm border-0">
             <h6 class="fw-bold mb-2 text-dark"><i class="bi bi-lightning-charge-fill text-warning me-1"></i> Station Tools</h6>
             <div class="d-flex flex-wrap gap-2">
-              <a href="walkin.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-person-walking me-1"></i> Walk-in Triage</a>
+              <a href="#" onclick="BPCModal.show('walkinModal'); return false;" class="btn btn-outline-secondary btn-sm"><i class="bi bi-person-walking me-1"></i> Walk-in Triage</a>
               <a href="medical_records.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-folder-check me-1"></i> Medical Records</a>
               <a href="inventory.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-capsule me-1"></i> Medicine Inventory</a>
               <a href="certificates.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-medical me-1"></i> Certificates</a>
             </div>
           </div>
-        </div>
 
         <!-- Right Column: Live Queue List & Tabs -->
-        <div class="col-xl-7">
+        <div class="queue-table-panel mt-3">
           <div class="app-card p-3">
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
               <ul class="app-tabs border-0" id="queueTabs">
@@ -159,7 +159,8 @@ $pageTitle = 'Clinic Queue Management';
                     All Today <span class="badge bg-secondary rounded-pill ms-1" id="badgeAllCount">0</span>
                   </a>
                 </li>
-                <li class="nav-item">
+                <li class="nav-item"><a class="nav-link" href="#" onclick="switchTab('serving'); return false;">In Consultation <span class="badge bg-primary" id="badgeServingCount">0</span></a></li>
+<li class="nav-item">
                   <a class="nav-link" href="#" onclick="switchTab('skipped'); return false;">
                     Skipped <span class="badge bg-light text-dark rounded-pill ms-1" id="badgeSkippedCount">0</span>
                   </a>
@@ -201,19 +202,13 @@ $pageTitle = 'Clinic Queue Management';
             </div>
           </div>
         </div>
-      </div>
-
-    </div>
-  </div>
-</div>
-
-<!-- ===================================================================== -->
-<!-- MODAL: Unified Contextual Consultation Workspace -->
-<!-- ===================================================================== -->
-<div class="modal fade" id="consultationWorkspaceModal" tabindex="-1" data-bs-backdrop="static" aria-labelledby="consultationWorkspaceModalTitle">
-  <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <div class="modal-content border-0 shadow-lg" style="border-radius: 20px; overflow: hidden;">
-      <div class="modal-header bg-success text-white py-3">
+        </div>
+        <div class="queue-detail-panel"><section class="queue-workspace app-card" id="consultationWorkspaceModal" aria-labelledby="consultationWorkspaceModalTitle">
+<div class="p-4 text-center text-muted" id="consultationEmptyState">Select a patient from the queue to begin or continue a consultation.</div>
+<div id="consultationSelected" hidden>
+  <div class="queue-workspace-inner">
+    <div class="border-0" style="border-radius: 20px; overflow: hidden;">
+      <div class="d-flex justify-content-between bg-success text-white p-3">
         <div class="d-flex align-items-center gap-2">
           <div class="fs-4"><i class="bi bi-heart-pulse-fill"></i></div>
           <div>
@@ -221,14 +216,15 @@ $pageTitle = 'Clinic Queue Management';
             <small class="opacity-90" id="consultModalSubtitle">Ticket --- · Patient Details</small>
           </div>
         </div>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close btn-close-white" onclick="closeConsultationWorkspace()"></button>
       </div>
 
-      <div class="modal-body p-4 bg-light">
+      <div class="p-3 bg-light">
         <form id="unifiedConsultationForm" onsubmit="submitUnifiedConsultation(event)">
           <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
           <input type="hidden" name="action" value="complete_consultation_full">
           <input type="hidden" name="ticket_id" id="consultTicketId">
+<input type="hidden" name="draft_version" id="consultDraftVersion">
 
           <!-- Patient Summary & Medical History Banner -->
           <div class="card p-3 mb-3 border-0 shadow-sm" style="border-radius: 14px;">
@@ -251,7 +247,7 @@ $pageTitle = 'Clinic Queue Management';
 
           <div class="row g-3">
             <!-- Left Sub-column: Clinical Notes -->
-            <div class="col-lg-7">
+            <div class="col-12">
               <div class="card p-3 border-0 shadow-sm h-100" style="border-radius: 14px;">
                 <h6 class="fw-bold text-success mb-3"><i class="bi bi-journal-medical me-1"></i> Clinical Evaluation</h6>
 
@@ -278,7 +274,7 @@ $pageTitle = 'Clinic Queue Management';
                   </div>
                   <div class="col-md-6">
                     <label class="form-label fw-semibold small">Treatment Given</label>
-                    <input type="text" class="form-control" name="treatment" placeholder="e.g. Bed rest, hydration, ice pack, oral medication">
+                    <textarea class="form-control" name="treatment" rows="2" placeholder="e.g. Bed rest, hydration, ice pack, oral medication"></textarea>
                   </div>
                 </div>
 
@@ -302,7 +298,7 @@ $pageTitle = 'Clinic Queue Management';
             </div>
 
             <!-- Right Sub-column: Vitals & Medicine Dispensing -->
-            <div class="col-lg-5">
+            <div class="col-12">
               <!-- Vital Signs Card -->
               <div class="card p-3 border-0 shadow-sm mb-3" style="border-radius: 14px;">
                 <h6 class="fw-bold text-danger mb-3"><i class="bi bi-heart-pulse me-1"></i> Vital Signs</h6>
@@ -335,7 +331,8 @@ $pageTitle = 'Clinic Queue Management';
                     <label class="form-label text-muted mb-1">Weight (kg)</label>
                     <input type="number" step="0.1" class="form-control form-control-sm" name="weight_kg" id="vWeight" placeholder="58" oninput="calculateLiveBmi()">
                   </div>
-                  <div class="col-12 mt-2">
+                  <div class="col-6"><label class="form-label text-muted mb-1" for="vResp">Respiratory Rate</label><input type="number" min="0" class="form-control form-control-sm" name="respiratory_rate" id="vResp"></div>
+<div class="col-12 mt-2">
                     <div class="p-2 rounded bg-light border d-flex justify-content-between align-items-center">
                       <span class="text-muted small">Auto BMI:</span>
                       <span class="fw-bold" id="liveBmiText">— (Normal)</span>
@@ -382,9 +379,19 @@ $pageTitle = 'Clinic Queue Management';
             </div>
           </div>
 
-          <div class="modal-footer border-0 px-0 pb-0 mt-3 d-flex justify-content-between">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button type="submit" class="btn btn-success btn-lg px-4 fw-bold" id="submitConsultationBtn">
+          <div class="card p-3 mt-3 border-0 shadow-sm">
+  <label class="form-label fw-semibold" for="consultSignature">Digital Signature</label>
+  <input class="form-control mb-3" name="digital_signature" id="consultSignature" placeholder="Nurse's name / digital signature">
+  <div class="d-flex justify-content-between gap-2 align-items-center mb-2"><label class="form-label fw-semibold mb-0" for="aiSummary">AI Consultation Summary</label><button class="btn btn-sm btn-outline-success" type="button" id="generateSummaryBtn" onclick="generateConsultationSummary()">Generate Summary</button></div>
+  <textarea class="form-control" rows="5" name="ai_summary" id="aiSummary"></textarea>
+</div>
+<details class="card p-3 mt-3"><summary class="fw-semibold">Medical history &amp; dispensed medicines</summary><div id="consultHistory" class="small mt-2"></div></details>
+<div id="consultationSaveStatus" class="small mt-3" role="status" aria-live="polite"></div>
+<div class="d-flex flex-wrap gap-2 mt-3">
+            <button type="button" class="btn btn-secondary" onclick="closeConsultationWorkspace()">Close Workspace</button>
+<button type="button" class="btn btn-outline-danger" id="cancelConsultationBtn" onclick="cancelWorkspaceVisit()">Cancel Visit</button>
+<button type="button" class="btn btn-outline-success" id="saveConsultationDraftBtn" onclick="saveConsultationDraft()">Save Draft</button>
+            <button type="submit" class="btn btn-success fw-bold" id="submitConsultationBtn">
               <i class="bi bi-check2-circle me-1"></i> Complete Consultation &amp; Update Records
             </button>
           </div>
@@ -393,7 +400,17 @@ $pageTitle = 'Clinic Queue Management';
     </div>
   </div>
 </div>
+</section>
+</div>
+      </div>
 
+    </div>
+  </div>
+</div>
+
+<!-- ===================================================================== -->
+<!-- MODAL: Unified Contextual Consultation Workspace -->
+<!-- ===================================================================== -->
 <!-- ===================================================================== -->
 <!-- MODAL: Quick Add Walk-in to Queue -->
 <!-- ===================================================================== -->
@@ -469,6 +486,7 @@ $pageTitle = 'Clinic Queue Management';
 
 <?php include __DIR__ . '/../../includes/patient_workspace_modal.php'; ?>
 <?php include __DIR__ . '/../../includes/qr_scanner_modal.php'; ?>
+<?php include __DIR__ . '/../../includes/queue_walkin_ui.php'; ?>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 <script>
   let activeTicket = null;
@@ -483,7 +501,7 @@ $pageTitle = 'Clinic Queue Management';
     if (isQueueLoading) return;
     isQueueLoading = true;
     try {
-      const res = await fetch(`<?= APP_URL ?>/api/queue.php?action=queue_list&status=${currentTab === 'all' ? '' : currentTab}`);
+      const res = await fetch(`<?= APP_URL ?>/api/queue.php?action=queue_list`);
       const json = await res.json();
       if (!json.success) return;
 
@@ -495,12 +513,14 @@ $pageTitle = 'Clinic Queue Management';
       document.getElementById('statServing').innerText = counts.serving || 0;
       document.getElementById('statCompleted').innerText = counts.completed || 0;
 
+      document.getElementById('badgeServingCount').innerText = counts.serving || 0;
       document.getElementById('badgeWaitingCount').innerText = counts.waiting || 0;
       document.getElementById('badgeAllCount').innerText = counts.total || 0;
       document.getElementById('badgeSkippedCount').innerText = counts.skipped || 0;
       document.getElementById('badgeCompletedCount').innerText = counts.completed || 0;
 
-      renderQueueTable(queueData);
+      filterQueueTable();
+      syncSelectedPatientStatus();
 
       // Find if there is an active called or serving ticket
       const active = queueData.find(i => i.status === 'called' || i.status === 'serving');
@@ -544,8 +564,9 @@ $pageTitle = 'Clinic Queue Management';
           <td><span class="badge bg-light text-dark border">${item.patient_type}</span></td>
           <td><span class="${prioClass}">${item.priority.toUpperCase()}</span></td>
           <td><span class="${statusClass}">${item.status.toUpperCase()}</span></td>
-          <td><small class="text-muted">${item.wait_minutes || 0} mins</small></td>
+          <td><small class="text-muted">${escapeHtml(item.created_at || '')}<br>${item.wait_minutes || 0} mins</small></td>
           <td class="text-end">
+            <button type="button" class="btn btn-sm btn-outline-success mb-1" onclick="openConsultationWorkspace(${item.id}, false)">Open</button>
             ${item.status === 'waiting' ? `
               <button class="btn btn-sm btn-primary py-1 px-2" onclick="callSpecificPatient(${item.id})">
                 <i class="bi bi-megaphone-fill me-1"></i> Call
@@ -563,7 +584,7 @@ $pageTitle = 'Clinic Queue Management';
             ` : ''}
             ${item.status === 'serving' ? `
               <button class="btn btn-sm btn-success py-1 px-2" onclick="openConsultationWorkspace(${item.id})">
-                <i class="bi bi-check-lg me-1"></i> Complete
+                <i class="bi bi-heart-pulse-fill me-1"></i> Resume
               </button>
             ` : ''}
           </td>
@@ -623,8 +644,8 @@ $pageTitle = 'Clinic Queue Management';
   function switchTab(tab) {
     currentTab = tab;
     document.querySelectorAll('#queueTabs .nav-link').forEach(el => el.classList.remove('active'));
-    event.target.classList.add('active');
-    loadQueueList();
+    document.querySelector(`#queueTabs [onclick*="'${tab}'"]`)?.classList.add('active');
+    filterQueueTable();
   }
 
   // Queue actions
@@ -709,69 +730,8 @@ $pageTitle = 'Clinic Queue Management';
   // =====================================================================
   // CONSULTATION WORKSPACE MODAL
   // =====================================================================
-  async function openConsultationWorkspace(ticketId) {
-    if (!ticketId) return;
-
-    try {
-      // Mark as serving in background
-      const serveForm = new FormData();
-      serveForm.append('csrf_token', csrfToken);
-      serveForm.append('action', 'start_serving');
-      serveForm.append('ticket_id', ticketId);
-      fetch('<?= APP_URL ?>/api/queue.php', { method: 'POST', body: serveForm });
-
-      // Fetch patient medical summary and medicines list
-      const res = await fetch(`<?= APP_URL ?>/api/queue.php?action=get_patient_medical_summary&ticket_id=${ticketId}`);
-      const json = await res.json();
-      if (!json.success) {
-        alert(json.message || 'Failed to fetch patient data.');
-        return;
-      }
-
-      const p = json.data.patient;
-      const m = json.data.medical_record;
-      const v = json.data.latest_vitals;
-      availableMedicines = json.data.medicines || [];
-
-      document.getElementById('consultTicketId').value = ticketId;
-      document.getElementById('consultModalSubtitle').innerText = `Ticket ${p.queue_number} · ${p.patient_type.toUpperCase()}`;
-      document.getElementById('patientFullNameText').innerText = p.patient_name;
-      document.getElementById('patientAvatarLetter').innerText = p.patient_name.charAt(0).toUpperCase();
-
-      const sub = p.student_number ? `${p.student_number} · ${p.course || ''} ${p.year_level || ''} ${p.section || ''}` : (p.employee_id ? `${p.employee_id} · ${p.department || 'Staff'}` : 'Guest Patient');
-      document.getElementById('patientIdentifiersText').innerText = sub;
-
-      document.getElementById('pBloodType').innerText = m ? (m.blood_type || 'Unknown') : '—';
-      const allergies = m && m.allergies ? m.allergies : 'None recorded';
-      document.getElementById('pAllergiesBadge').innerText = `Allergies: ${allergies}`;
-      document.getElementById('pAllergiesBadge').className = (m && m.allergies && m.allergies !== 'None' && m.allergies !== 'N/A') ? 'badge bg-danger bg-opacity-25 text-danger border border-danger' : 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25';
-
-      document.getElementById('consultComplaint').value = p.initial_complaint || p.chief_complaint || '';
-
-      // Prefill vitals if available
-      if (v) {
-        document.getElementById('vTemp').value = v.temperature || '';
-        document.getElementById('vO2').value = v.oxygen_saturation || '';
-        document.getElementById('vHr').value = v.heart_rate || '';
-        document.getElementById('vHeight').value = v.height_cm || '';
-        document.getElementById('vWeight').value = v.weight_kg || '';
-        calculateLiveBmi();
-      } else {
-        document.getElementById('vTemp').value = '';
-        document.getElementById('vO2').value = '';
-        document.getElementById('vHr').value = '';
-        document.getElementById('vHeight').value = '';
-        document.getElementById('vWeight').value = '';
-        document.getElementById('liveBmiText').innerText = '—';
-      }
-
-      // Clear medicines container
-      document.getElementById('medicinesContainer').innerHTML = '<div class="text-muted small py-2" id="noMedsHint">No medicines selected yet. Click [+ Add] above to dispense.</div>';
-
-      BPCModal.show('consultationWorkspaceModal');
-    } catch (e) {
-      console.error('Error loading consultation workspace:', e);
-    }
+  async function openConsultationWorkspace(ticketId, start = true) {
+    return openIntegratedConsultation(ticketId, start);
   }
 
   function calculateLiveBmi() {
@@ -799,7 +759,7 @@ $pageTitle = 'Clinic Queue Management';
     if (hint) hint.remove();
 
     const container = document.getElementById('medicinesContainer');
-    const rowId = 'med_row_' + Date.now();
+    const rowId = 'med_row_' + Date.now() + '_' + Math.random().toString(36).slice(2);
 
     let options = '<option value="">Select Medicine...</option>';
     availableMedicines.forEach(m => {
@@ -817,17 +777,19 @@ $pageTitle = 'Clinic Queue Management';
           </select>
         </div>
         <div class="col-3">
-          <input type="number" class="form-control form-control-sm med-qty" min="1" max="50" value="1" placeholder="Qty" required>
+          <input type="number" class="form-control form-control-sm med-qty" min="1" value="1" placeholder="Qty" required>
         </div>
         <div class="col-3 text-end">
-          <button type="button" class="btn btn-sm btn-outline-danger" onclick="document.getElementById('${rowId}').remove()"><i class="bi bi-trash"></i></button>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="document.getElementById('${rowId}').remove(); consultationDirty = true;"><i class="bi bi-trash"></i></button>
         </div>
+        <div class="col-12"><button type="button" class="btn btn-sm btn-outline-success" onclick="dispenseWorkspaceMedicine(this)">Dispense Now</button></div>
         <div class="col-12 mt-1">
           <input type="text" class="form-control form-control-sm med-dosage" placeholder="Dosage instructions (e.g. 1 tab every 6 hrs after meals)">
         </div>
       </div>
     `;
     container.appendChild(div);
+    consultationDirty = true;
   }
 
   function toggleFollowUpInput() {
@@ -842,6 +804,10 @@ $pageTitle = 'Clinic Queue Management';
 
   async function submitUnifiedConsultation(e) {
     e.preventDefault();
+    if (consultationBusy || consultationLoading || consultationClosed) return;
+    if (!consultationStarted) { alert('Start the consultation before completing it.'); return; }
+    if (!confirm('Complete this consultation and update medical records?')) return;
+    consultationBusy = true; setConsultationControls();
     const btn = document.getElementById('submitConsultationBtn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving consultation & updating records...';
@@ -866,6 +832,7 @@ $pageTitle = 'Clinic Queue Management';
         }
       });
       formData.append('medicines', JSON.stringify(medsArray));
+      form.inert = true;
 
       const res = await fetch('<?= APP_URL ?>/api/queue.php', { method: 'POST', body: formData });
       const json = await res.json();
@@ -883,7 +850,9 @@ $pageTitle = 'Clinic Queue Management';
           });
         }
 
-        BPCModal.hide('consultationWorkspaceModal');
+        consultationDirty = false;
+        consultationBusy = false;
+        closeConsultationWorkspace();
         form.reset();
         loadQueueList();
       } else {
@@ -897,7 +866,8 @@ $pageTitle = 'Clinic Queue Management';
       console.error(err);
       alert('An error occurred while completing the consultation.');
     } finally {
-      btn.disabled = false;
+      document.getElementById('unifiedConsultationForm').inert = false;
+      consultationBusy = false; setConsultationControls();
       btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i> Complete Consultation &amp; Update Records';
     }
   }
@@ -980,10 +950,10 @@ $pageTitle = 'Clinic Queue Management';
 
   function filterQueueTable() {
     const q = document.getElementById('queueSearch').value.toLowerCase();
-    const filtered = queueData.filter(i => 
+    const filtered = queueData.filter(i => (currentTab === 'all' || i.status === currentTab) && (
       (i.queue_number && i.queue_number.toLowerCase().includes(q)) ||
       (i.patient_name && i.patient_name.toLowerCase().includes(q)) ||
-      (i.student_number && i.student_number.toLowerCase().includes(q))
+      (i.student_number && i.student_number.toLowerCase().includes(q)))
     );
     renderQueueTable(filtered);
   }
@@ -1018,7 +988,8 @@ $pageTitle = 'Clinic Queue Management';
     if (queuePollTimer) clearInterval(queuePollTimer);
   });
 
-  startPolling();
+  window.addEventListener('load', startPolling);
 </script>
+<script src="<?= asset_url('js/queue-consultation.js') ?>"></script>
 </body>
 </html>

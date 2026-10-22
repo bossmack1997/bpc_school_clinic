@@ -21,10 +21,27 @@ class MICAActionService
         $this->user = $user;
     }
 
+    private function normalizeActionStatus(string $status): string
+    {
+        $normalized = strtolower(trim($status));
+        return match ($normalized) {
+            'reviewed', 'in_progress', 'in-progress' => 'in_progress',
+            'approved', 'rejected', 'completed', 'dismissed', 'resolved' => 'resolved',
+            default => 'new',
+        };
+    }
+
     /**
      * Create a structured AI Recommendation / Action card
      */
     public function createAction(array $data): int
+    {
+        if ((int)$this->db->query("SELECT GET_LOCK('bpc_mica_action_write',5)")->fetchColumn() !== 1) throw new RuntimeException('Alert writer is busy.');
+        try { return $this->persistAction($data); }
+        finally { $this->db->query("SELECT RELEASE_LOCK('bpc_mica_action_write')"); }
+    }
+
+    private function persistAction(array $data): int
     {
         $targetRole  = $data['target_role'] ?? 'all';
         $actionType  = $data['action_type'] ?? 'general';
@@ -36,16 +53,33 @@ class MICAActionService
         $priority    = in_array($data['priority'] ?? '', ['critical', 'high', 'medium', 'informational'], true) ? $data['priority'] : 'medium';
         $suggested   = !empty($data['suggested_data']) ? (is_array($data['suggested_data']) ? json_encode($data['suggested_data']) : $data['suggested_data']) : null;
 
-        // Prevent duplicate unresolved actions of same type and target
-        if ($targetType && $targetId) {
-            $stmt = $this->db->prepare("
-                SELECT id FROM ai_actions 
-                WHERE action_type = ? AND target_type = ? AND target_id = ? AND status IN ('new', 'reviewed')
-                LIMIT 1
-            ");
-            $stmt->execute([$actionType, $targetType, $targetId]);
+        // MICA tracks alert lifecycle as NEW -> IN_PROGRESS -> RESOLVED.
+        // Important: some alerts are not tied to a specific target_id (for example,
+        // pending registration backlog totals), so deduplication must also cover
+        // the null-target case rather than only target_id-based rows.
+        if ($actionType && $targetType) {
+            $sql = "
+                SELECT id FROM ai_actions
+                WHERE action_type = ?
+                  AND target_type = ?
+                  AND target_role = ?
+                  AND status IN ('new', 'in_progress')
+            ";
+            $params = [$actionType, $targetType, $targetRole];
+
+            if ($targetId !== null) {
+                $sql .= " AND target_id = ?";
+                $params[] = $targetId;
+            } else {
+                $sql .= " AND target_id IS NULL";
+            }
+
+            $sql .= " ORDER BY id LIMIT 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
             $existing = $stmt->fetchColumn();
             if ($existing) {
+                $this->db->prepare('UPDATE ai_actions SET title=?,description=?,reason=?,priority=?,suggested_data=? WHERE id=?')->execute([$title,$description,$reason,$priority,$suggested,$existing]);
                 return (int)$existing;
             }
         }
@@ -55,7 +89,7 @@ class MICAActionService
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)
         ");
         $stmt->execute([
-            $this->user['id'] ?? null,
+            !empty($this->user['id']) ? $this->user['id'] : null,
             $targetRole,
             $actionType,
             $targetType,
@@ -73,15 +107,21 @@ class MICAActionService
     /**
      * Retrieve active recommended actions filtered by role
      */
-    public function getRecommendedActions(?string $role = null, int $limit = 15): array
+    public function getRecommendedActions(?string $role = null, int $limit = 15, bool $archived = false): array
     {
-        $role = $role ?: ($this->user['role'] ?? 'nurse');
+        $role = canonical_role($role ?: ($this->user['role'] ?? ''));
+        if (!in_array($role, ['admin', 'nurse'], true)) {
+            return [];
+        }
+
+        $statusFilter = $archived ? "a.status = 'resolved'" : "a.status IN ('new', 'in_progress')";
         $stmt = $this->db->prepare("
-            SELECT a.*, u.first_name, u.last_name
+            SELECT a.*, u.first_name, u.last_name, (SELECT read_at FROM mica_alert_reads mr WHERE mr.action_id=a.id AND mr.user_id=?) AS read_at,
+                (SELECT event_type FROM mica_alert_events me WHERE me.action_id=a.id ORDER BY me.id DESC LIMIT 1) AS latest_event
             FROM ai_actions a
             LEFT JOIN users u ON u.id = a.executed_by
             WHERE (a.target_role = 'all' OR a.target_role = ?)
-              AND a.status IN ('new', 'reviewed')
+              AND $statusFilter
             ORDER BY 
               CASE a.priority
                 WHEN 'critical' THEN 1
@@ -92,10 +132,15 @@ class MICAActionService
               a.created_at DESC
             LIMIT ?
         ");
-        $stmt->bindValue(1, $role, PDO::PARAM_STR);
-        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+        $stmt->bindValue(1, (int)($this->user['id']??0), PDO::PARAM_INT);
+        $stmt->bindValue(2, $role, PDO::PARAM_STR);
+        $stmt->bindValue(3, $limit, PDO::PARAM_INT);
         $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        if(!can_view_inventory($this->user,$this->db))$rows=array_values(array_filter($rows,fn($row)=>!in_array($row['target_type']??'', ['medicine','medicines','inventory'],true)&&!preg_match('/stock|reorder|expir|inventory/i',$row['action_type']??'')));
+        foreach($rows as &$row)$row['issue_status']=$row['latest_event']==='invalidated'?'invalidated':($row['status']==='resolved'?'resolved':($row['status']==='in_progress'?'monitoring':'active'));
+        unset($row);
+        return $rows;
     }
 
     /**
@@ -104,6 +149,7 @@ class MICAActionService
      */
     public function createReorderRequest(int $medicineId, int $suggestedQty, string $reason): array
     {
+        if(!can_view_inventory($this->user,$this->db))return ['success'=>false,'message'=>'Inventory access is not assigned.'];
         $mStmt = $this->db->prepare("SELECT * FROM medicines WHERE id = ? AND is_archived = 0");
         $mStmt->execute([$medicineId]);
         $med = $mStmt->fetch(PDO::FETCH_ASSOC);
@@ -111,6 +157,10 @@ class MICAActionService
             return ['success' => false, 'message' => 'Medicine not found.'];
         }
 
+        require_once __DIR__.'/../medicine_inventory_service.php';
+        $facts=(new MedicineInventoryService($this->db))->snapshot();$fact=$facts[$medicineId]??null;
+        if(!$fact||!isset(MedicineInventoryService::requisitionItems($facts)[$medicineId])||empty($fact['suggested_quantity']))return ['success'=>false,'message'=>'This medicine needs a configured threshold and a current restock shortage.'];
+        $suggestedQty=(int)$fact['suggested_quantity'];
         // Check for existing pending request to prevent duplicates
         $chk = $this->db->prepare("SELECT id FROM medicine_reorders WHERE medicine_id = ? AND status = 'for_approval' LIMIT 1");
         $chk->execute([$medicineId]);
@@ -133,7 +183,7 @@ class MICAActionService
             (int)$med['quantity'],
             (int)$med['reorder_level'],
             max(1, $suggestedQty),
-            max(1, $suggestedQty),
+            null,
             $reason ?: "Stock level is at or below minimum threshold.",
             $this->user['id'] ?? null
         ]);
@@ -173,6 +223,7 @@ class MICAActionService
      */
     public function approveReorderRequest(int $reorderId, int $approvedQty, ?string $notes = null): array
     {
+        if(($this->user['role']??'')!=='nurse')return ['success'=>false,'message'=>'Nurse review is required.'];
         if (!in_array(canonical_role($this->user['role'] ?? ''), ['nurse', 'admin'], true)) {
             return ['success' => false, 'message' => 'Unauthorized. Only clinical staff or administrators can approve reorders.'];
         }
@@ -210,6 +261,7 @@ class MICAActionService
      */
     public function rejectReorderRequest(int $reorderId, ?string $notes = null): array
     {
+        if(($this->user['role']??'')!=='nurse')return ['success'=>false,'message'=>'Nurse review is required.'];
         if (!in_array(canonical_role($this->user['role'] ?? ''), ['nurse', 'admin'], true)) {
             return ['success' => false, 'message' => 'Unauthorized.'];
         }
@@ -235,6 +287,7 @@ class MICAActionService
             return ['success' => false, 'message' => 'Unauthorized. Only Administrators can officially confirm student graduation deactivation.'];
         }
 
+        if(!has_admin_permission('manage_users',$this->user,$this->db)) return ['success'=>false,'message'=>'User management permission is required.'];
         $sStmt = $this->db->prepare("SELECT s.*, u.first_name, u.last_name, u.email FROM students s JOIN users u ON u.id = s.user_id WHERE s.id = ?");
         $sStmt->execute([$studentId]);
         $student = $sStmt->fetch(PDO::FETCH_ASSOC);
@@ -285,18 +338,17 @@ class MICAActionService
     }
 
     /**
-     * Update AI Action Status (reviewed, dismissed, approved, rejected)
+     * Update AI Action Status.
+     * Operational alert lifecycle is managed automatically by MICA and the relevant clinic workflow.
+     * Admin users are read-only monitors and cannot manually resolve alerts.
      */
     public function updateActionStatus(int $actionId, string $status): array
     {
-        $allowed = ['new', 'reviewed', 'approved', 'rejected', 'completed'];
-        if (!in_array($status, $allowed, true)) {
-            return ['success' => false, 'message' => 'Invalid status.'];
-        }
-
-        $stmt = $this->db->prepare("UPDATE ai_actions SET status = ?, executed_by = ?, executed_at = NOW() WHERE id = ?");
-        $stmt->execute([$status, $this->user['id'] ?? null, $actionId]);
-
-        return ['success' => true, 'message' => "Action status updated to " . ucfirst($status) . "."];
+        if (!in_array($status, ['reviewed','in_progress'], true)) return ['success'=>false,'message'=>'Resolution requires a successful source verification scan.'];
+        $role=canonical_role($this->user['role']??'');
+        if ($role!=='nurse') return ['success'=>false,'message'=>'Access denied.'];
+        $stmt=$this->db->prepare("UPDATE ai_actions SET status='in_progress' WHERE id=? AND target_role IN ('nurse','all') AND status IN ('new','in_progress')");
+        $stmt->execute([$actionId]);
+        return ['success'=>$stmt->rowCount()>0,'message'=>'Monitoring requested. Run a scan to verify resolution.'];
     }
 }

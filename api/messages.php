@@ -15,6 +15,17 @@ $user = current_user();
 $userId = (int)$user['id'];
 $userRole = canonical_role($user['role'] ?? '');
 $action = $_REQUEST['action'] ?? '';
+header('Cache-Control: no-store');
+if (!in_array($userRole, ['student', 'teacher', 'nurse'], true)) {
+    http_response_code(403);
+    json_response(false, [], 'Clinic messaging is restricted to patients and clinic nurses.');
+}
+if (in_array($action, ['presence_ping', 'get_or_create_conversation', 'send_message', 'message_action', 'ai_summarize'], true)) {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); json_response(false, [], 'POST required.'); }
+    csrf_verify_or_die();
+}
+require_once __DIR__ . '/../includes/message_interactions.php';
+require_once __DIR__ . '/../includes/messaging_threads.php';
 
 // ------------------------------------------------------------------
 // Helper: Helper to compute presence status
@@ -39,7 +50,9 @@ function compute_presence_status(?string $lastActivity): array {
 function is_authorized_in_conversation(PDO $db, int $convId, int $userId, string $role): bool {
     // Nurses have clinic triage access to student and teacher conversations
     if ($role === 'nurse') {
-        return true;
+        $stmt = $db->prepare("SELECT COUNT(*) FROM conversations WHERE id = ? AND conversation_type IN ('student_nurse', 'teacher_nurse')");
+        $stmt->execute([$convId]);
+        return (int)$stmt->fetchColumn() > 0;
     }
     // Students & Teachers must be recorded participants
     $stmt = $db->prepare("SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = ? AND user_id = ?");
@@ -50,6 +63,21 @@ function is_authorized_in_conversation(PDO $db, int $convId, int $userId, string
 // ------------------------------------------------------------------
 // 1. AVAILABLE CLINIC STAFF (Nurses & Healthcare Personnel)
 // ------------------------------------------------------------------
+if ($action === 'available_contacts') {
+    if ($userRole !== 'nurse') { http_response_code(403); json_response(false, [], 'Access denied.'); }
+    $stmt = $db->query("SELECT id, first_name, last_name, role, profile_picture, last_activity FROM users WHERE role IN ('student', 'teacher', 'adviser') AND status = 'active' ORDER BY first_name, last_name");
+    $contacts = [];
+    foreach ($stmt as $person) {
+        $presence = compute_presence_status($person['last_activity'] ?? null);
+        $contacts[] = [
+            'id'=>(int)$person['id'], 'name'=>trim($person['first_name'].' '.$person['last_name']),
+            'first_name'=>$person['first_name'], 'role'=>canonical_role($person['role']) === 'teacher' ? 'Teacher' : 'Student',
+            'avatar'=>!empty($person['profile_picture']) ? app_url($person['profile_picture']) : asset_url('images/default-avatar.svg'),
+            'presence_status'=>$presence['status'], 'presence_badge'=>$presence['badge'], 'availability_label'=>$presence['label']
+        ];
+    }
+    json_response(true, ['staff'=>$contacts]);
+}
 if ($action === 'available_staff') {
     $stmt = $db->query("
         SELECT u.id, u.first_name, u.last_name, u.role, u.profile_picture, u.last_activity, u.clinic_status
@@ -140,22 +168,34 @@ if ($action === 'get_or_create_conversation') {
         json_response(false, [], 'Students and Teachers may only communicate directly with Clinic Nurses.');
     }
 
+    if ($userRole === 'nurse' && !in_array($recipRole, ['student', 'teacher'], true)) json_response(false, [], 'Select a student or teacher.');
+
     // Determine conversation type
     $convType = 'student_nurse';
     if ($userRole === 'teacher' || $recipRole === 'teacher') {
         $convType = 'teacher_nurse';
     }
 
-    // Check if an active conversation thread already exists between these 2 users
+    $patientId = $userRole === 'nurse' ? $recipientId : $userId;
+    $lockName = 'clinic_patient_chat_' . $patientId;
+    $lock = $db->prepare('SELECT GET_LOCK(?, 5)'); $lock->execute([$lockName]);
+    if ((int)$lock->fetchColumn() !== 1) json_response(false, [], 'Conversation is busy. Please try again.');
+    register_shutdown_function(function() use ($db, $lockName) {
+        if ($db->inTransaction()) $db->rollBack();
+        $db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
+    });
+    $singlePatientCondition = $userRole === 'nurse' ? "AND (SELECT COUNT(*) FROM conversation_participants p JOIN users pu ON pu.id = p.user_id WHERE p.conversation_id = c.id AND pu.role IN ('student', 'teacher', 'adviser')) = 1" : '';
+    // Nurses reuse the patient's shared clinic thread; patients keep their authorized staff threads.
     $findStmt = $db->prepare("
         SELECT c.id, c.title, c.conversation_type, c.status
         FROM conversations c
         JOIN conversation_participants cp1 ON cp1.conversation_id = c.id AND cp1.user_id = ?
         JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id = ?
-        WHERE c.status = 'active'
+        WHERE c.status = 'active' AND c.conversation_type IN ('student_nurse', 'teacher_nurse') {$singlePatientCondition}
+        ORDER BY c.id
         LIMIT 1
     ");
-    $findStmt->execute([$userId, $recipientId]);
+    $findStmt->execute([$userRole === 'nurse' ? $recipientId : $userId, $recipientId]);
     $existing = $findStmt->fetch(PDO::FETCH_ASSOC);
 
     if ($existing) {
@@ -167,6 +207,7 @@ if ($action === 'get_or_create_conversation') {
         ]);
     }
 
+    $db->beginTransaction();
     // Create a new single 1-on-1 thread
     $title = ($userRole === 'nurse') 
         ? "Clinic Consultation ({$recip['first_name']} {$recip['last_name']})"
@@ -186,6 +227,7 @@ if ($action === 'get_or_create_conversation') {
     $pStmt2 = $db->prepare("INSERT INTO conversation_participants (conversation_id, user_id, last_read_at) VALUES (?, ?, NULL)");
     $pStmt2->execute([$newConvId, $recipientId]);
 
+    $db->commit();
     log_activity($userId, 'Started 1-on-1 clinic conversation', 'messages', "Conv ID $newConvId with User #$recipientId");
 
     json_response(true, [
@@ -237,10 +279,10 @@ if ($action === 'list_conversations') {
                        FROM messages m 
                        WHERE m.conversation_id = c.id 
                          AND m.sender_id != ? 
-                         AND m.read_at IS NULL
+                         AND m.read_at IS NULL AND m.sender_id IN (SELECT id FROM users WHERE role IN ('student', 'teacher', 'adviser'))
                    ) AS unread_count
             FROM conversations c
-            WHERE c.status = 'active' {$typeCondition}
+            WHERE c.status = 'active' AND c.conversation_type IN ('student_nurse', 'teacher_nurse') {$typeCondition}
             ORDER BY COALESCE(last_message_time, c.updated_at) DESC
         ");
         $stmt->execute(array_merge([$userId], $params));
@@ -295,6 +337,7 @@ if ($action === 'list_conversations') {
             JOIN users u ON u.id = cp.user_id
             LEFT JOIN students s ON s.user_id = u.id
             WHERE cp.conversation_id = ? AND u.id != ?
+            ORDER BY (u.role IN ('student', 'teacher', 'adviser')) DESC
             LIMIT 1
         ");
         $pStmt->execute([$convId, $userId]);
@@ -359,6 +402,15 @@ if ($action === 'list_conversations') {
     }
     unset($conv);
 
+    if (messaging_interactions_ready($db)) {
+        $removed = $db->prepare('SELECT i.deleted_at FROM messages m LEFT JOIN message_interactions i ON i.message_id = m.id WHERE m.conversation_id = ? ORDER BY m.created_at DESC, m.id DESC LIMIT 1');
+        foreach ($conversations as &$item) {
+            $removed->execute([(int)$item['id']]);
+            if ($removed->fetchColumn()) $item['last_message'] = 'Message removed';
+        }
+        unset($item);
+    }
+    if ($userRole === 'nurse') $conversations = group_clinic_patient_threads($db, $conversations);
     json_response(true, ['conversations' => $conversations]);
 }
 
@@ -377,19 +429,22 @@ if ($action === 'get_messages') {
         json_response(false, [], 'Access denied: You are not authorized to view this clinic conversation.');
     }
 
+    $threadIds = clinic_patient_thread_ids($db, $convId, $userRole);
+    $threadSlots = implode(',', array_fill(0, count($threadIds), '?'));
+    $incomingCondition = $userRole === 'nurse' ? "AND sender_id IN (SELECT id FROM users WHERE role IN ('student', 'teacher', 'adviser'))" : '';
     // Mark messages as read for this user
     try {
         $db->prepare("
             UPDATE conversation_participants 
             SET last_read_at = NOW() 
-            WHERE conversation_id = ? AND user_id = ?
-        ")->execute([$convId, $userId]);
+            WHERE conversation_id IN ({$threadSlots}) AND user_id = ?
+        ")->execute(array_merge($threadIds, [$userId]));
 
         $db->prepare("
             UPDATE messages 
             SET read_at = NOW() 
-            WHERE conversation_id = ? AND sender_id != ? AND read_at IS NULL
-        ")->execute([$convId, $userId]);
+            WHERE conversation_id IN ({$threadSlots}) AND sender_id != ? AND read_at IS NULL {$incomingCondition}
+        ")->execute(array_merge($threadIds, [$userId]));
     } catch (Exception $e) {
         error_log('Error updating read status: ' . $e->getMessage());
     }
@@ -410,6 +465,7 @@ if ($action === 'get_messages') {
         JOIN users u ON u.id = cp.user_id
         LEFT JOIN students s ON s.user_id = u.id
         WHERE cp.conversation_id = ? AND u.id != ?
+        ORDER BY (u.role IN ('student', 'teacher', 'adviser')) DESC
         LIMIT 1
     ");
     $pStmt->execute([$convId, $userId]);
@@ -453,17 +509,22 @@ if ($action === 'get_messages') {
     }
 
     // Fetch messages (if after_id is given, only fetch newer messages)
+    $beforeId = max(0, (int)($_GET['before_id'] ?? 0));
+    $beforeCond = $beforeId ? 'AND m.id < ' . $beforeId : '';
     $afterCond = ($afterId > 0) ? "AND m.id > {$afterId}" : "";
     $mStmt = $db->prepare("
         SELECT m.id, m.conversation_id, m.sender_id, m.message_body, m.message_type, m.attachment_path, m.attachment_name, m.attachment_mime, m.attachment_size, m.read_at, m.created_at,
                u.first_name, u.last_name, u.role, u.profile_picture
         FROM messages m
         JOIN users u ON u.id = m.sender_id
-        WHERE m.conversation_id = ? {$afterCond}
-        ORDER BY m.created_at ASC
+        WHERE m.conversation_id IN ({$threadSlots}) {$afterCond} {$beforeCond}
+        ORDER BY m.id DESC LIMIT 81
     ");
-    $mStmt->execute([$convId]);
+    $mStmt->execute($threadIds);
     $messages = $mStmt->fetchAll(PDO::FETCH_ASSOC);
+    $hasMore = count($messages) > 80;
+    if ($hasMore) array_pop($messages);
+    $messages = array_reverse($messages);
 
     foreach ($messages as &$msg) {
         $msg['id'] = (int)$msg['id'];
@@ -475,7 +536,10 @@ if ($action === 'get_messages') {
     }
     unset($msg);
 
+    enrich_message_interactions($db, $messages);
     json_response(true, [
+        'has_more' => $hasMore,
+        'interactions_enabled' => messaging_interactions_ready($db),
         'conversation' => $conversation,
         'messages'     => $messages
     ]);
@@ -505,6 +569,15 @@ if ($action === 'send_message') {
     $activeConversation->execute([$convId]);
     if (!(int)$activeConversation->fetchColumn()) json_response(false, [], 'This conversation is no longer available.');
 
+    $replyTo = (int)($_POST['reply_to_id'] ?? 0);
+    if ($replyTo) {
+        if (!messaging_interactions_ready($db)) json_response(false, [], 'Reply support is unavailable.');
+        $replyThreads = clinic_patient_thread_ids($db, $convId, $userRole);
+        $replySlots = implode(',', array_fill(0, count($replyThreads), '?'));
+        $replyCheck = $db->prepare("SELECT COUNT(*) FROM messages WHERE id = ? AND conversation_id IN ($replySlots)");
+        $replyCheck->execute(array_merge([$replyTo], $replyThreads));
+        if (!(int)$replyCheck->fetchColumn()) json_response(false, [], 'Reply must belong to this conversation.');
+    }
     $storedPath = null;
     $originalName = null;
     $mimeType = null;
@@ -545,6 +618,9 @@ if ($action === 'send_message') {
         }
     }
 
+    // Save the message and its reply metadata atomically.
+    $messageTransactionOwner = !$db->inTransaction();
+    if ($messageTransactionOwner) $db->beginTransaction();
     // Insert message
     $stmt = $db->prepare("
         INSERT INTO messages (conversation_id, sender_id, message_body, message_type, attachment_path, attachment_name, attachment_mime, attachment_size, created_at)
@@ -553,10 +629,19 @@ if ($action === 'send_message') {
     try {
         $stmt->execute([$convId, $userId, $messageBody, $hasUpload ? 'file' : 'text', $storedPath, $originalName, $mimeType, $fileSize]);
     } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
         if ($storedPath && is_file(BASE_PATH . '/' . $storedPath)) unlink(BASE_PATH . '/' . $storedPath);
         throw $e;
     }
     $messageId = (int)$db->lastInsertId();
+    try {
+        if ($replyTo) $db->prepare('INSERT INTO message_interactions (message_id, reply_to_id) VALUES (?, ?)')->execute([$messageId, $replyTo]);
+        if ($messageTransactionOwner) $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        if ($storedPath && is_file(BASE_PATH . '/' . $storedPath)) unlink(BASE_PATH . '/' . $storedPath);
+        throw $e;
+    }
 
     // Update conversation timestamp
     $db->prepare("UPDATE conversations SET updated_at = NOW() WHERE id = ?")->execute([$convId]);
@@ -582,7 +667,7 @@ if ($action === 'send_message') {
                 (int)$recipId,
                 'chat',
                 "New message from {$senderName} ({$roleLabel})",
-                $snippet,
+                'You have a new clinic message. Open Messages to read it.',
                 APP_URL . "/pages/{$dir}/messages.php?id={$convId}",
                 null,
                 'medium',
@@ -605,6 +690,11 @@ if ($action === 'download_attachment') {
     $stmt = $db->prepare('SELECT conversation_id, attachment_path, attachment_name, attachment_mime FROM messages WHERE id = ? AND attachment_path IS NOT NULL LIMIT 1');
     $stmt->execute([$messageId]);
     $attachment = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (messaging_interactions_ready($db)) {
+        $removed = $db->prepare('SELECT deleted_at FROM message_interactions WHERE message_id = ?');
+        $removed->execute([$messageId]);
+        if ($removed->fetchColumn()) $attachment = false;
+    }
     if (!$attachment || !is_authorized_in_conversation($db, (int)$attachment['conversation_id'], $userId, $userRole)) {
         http_response_code(404);
         exit('Attachment not found.');
@@ -635,7 +725,8 @@ if ($action === 'unread_count') {
             SELECT COUNT(*) 
             FROM messages m
             JOIN conversations c ON c.id = m.conversation_id
-            WHERE c.status = 'active'
+            WHERE c.status = 'active' AND c.conversation_type IN ('student_nurse', 'teacher_nurse')
+              AND m.sender_id IN (SELECT id FROM users WHERE role IN ('student', 'teacher', 'adviser'))
               AND m.sender_id != ? 
               AND m.read_at IS NULL
         ");
@@ -673,14 +764,18 @@ if ($action === 'ai_summarize') {
         json_response(false, [], 'Invalid conversation ID.');
     }
 
+    if (!is_authorized_in_conversation($db, $convId, $userId, $userRole)) json_response(false, [], 'Conversation unavailable.');
+
+    $summaryThreads = clinic_patient_thread_ids($db, $convId, $userRole);
+    $summarySlots = implode(',', array_fill(0, count($summaryThreads), '?'));
     $stmt = $db->prepare("
         SELECT m.message_body, m.created_at, u.first_name, u.last_name, u.role
         FROM messages m
         JOIN users u ON u.id = m.sender_id
-        WHERE m.conversation_id = ?
+        WHERE m.conversation_id IN ({$summarySlots})
         ORDER BY m.created_at ASC
     ");
-    $stmt->execute([$convId]);
+    $stmt->execute($summaryThreads);
     $msgs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($msgs)) {
@@ -698,7 +793,7 @@ if ($action === 'ai_summarize') {
     $summary = "";
     try {
         require_once __DIR__ . '/../includes/ai/AIService.php';
-        $ai = new AIService();
+        $ai = new AIService($db, $user);
         $prompt = "You are MICA, an AI clinic assistant at Bulacan Polytechnic College.
 Summarize the following patient/teacher communication with the clinic nurse.
 Follow these critical rules:
@@ -710,7 +805,7 @@ Follow these critical rules:
 Conversation:
 {$threadText}";
 
-        $res = $ai->chat($prompt, 'You are MICA, assistive clinic intelligence.', []);
+        $res = $ai->getOpenRouter()->complete('You are MICA, assistive clinic intelligence.', [['role'=>'user','content'=>$prompt]]);
         $summary = $res['reply'] ?? '';
     } catch (Exception $e) {
         error_log("AI summarize error: " . $e->getMessage());

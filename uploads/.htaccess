@@ -1,0 +1,4 @@
+Options -ExecCGI
+<FilesMatch "\.(?:php[0-9]?|phtml|phar|cgi|pl|py|sh|exe)$">
+    Require all denied
+</FilesMatch>

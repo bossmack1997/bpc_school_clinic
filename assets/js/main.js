@@ -196,9 +196,12 @@ $(function () {
   // ================================================================
   function updateClock() {
     const now = new Date();
-    const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+    const isCompact = window.matchMedia('(max-width: 767.98px)').matches;
+    const options = isCompact
+      ? { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' }
+      : { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: 'Asia/Manila' };
     const dateStr = now.toLocaleDateString('en-US', options);
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' });
 
     $('.topbar-clock-time').text(timeStr);
     $('.topbar-clock-date').text(dateStr);
@@ -268,6 +271,23 @@ $(function () {
     });
   }
 
+  $(document).on('click', '#markAllNotificationsRead', function () {
+    var button = this; button.disabled = true;
+    markAllNotificationsRead(function (error) {
+      button.disabled = false;
+      $('#notificationActionStatus').text(error || 'All notifications marked as read.');
+    });
+  });
+  $(document).on('click', '#notifList .notif-mark-read', function (event) {
+    event.preventDefault(); event.stopPropagation();
+    var button = this; button.disabled = true;
+    markNotificationRead($(button).attr('data-id'), function (error) {
+      button.disabled = false;
+      $('#notificationActionStatus').text(error || 'Notification marked as read.');
+    });
+  });
+  $('#notificationBell').on('show.bs.dropdown', function () { loadNotifications(); });
+
   // Start single notification poller per page session
   if ($('#notifBadge').length && !window.__NOTIF_POLL_ACTIVE__) {
     window.__NOTIF_POLL_ACTIVE__ = true;
@@ -291,6 +311,7 @@ $(function () {
           var sosData = JSON.parse(decodeURIComponent(rawSos));
           if (typeof openSosDetailsModal === 'function') {
             openSosDetailsModal(sosData);
+            markNotificationRead(id);
           }
         } catch (err) {
           console.warn('[Notifications] Failed to parse SOS details:', err);
@@ -299,21 +320,14 @@ $(function () {
       return;
     }
 
-    // Regular notification link
-    if (id) {
-      var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
-      $.post(base + '/api/notifications.php', {
-        action: 'mark_read',
-        id: id,
-        csrf_token: $('meta[name="csrf-token"]').attr('content')
-      });
-    }
-
-    if (!href || href === '#' || href === 'javascript:void(0)') {
-      e.preventDefault();
-      var targetUrl = getNotificationPageUrl() + (id ? '?id=' + encodeURIComponent(id) : '');
-      window.location.href = targetUrl;
-    }
+    // Read state is persisted before navigating, including the badge refresh.
+    e.preventDefault();
+    var destination = (!href || href === '#' || href === 'javascript:void(0)')
+      ? getNotificationPageUrl() + (id ? '?id=' + encodeURIComponent(id) : '') : href;
+    markNotificationRead(id, function (error) {
+      if (error) { $('#notificationActionStatus').text(error); return; }
+      window.location.href = destination;
+    });
   });
 
   // Accept SOS
@@ -565,6 +579,8 @@ function escapeHtml(text) {
 // Notifications
 // ================================================================
 function loadNotifications() {
+  if (window.__notificationRequestPending) { window.__notificationRefreshQueued = true; return; }
+  window.__notificationRequestPending = true;
   var base = (typeof APP_URL !== 'undefined' && APP_URL) ? APP_URL : (window.location.origin + '/bpc_clinic_system');
   var notifPageUrl = typeof window.getNotificationPageUrl === 'function'
     ? window.getNotificationPageUrl()
@@ -577,14 +593,16 @@ function loadNotifications() {
 
     // Show the badge when there are unread notifications (red indicator)
     if (unread > 0) {
-      $badge.text(unread).removeClass('d-none');
+      $badge.text(unread > 99 ? '99+' : unread).removeClass('d-none');
+      $('#notificationBell').attr('aria-label', unread + ' unread notifications');
     } else {
       $badge.addClass('d-none');
+      $('#notificationBell').attr('aria-label', 'Notifications, no unread notifications');
     }
 
     const $list = $('#notifList').empty();
     if (!res.data || res.data.length === 0) {
-      $list.append('<li><a class="dropdown-item text-muted small text-center" href="#">No notifications</a></li>');
+      $list.append('<li><a class="dropdown-item text-muted small text-center" href="#">No new notifications.</a></li>');
     } else {
       const userRole = (window.MICA_USER && window.MICA_USER.role)
         || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role'))
@@ -593,6 +611,9 @@ function loadNotifications() {
 
       res.data.slice(0, 12).forEach(function (n) {
         const timeAgo = (typeof timeSince === 'function') ? timeSince(n.created_at || '') : 'Just now';
+        const unreadItem = Number(n.is_read) === 0;
+        const metaSafe = escapeHtml(n.type_label || n.type || 'Notification');
+        const readControls = '<div class="notif-row-meta"><span>' + metaSafe + ' / ' + (unreadItem ? 'Unread' : 'Read') + '</span>' + (unreadItem ? '<button type="button" class="notif-mark-read" data-id="' + encodeURIComponent(n.id) + '">Mark as Read</button>' : '') + '</div>';
         const isSos = n.type === 'emergency' && n.sos && n.sos.emergency_id;
         const titleSafe = escapeHtml(n.title || 'Notification');
         const msgSafe = escapeHtml(n.message || '');
@@ -608,7 +629,7 @@ function loadNotifications() {
           const sosEl = document.createElement('li');
           const sosJson = encodeURIComponent(JSON.stringify(sos));
           sosEl.innerHTML =
-            `<a href="#" class="dropdown-item notif-dropdown-item sos-notif-item ${n.is_read ? '' : 'unread'}"
+            `<a href="#" class="dropdown-item notif-dropdown-item sos-notif-item ${unreadItem ? 'unread' : ''}"
                 data-id="${notifId}"
                 data-sos="${sosJson}">
                <div class="d-flex align-items-start gap-2">
@@ -619,13 +640,14 @@ function loadNotifications() {
                    <div class="small fw-semibold text-danger">${titleSafe}</div>
                    <div class="text-muted" style="font-size:.75rem">${msgSafe}</div>
                    <div class="d-flex align-items-center gap-2 mt-1">
-                     <span class="badge bg-danger" style="font-size:.6rem;">${statusLabel}</span>
+                     <span class="badge bg-danger" style="font-size:.6rem;">${escapeHtml(statusLabel)}</span>
                      ${hasLocation ? '<span class="badge bg-primary" style="font-size:.6rem;"><i class="bi bi-geo-alt-fill me-1"></i>GPS</span>' : ''}
-                     <span class="text-muted" style="font-size:.65rem">${timeAgo}</span>
+                     <span class="text-muted" style="font-size:.65rem">${escapeHtml(timeAgo)}</span>
                    </div>
                  </div>
                </div>
              </a>`;
+          sosEl.insertAdjacentHTML('beforeend', readControls);
           $list.append(sosEl);
         } else {
           // ---- Regular notification ----
@@ -638,35 +660,38 @@ function loadNotifications() {
                 : 'background:var(--info);';
 
           let link = n.link;
+          try { if (link && new URL(link, window.location.href).origin !== window.location.origin) link = null; } catch (error) { link = null; }
           if (!link || link === '#' || link === 'javascript:void(0)') {
             link = notifPageUrl + (notifId ? '?id=' + notifId : '');
           }
 
           $list.append(
-            `<li><a class="dropdown-item notif-dropdown-item notif-link ${n.is_read ? '' : 'unread'}" href="${escapeHtml(link)}" data-id="${notifId}">
+            `<li><a class="dropdown-item notif-dropdown-item notif-link ${unreadItem ? 'unread' : ''}" href="${escapeHtml(link)}" data-id="${notifId}">
                <div class="d-flex align-items-start gap-2">
                  <div class="mt-1 flex-shrink-0">
                    <span class="notif-dot" style="${dotColor}"></span>
                  </div>
                  <div class="flex-grow-1">
-                   <div class="small fw-semibold ${n.is_read ? '' : 'text-primary'}">${titleSafe}</div>
+                   <div class="small fw-semibold ${unreadItem ? 'text-primary' : ''}">${titleSafe}</div>
                    <div class="text-muted" style="font-size:.75rem">${msgSafe}</div>
-                   <div class="text-muted" style="font-size:.65rem">${timeAgo}</div>
+                   <div class="text-muted" style="font-size:.65rem" title="${escapeHtml(n.created_at || '')}">${escapeHtml(timeAgo)} / ${escapeHtml(n.created_at || '')}</div>
                  </div>
                </div>
-             </a></li>`
+             </a>${readControls}</li>`
           );
         }
       });
 
-      // Always show a "View all notifications" link to the full Notification Center.
-      $list.append('<li><hr class="dropdown-divider"></li>');
-      $list.append(`<li><a class="dropdown-item text-center small text-primary" href="${notifPageUrl}"><i class="bi bi-bell me-1"></i>View all notifications</a></li>`);
+
     }
   }, 'json').fail(function (xhr, status, err) {
     if (window.console && console.debug) {
       console.debug('[Notifications] Poll failed (will retry):', status, err);
+      $('#notificationActionStatus').text('Unable to refresh notifications. Retrying automatically.');
     }
+  }).always(function () {
+    window.__notificationRequestPending = false;
+    if (window.__notificationRefreshQueued) { window.__notificationRefreshQueued = false; loadNotifications(); }
   });
 }
 
@@ -680,11 +705,11 @@ function openSosDetailsModal(sos) {
 
   var isStaff = (window.MICA_USER && (window.MICA_USER.role === 'nurse' || window.MICA_USER.role === 'admin'));
 
-  var studentName = [sos.first_name, sos.last_name].filter(Boolean).join(' ') || 'Unknown Student';
-  var hasGps = sos.latitude != null && sos.longitude != null && sos.latitude !== '' && sos.longitude !== '';
+  var studentName = [sos.first_name, sos.last_name].filter(Boolean).join(' ') || 'Unknown reporter';
+  var hasGps = bpcSosHasGps(sos);
   var mapsUrl = hasGps ? 'https://www.google.com/maps?q=' + encodeURIComponent(sos.latitude + ',' + sos.longitude) : '#';
   var isManual = sos.location_source === 'manual' || (!hasGps && sos.location);
-  var statusLabels = { active: 'Active', responded: 'Responded', resolved: 'Resolved', false_alarm: 'False Alarm' };
+  var statusLabels = { new:'New', active:'Active', acknowledged:'Accepted', responding:'Responding', responded:'Responded', resolved:'Resolved', cancelled:'Cancelled', false_alarm:'False Alarm' };
   var statusColors = { active: 'danger', responded: 'warning text-dark', resolved: 'success', false_alarm: 'secondary' };
   var statusBadge = '<span class="badge bg-' + (statusColors[sos.sos_status] || 'secondary') + '">' + (statusLabels[sos.sos_status] || (sos.sos_status || 'Unknown')) + '</span>';
   var contact = sos.contact_number || sos.phone || sos.mobile || sos.reporter_phone || 'N/A';
@@ -696,10 +721,10 @@ function openSosDetailsModal(sos) {
   if (hasGps) {
     var latF = Number(sos.latitude).toFixed(6);
     var lngF = Number(sos.longitude).toFixed(6);
-    var accLabel = sos.location_accuracy ? 'Accuracy: ±' + escapeHtml(sos.location_accuracy) : 'Accuracy: ±8 meters';
+    var accLabel = escapeHtml(bpcSosAccuracyLabel(sos.location_accuracy));
     locationHtml =
       '<div class="p-3 bg-light rounded-3 border border-danger-subtle">' +
-        '<div class="fw-bold text-danger mb-1"><i class="bi bi-crosshair me-1"></i> Current Location (Live GPS):</div>' +
+        '<div class="fw-bold text-danger mb-1"><i class="bi bi-crosshair me-1"></i> Reported GPS estimate:</div>' +
         '<div class="fs-6 fw-bold text-dark mb-1">' + latF + ', ' + lngF + '</div>' +
         '<div class="small text-muted mb-2">' + accLabel + ' · Updated: ' + (timeLabel || 'Just now') + '</div>' +
         '<a href="' + mapsUrl + '" target="_blank" rel="noopener" class="btn btn-sm btn-danger">' +
@@ -726,7 +751,7 @@ function openSosDetailsModal(sos) {
     '</div>' +
     '<hr>' +
     '<div class="row g-2 small">' +
-      '<div class="col-6"><div class="text-muted">Student ID</div><div class="fw-semibold">' + escapeHtml(sos.student_number || 'N/A') + '</div></div>' +
+      '<div class="col-6"><div class="text-muted">Student / Employee ID</div><div class="fw-semibold">' + escapeHtml(sos.student_number || sos.employee_id || 'N/A') + '</div></div>' +
       '<div class="col-6"><div class="text-muted">Course</div><div class="fw-semibold">' + escapeHtml(sos.course || 'N/A') + '</div></div>' +
       '<div class="col-6"><div class="text-muted">Year Level</div><div class="fw-semibold">' + escapeHtml(sos.year_level || 'N/A') + '</div></div>' +
       '<div class="col-6"><div class="text-muted">Contact Number</div><div class="fw-semibold">' + escapeHtml(contact) + '</div></div>' +
@@ -741,6 +766,7 @@ function openSosDetailsModal(sos) {
       locationHtml +
     '</div>';
 
+  html += '<hr><div class="small">Role: ' + escapeHtml(sos.reporter_role || 'Unknown') + '<br>Responder: ' + escapeHtml(sos.responder_name || 'Unassigned') + '<br>Accepted: ' + escapeHtml(sos.acknowledged_at || 'Pending') + '<br>Responding: ' + escapeHtml(sos.responded_at || 'Pending') + '</div>';
   $('#sosDetailsBody').html(html);
 
   // Store the full SOS object + emergency id for Accept/Resolve
@@ -753,14 +779,16 @@ function openSosDetailsModal(sos) {
   var $acceptBtn = $('#sosAcceptBtn');
   var $resolveBtn = $('#sosResolveBtn');
   var status = sos.sos_status || 'active';
+  $acceptBtn.toggle(['new','active'].includes(status));
+  $resolveBtn.toggle(!['resolved','cancelled','false_alarm'].includes(status));
 
-  if (isStaff) {
+  if (isStaff && sos.can_respond !== false) {
     $footer.show();
     // Disable actions appropriately based on status
-    if (status === 'resolved' || status === 'false_alarm') {
+    if (['resolved','cancelled','false_alarm'].includes(status)) {
       $acceptBtn.prop('disabled', true).addClass('disabled');
       $resolveBtn.prop('disabled', true).addClass('disabled');
-    } else if (status === 'responded') {
+    } else if (['acknowledged','responding','responded'].includes(status)) {
       $acceptBtn.prop('disabled', true).addClass('disabled');
       $resolveBtn.prop('disabled', false).removeClass('disabled');
     } else {
@@ -779,37 +807,43 @@ function openSosDetailsModal(sos) {
 // ================================================================
 // SOS — Accept / Resolve
 // ================================================================
-function updateSosStatus(status) {
+async function bpcSosAction(emergencyId, operation, buttons) {
+  if (bpcSosAction.pending) return null;
+  bpcSosAction.pending = true;
+  var $buttons = $(buttons); $buttons.prop('disabled', true);
+  var buttonSnapshots = [];
+  document.querySelectorAll(buttons).forEach(function(button){buttonSnapshots.push([button,button.innerHTML]);button.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span> Updating...';});
+  try {
+    var notes = '';
+    if (operation === 'resolve') {
+      var answer = await Swal.fire({title: 'Resolve this SOS?', input: 'textarea', inputLabel: 'Resolution notes', showCancelButton: true,
+        inputValidator: function(value) { if (!value || !value.trim()) return 'Enter resolution notes.'; }});
+      if (!answer.isConfirmed) return null;
+      notes = answer.value.trim();
+    }
+    var response;
+    try {
+      response = await fetch(APP_URL + '/api/emergencies.php', {method: 'POST', credentials: 'same-origin',
+        headers: {'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({action:'update_status', emergency_id:emergencyId, op:operation === 'accept' ? 'accept' : operation,
+          resolution_notes:notes, csrf_token:$('meta[name="csrf-token"]').attr('content') || ''})});
+    } catch (error) { throw new Error('Connection lost. Check the emergency status before retrying.'); }
+    var result;
+    try { result = await response.json(); } catch (error) { throw new Error('The server returned an unreadable response (HTTP ' + response.status + '). Refresh to check the current status.'); }
+    if (!response.ok || !result.success) throw new Error(result.message || 'Emergency update failed (HTTP ' + response.status + ').');
+    if (typeof loadNotifications === 'function') loadNotifications();
+    window.dispatchEvent(new Event('bpc-sos-updated'));
+    Swal.fire({icon:'success',title:'SOS updated',text:result.message,timer:2000});
+    return result;
+  } catch (error) { Swal.fire({icon:'error',title:'Emergency update failed',text:error.message}); return null; }
+  finally { bpcSosAction.pending = false; buttonSnapshots.forEach(function(snapshot){snapshot[0].innerHTML=snapshot[1];}); $buttons.prop('disabled', false); }
+}
+async function updateSosStatus(status) {
   var modalEl = document.getElementById('sosDetailsModal');
   if (!modalEl) return;
-  var emergencyId = $(modalEl).data('emergency-id');
-  if (!emergencyId) return;
-
-  var $btn = status === 'accept' ? $('#sosAcceptBtn') : $('#sosResolveBtn');
-  var originalHtml = $btn.html();
-  $btn.html('<span class="spinner-border spinner-border-sm me-1"></span> Updating...').prop('disabled', true);
-
-  $.post(APP_URL + '/api/ai_assistant.php', {
-    action: 'sos_update_status',
-    emergency_id: emergencyId,
-    status: status,
-    csrf_token: $('meta[name="csrf-token"]').attr('content')
-  }, function (res) {
-    $btn.html(originalHtml).prop('disabled', false);
-    if (res && res.success) {
-      Swal.fire({ icon: 'success', title: 'SOS ' + (status === 'accept' ? 'Accepted' : 'Resolved'), text: res.message || 'Status updated.', timer: 3000, timerProgressBar: true });
-      // Refresh notifications & re-render the modal with the updated status
-      loadNotifications();
-      var sos = { ...($(modalEl).data('sos') || {}), sos_status: status === 'accept' ? 'responded' : 'resolved' };
-      $(modalEl).data('sos', sos);
-      openSosDetailsModal(sos);
-    } else {
-      Swal.fire({ icon: 'error', title: 'Error', text: (res && res.message) || 'Failed to update SOS status.' });
-    }
-  }, 'json').fail(function () {
-    $btn.html(originalHtml).prop('disabled', false);
-    Swal.fire({ icon: 'error', title: 'Error', text: 'Network error. Please try again.' });
-  });
+  var sos = $(modalEl).data('sos') || {};
+  var result = await bpcSosAction($(modalEl).data('emergency-id'), status, '#sosAcceptBtn, #sosResolveBtn');
+  if (result) openSosDetailsModal(Object.assign({}, sos, result, {sos_status:result.status}));
 }
 
 // ================================================================
@@ -1130,3 +1164,13 @@ $(document).on('change', '#picInput', function () {
     reader.readAsDataURL(file);
   }
 });
+
+function bpcSosHasGps(sos) {
+  return sos.latitude !== null && sos.longitude !== null && sos.latitude !== '' && sos.longitude !== '' &&
+    Number.isFinite(Number(sos.latitude)) && Number.isFinite(Number(sos.longitude)) && Math.abs(Number(sos.latitude)) <= 90 && Math.abs(Number(sos.longitude)) <= 180;
+}
+function bpcSosAccuracyLabel(value) {
+  var accuracy = parseFloat(value);
+  if (!Number.isFinite(accuracy) || accuracy < 0) return 'Accuracy unknown; location is approximate.';
+  return 'Accuracy: �' + accuracy.toLocaleString() + ' meters' + (accuracy > 100 ? '. Poor accuracy; confirm the location with the reporter.' : '.');
+}

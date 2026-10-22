@@ -1,0 +1,310 @@
+﻿<?php
+/**
+ * auth/register.php
+ * ------------------------------------------------------------------
+ * Unified Medical Self-Registration System for BPC School Clinic.
+ * Supports dedicated self-registration for EXACTLY 4 roles:
+ *   1. Student
+ *   2. Teacher
+ *   3. Nurse
+ *   4. Administrator
+ * ------------------------------------------------------------------
+ */
+require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/ai/MICARegistrationValidator.php';
+require_once __DIR__ . '/../includes/mail.php';
+
+// Prevent caching of authentication pages
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
+
+if (is_logged_in()) {
+    redirect(dashboard_url_for(current_user()['role']));
+}
+
+$db = getDB();
+$errors = [];
+$old = $_POST ?? [];
+
+// Determine default role selection from GET/POST
+$rawRoleReq = strtolower(trim($_REQUEST['role'] ?? $_REQUEST['type'] ?? $_REQUEST['account_type'] ?? 'student'));
+// Admin accounts are NOT available via public registration.
+// Admin accounts are created exclusively from the Admin Dashboard.
+$roleNormMap = [
+    'student'       => 'student',
+    'teacher'       => 'teacher',
+    'nurse'         => 'nurse',
+];
+$selectedRole = $roleNormMap[$rawRoleReq] ?? 'student';
+
+/** Helper function for safe registration file uploads */
+if (!function_exists('upload_registration_file')) {
+    function upload_registration_file($fileKey, $destFolder, $prefix, $allowedMimes = ['image/jpeg','image/png','image/webp']) {
+        if (empty($_FILES[$fileKey]) || $_FILES[$fileKey]['error'] !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        $file = $_FILES[$fileKey];
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+
+        if (!in_array($mimeType, $allowedMimes, true)) {
+            return null;
+        }
+
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $filename = $prefix . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+        $destRel = $destFolder . '/' . $filename;
+        $destAbs = BASE_PATH . '/' . $destRel;
+        $dir = dirname($destAbs);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        if (move_uploaded_file($file['tmp_name'], $destAbs)) {
+            return $destRel;
+        }
+        return null;
+    }
+}
+
+// Fetch active sections grouped for teacher advisory selection and student course selection
+$sectionsQuery = $db->query("SELECT id, name, course, year_level FROM sections WHERE status = 'active' AND name != 'Unassigned' ORDER BY course, year_level, name");
+$allSections = $sectionsQuery ? $sectionsQuery->fetchAll(PDO::FETCH_ASSOC) : [];
+$sectionsByCourse = [];
+foreach ($allSections as $s) {
+    $c = !empty($s['course']) ? $s['course'] : 'General';
+    $sectionsByCourse[$c][] = $s;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify_or_die();
+
+    $rawRole = strtolower(trim($_POST['account_type'] ?? $_POST['role'] ?? 'student'));
+
+    if (!isset($roleNormMap[$rawRole])) {
+        $errors[] = 'Invalid account type selected. Please choose Student, Teacher, or Nurse.';
+        $role = 'student';
+    } else {
+        $role = $roleNormMap[$rawRole];
+    }
+
+    $selectedRole = $role;
+
+    // Common fields
+    $firstName   = trim($_POST['first_name'] ?? '');
+    $middleName  = trim($_POST['middle_name'] ?? '');
+    $lastName    = trim($_POST['last_name'] ?? '');
+    $email       = trim($_POST['email'] ?? '');
+    $username    = trim($_POST['username'] ?? '');
+    $password    = $_POST['password'] ?? '';
+    $confirm     = $_POST['confirm_password'] ?? '';
+    $contact     = trim($_POST['contact_number'] ?? '');
+    $gender      = trim($_POST['gender'] ?? '');
+    $dob         = trim($_POST['date_of_birth'] ?? '');
+
+    // Process file uploads first so validator can evaluate uploaded ID
+    $profilePicRel = upload_registration_file('profile_picture', 'assets/images/profiles', 'user', ['image/jpeg','image/png','image/webp'])
+                     ?: 'assets/images/default-avatar.png';
+    $validIdRel = upload_registration_file('valid_id', 'assets/images/student_ids', 'valid_id', ['image/jpeg','image/png','image/webp','application/pdf']);
+
+    // MICA Intelligent Registration Validation
+    $validator = new MICARegistrationValidator($db);
+    $validation = $validator->validateRegistration($_POST, !empty($validIdRel));
+
+    if (!empty($validation['errors'])) {
+        $errors = $validation['errors'];
+    } elseif ($validation['decision'] === 'rejected') {
+        $errors[] = $validation['reason'] ?: 'Registration rejected based on automated credential validation.';
+    }
+
+    if (!$errors) {
+        try {
+            $db->beginTransaction();
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+
+            // Generate 6-Digit Cryptographic OTP for institutional email ownership verification
+            $otpCode      = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+            $otpHash      = hash('sha256', $otpCode);
+            $otpExpiresAt = date('Y-m-d H:i:s', time() + 600); // 10 minutes
+
+            // Administrator self-registrations are always queued as co_admin for administrative review
+            $adminType = ($role === 'admin') ? 'co_admin' : null;
+            $decision = ($role === 'admin') ? 'review' : $validation['decision'];
+            $accountStatus = 'pending';
+            $regStatus     = ($decision === 'approved') ? 'approved' : 'review';
+            $valReason     = ($role === 'admin') ? 'Administrator self-registration awaiting institutional approval' : $validation['reason'];
+            $valConfidence = $validation['confidence'];
+            $riskLevel     = $validation['risk_level'] ?? 'low';
+
+            // All accounts are saved with email_verified = 0 and status = 'pending' until OTP verification completes
+            $stmt = $db->prepare("
+                INSERT INTO users (
+                    role, admin_type, username, email, password_hash, first_name, middle_name, last_name, 
+                    gender, date_of_birth, phone, profile_picture, status, email_verified,
+                    otp_hash, otp_expires_at, otp_attempts, otp_last_sent_at, risk_level,
+                    registration_status, validation_reason, validation_confidence
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, 
+                    ?, ?, ?, ?, 'pending', 0,
+                    ?, ?, 0, NOW(), ?,
+                    ?, ?, ?
+                )
+            ");
+            $stmt->execute([
+                $role,
+                $adminType,
+                $username,
+                $email,
+                $hash,
+                $firstName,
+                $middleName ?: null,
+                $lastName,
+                $gender ?: null,
+                $dob ?: null,
+                $contact ?: null,
+                $profilePicRel,
+                $otpHash,
+                $otpExpiresAt,
+                $riskLevel,
+                $regStatus,
+                $valReason,
+                $valConfidence
+            ]);
+            $userId = (int)$db->lastInsertId();
+
+            if ($role === 'student') {
+                $studentNo = $validation['metadata']['student_number'] ?? trim($_POST['student_number'] ?? '');
+                $course    = $validation['metadata']['course'] ?? trim($_POST['course'] ?? '');
+                $yearLevel = $validation['metadata']['year_level'] ?? trim($_POST['year_level'] ?? '');
+                $section   = $validation['metadata']['section'] ?? trim($_POST['section'] ?? '');
+                $emergName = trim($_POST['emergency_contact_name'] ?? '');
+                $emergNum  = trim($_POST['emergency_contact_number'] ?? '');
+                $bloodType = trim($_POST['blood_type'] ?? '');
+                $allergies = trim($_POST['allergies'] ?? '');
+
+                $stmt = $db->prepare("
+                    INSERT INTO students (
+                        user_id, student_number, course, year_level, section,
+                        emergency_contact_name, emergency_contact_number, blood_type, allergies, valid_id_path
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $userId,
+                    $studentNo,
+                    $course ?: null,
+                    $yearLevel ?: null,
+                    $section ?: null,
+                    $emergName ?: null,
+                    $emergNum ?: null,
+                    $bloodType ?: null,
+                    $allergies ?: null,
+                    $validIdRel
+                ]);
+                $studentId = (int)$db->lastInsertId();
+
+                log_activity($userId, 'Initiated student registration (pending OTP verification)', 'auth');
+
+            } elseif ($role === 'teacher') {
+                $employeeId = $validation['metadata']['employee_id'] ?? trim($_POST['employee_id'] ?? '');
+                $department = $validation['metadata']['department'] ?? trim($_POST['department'] ?? '');
+                $emergName = trim($_POST['teacher_emergency_contact_name'] ?? '');
+                $emergNum = trim($_POST['teacher_emergency_contact_number'] ?? '');
+                $bloodType = trim($_POST['teacher_blood_type'] ?? '');
+                $allergies = trim($_POST['teacher_allergies'] ?? '');
+
+                $stmt = $db->prepare("
+                    INSERT INTO teachers (user_id, employee_id, first_name, last_name, department, email, phone, emergency_contact_name, emergency_contact_number, blood_type, allergies)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $userId,
+                    $employeeId,
+                    $firstName,
+                    $lastName,
+                    $department ?: null,
+                    $email,
+                    $contact ?: null,
+                    $emergName ?: null,
+                    $emergNum ?: null,
+                    $bloodType ?: null,
+                    $allergies ?: null
+                ]);
+
+                // Store requested advisory sections (up to 3) as inactive until admin approval
+                $requestedSections = $_POST['teacher_sections'] ?? [];
+                if (is_array($requestedSections)) {
+                    $requestedSections = array_slice(array_map('intval', $requestedSections), 0, 3);
+                    $secStmt = $db->prepare("
+                        INSERT INTO advisory_assignments (teacher_id, section_id, school_year, status, self_managed)
+                        VALUES (?, ?, '2026-2027', 'inactive', 1)
+                    ");
+                    foreach ($requestedSections as $secId) {
+                        if ($secId > 0) {
+                            $secStmt->execute([$userId, $secId]);
+                        }
+                    }
+                }
+
+                log_activity($userId, 'Initiated teacher registration with advisory sections (pending OTP & Admin approval)', 'auth');
+
+            } elseif ($role === 'nurse') {
+                $employeeId    = $validation['metadata']['employee_id'] ?? trim($_POST['employee_id'] ?? '');
+                $licenseNumber = $validation['metadata']['license_number'] ?? trim($_POST['license_number'] ?? '');
+                $position = trim($_POST['nurse_position'] ?? '');
+                $emergName = trim($_POST['nurse_emergency_contact_name'] ?? '');
+                $emergNum = trim($_POST['nurse_emergency_contact_number'] ?? '');
+
+                $stmt = $db->prepare("
+                    INSERT INTO nurses (user_id, employee_id, license_number, position, emergency_contact_name, emergency_contact_number, gender, date_of_birth, contact_number, valid_id_path, profile_picture)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $userId,
+                    $employeeId ?: null,
+                    $licenseNumber ?: null,
+                    $position ?: null,
+                    $emergName ?: null,
+                    $emergNum ?: null,
+                    $gender ?: null,
+                    $dob ?: null,
+                    $contact ?: null,
+                    $validIdRel,
+                    $profilePicRel
+                ]);
+
+                log_activity($userId, 'Initiated nurse registration (pending OTP verification)', 'auth');
+
+            } elseif ($role === 'admin') {
+                log_activity($userId, 'Initiated administrator registration (pending OTP verification)', 'auth', 'Administrator: ' . $username);
+            }
+
+            // If account decision is 'review', pre-queue AI action item for administrators
+            if ($decision === 'review') {
+                $validator->logReviewAction($userId, $validation);
+            }
+
+            // Dispatch One-Time Password to authorized email
+            $fullName = trim($firstName . ' ' . $lastName);
+            send_registration_otp_email($email, $otpCode, $fullName, $role);
+
+            // Store session verification reference
+            $_SESSION['pending_verification_user_id'] = $userId;
+
+            $db->commit();
+            redirect('verify_registration.php');
+
+        } catch (Exception $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            error_log('Registration error: ' . $e->getMessage());
+            $errors[] = 'Something went wrong while initiating your registration. Please try again.';
+        }
+    }
+}
+
+$pageTitle = 'Create an Account';
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<?php $loadRegistrationStyles = true; ?>

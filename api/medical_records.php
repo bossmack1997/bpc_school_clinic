@@ -5,6 +5,7 @@ header('Content-Type: application/json');
 
 $db = getDB();
 $user = current_user();
+if($user['role']==='admin'&&!has_permission('clinical_records_read',$user))admin_access_denied('Clinical records and dispensing are restricted to authorized clinic staff.');
 $action = $_REQUEST['action'] ?? '';
 
 if ($action === 'list') {

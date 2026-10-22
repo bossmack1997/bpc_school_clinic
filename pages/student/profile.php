@@ -246,8 +246,12 @@ $pageTitle = 'My Profile';
           toastError(res.message);
         }
       },
-      error: function () {
-        toastError('Failed to upload profile picture.');
+      error: function (xhr) {
+        const message = xhr.responseJSON && xhr.responseJSON.message
+          ? xhr.responseJSON.message
+          : 'Failed to upload profile picture. Refresh the page and try again.';
+        toastError(message);
+        $('#pictureInput').val('');
       }
     });
   });

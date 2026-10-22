@@ -28,11 +28,29 @@ class MICAWorkflowService
      */
     public function handleNaturalLanguageQuery(string $message): ?array
     {
-        $role = $this->user['role'] ?? 'student';
+        $profile=permission_profile($this->user,$this->db);
+        if($profile==='mis'){
+            require_once __DIR__.'/../system_monitoring.php';
+            $system=(new SystemMonitoringService($this->db))->summary();
+            if(preg_match('/(patient|diagnos|consultation|medicine|inventory|stock|sos|emergenc|clinical)/i',$message))return ['handled'=>true,'type'=>'access_denied','reply'=>'MIS assistance is limited to system health, accounts, authentication, security and backups. Clinical information requires a verified clinical profile.'];
+            if(preg_match('/(account|registration|user|pending|login|security|backup|system|health)/i',$message))return ['handled'=>true,'type'=>'technical_grounded','reply'=>'Verified MIS monitoring (as of '.$system['generated_at'].'): '.json_encode($system)];
+        }
+        if($profile==='doctor' && preg_match('/(account|registration|password|backup|security polic|server|database)/i',$message))return ['handled'=>true,'type'=>'access_denied','reply'=>'Technical administration and account governance require MIS authorization.'];
+        $role = canonical_role($this->user['role'] ?? 'student');
         $msg = mb_strtolower(trim($message));
 
+        if (in_array($role,['admin','nurse'],true) && preg_match('/(visit|patient|consultation).*(today)|today.*(visit|patient|consultation)/i',$msg)) {
+            $count=(int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE consultation_date >= CURDATE() AND consultation_date < CURDATE()+INTERVAL 1 DAY")->fetchColumn();
+            return ['handled'=>true,'reply'=>"Verified consultations today: $count. This counts encounters, not unique patients. As of ".date('Y-m-d H:i:s').' Asia/Manila.','type'=>'daily_grounded'];
+        }
+        if (in_array($role,['admin','nurse'],true) && preg_match('/(issues?.*(attention|today)|attention.*today)/i',$msg)) {
+            require_once __DIR__.'/MICAActionService.php';
+            $rows=(new MICAActionService($this->db,$this->user))->getRecommendedActions(null,50);
+            return ['handled'=>true,'reply'=>"Active alerts visible to your role (last scan evidence): ".count($rows)."\n".implode("\n",array_column($rows,'title'))."\nRun an intelligence scan to refresh source verification.",'type'=>'alerts_grounded'];
+        }
+
         // 1. Low stock / reorder queries
-        if (preg_match('/(low(\s+in)?\s*stock|reorder|kailangan.*reorder|anong gamot.*reorder|paubos|ubos na|out of stock|running out|stock.*level)/i', $msg)) {
+        if (preg_match('/(low(\s+in)?\s*stock|reorder|kailangan.*reorder|anong gamot.*reorder|paubos|ubos na|out of stock|running out|stock.*level|medicine.*stock|inventory|requisition|printable.*medicine|medicine order|restock)/i', $msg)) {
             return $this->handleLowStockQuery($role);
         }
 
@@ -47,7 +65,7 @@ class MICAWorkflowService
         }
 
         // 4. User account / Pending account queries (Admin only)
-        if (preg_match('/(pending.*account|inactive.*account|active.*user|ilan.*user|ilan.*account|ilang.*estudyante|user.*count|how many.*account|how many.*user|how many.*active)/i', $msg)) {
+        if (preg_match('/(pending.*(?:account|registration)|registration.*pending|inactive.*account|active.*user|ilan.*user|ilan.*account|ilang.*estudyante|user.*count|how many.*account|how many.*user|how many.*active)/i', $msg)) {
             return $this->handleAccountQuery($role);
         }
 
@@ -57,7 +75,7 @@ class MICAWorkflowService
         }
 
         // 6. Emergency / SOS queries
-        if (preg_match('/(sos|emergency|emerhensya|saklolo)/i', $msg)) {
+        if (preg_match('/(sos|emergenc(?:y|ies)|emerhensya|saklolo)/i', $msg)) {
             return $this->handleEmergencyQuery($role);
         }
 
@@ -69,45 +87,17 @@ class MICAWorkflowService
      */
     private function handleLowStockQuery(string $role): array
     {
-        if ($role === 'student') {
-            return [
-                'handled' => true,
-                'reply'   => "**Confirmed:** The BPC Clinic maintains essential first-aid and over-the-counter wellness supplies for students.\n\n*If you need medical assistance or prescribed medication, please visit the clinic directly during open hours (Mon-Fri, 8:00 AM - 5:00 PM).*",
-                'type'    => 'student_med_info'
-            ];
+        if (!can_view_inventory($this->user,$this->db)) {
+            return ['handled' => true, 'reply' => 'Detailed inventory information is restricted to authorized clinic personnel.', 'type' => 'access_denied'];
         }
-
-        $stmt = $this->db->query("
-            SELECT id, medicine_name, generic_name, quantity, unit, reorder_level
-            FROM medicines
-            WHERE quantity <= reorder_level AND is_archived = 0
-            ORDER BY quantity ASC
-        ");
-        $lowMeds = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        if (!$lowMeds) {
-            return [
-                'handled' => true,
-                'reply'   => "**Confirmed:** All clinic medicines are currently above their respective minimum reorder thresholds.\n\n**Recommendation:** Standard inventory levels are optimal; routine replenishment checks continue automatically.",
-                'type'    => 'inventory_grounded'
-            ];
+        require_once __DIR__ . '/../medicine_inventory_service.php';
+        $low = MedicineInventoryService::low((new MedicineInventoryService($this->db))->snapshot());
+        $lines = ['Current verified low-stock inventory records: ' . count($low)];
+        foreach ($low as $m) {
+            $lines[] = $m['medicine_name'] . ': ' . $m['usable_stock'] . ' ' . $m['unit'] . '; minimum ' . ($m['reorder_level'] ?? 'not configured') . '; ' . $m['stock_status'];
         }
-
-        $lines = ["**Confirmed System Fact:** There are currently **" . count($lowMeds) . "** medicine item(s) at or below their reorder threshold:\n"];
-        foreach ($lowMeds as $m) {
-            $status = ($m['quantity'] <= 0) ? '**OUT OF STOCK**' : 'Low Stock';
-            $lines[] = "- **{$m['medicine_name']}** ({$m['generic_name']}): **{$m['quantity']} {$m['unit']}** remaining (Minimum Reorder Level: {$m['reorder_level']} {$m['unit']}) — $status";
-        }
-
-        $lines[] = "\n**AI-Generated Recommendation:**";
-        $lines[] = "A Medicine Reorder Request has been prepared in the **AI Action Center / Reorder Center** with estimated replenishment quantities based on recent clinic consumption rates.";
-        $lines[] = "\n*Action:* Please review, adjust quantities as needed, and approve the reorder slips.";
-
-        return [
-            'handled' => true,
-            'reply'   => implode("\n", $lines),
-            'type'    => 'inventory_grounded'
-        ];
+        $lines[] = 'Open Medicine Inventory in MICA to review or prepare a staff-confirmed requisition. Requested quantities require human confirmation; no order has been placed.';
+        return ['handled' => true, 'reply' => implode("\n", $lines), 'type' => 'inventory_grounded'];
     }
 
     /**
@@ -115,14 +105,15 @@ class MICAWorkflowService
      */
     private function handleExpirationQuery(string $role): array
     {
-        if ($role === 'student') {
+        if (in_array($role,['student','teacher'],true)) {
             return [
                 'handled' => true,
-                'reply'   => "**Confirmed:** All medications dispensed by the BPC Clinic are strictly verified for safety and valid expiration dates prior to issuance.",
+                'reply'   => 'Ask the nurse to verify medicine safety and expiration before use.',
                 'type'    => 'student_info'
             ];
         }
 
+        if(!can_view_inventory($this->user,$this->db))return ['handled'=>true,'reply'=>'Inventory access is not assigned to this account.','type'=>'access_denied'];
         $stmt = $this->db->query("
             SELECT id, medicine_name, quantity, unit, expiration_date,
                    DATEDIFF(expiration_date, CURDATE()) as days_left
@@ -173,13 +164,15 @@ class MICAWorkflowService
      */
     private function handleAppointmentQuery(string $role, string $msg): array
     {
-        if ($role === 'student') {
+        if($role==='admin')return ['handled'=>true,'reply'=>'Patient consultation details are available only through authorized clinical workflows.','type'=>'access_denied'];
+        if (in_array($role,['student','teacher'],true)) {
+            $portal=$role==='teacher'?'adviser':'student';
             return [
                 'handled' => true,
                 'reply'   => "**Clinic Consultation Information:**\n\n" .
                              "- **Direct Walk-ins Welcome:** You do not need to book an advance appointment to visit the BPC School Clinic. Walk-in consultations and emergency care are available Monday to Friday from 8:00 AM to 5:00 PM.\n" .
-                             "- **QR Check-in:** Present your digital **QR Health Pass** (`pages/student/my_qr.php`) or Student ID upon arrival.\n" .
-                             "- **Direct Clinic Messaging:** If you have an inquiry or want to notify the nurse before visiting, open **Clinic Messages** (`pages/student/messages.php`).",
+                             "- **QR Check-in:** Present your digital **QR Health Pass** (`pages/{$portal}/my_qr.php`) or Student ID upon arrival.\n" .
+                             "- **Direct Clinic Messaging:** If you have an inquiry or want to notify the nurse before visiting, open **Clinic Messages** (`pages/{$portal}/messages.php`).",
                 'type'    => 'student_walkin_info'
             ];
         }
@@ -255,10 +248,10 @@ class MICAWorkflowService
      */
     private function handleClinicTrendQuery(string $role): array
     {
-        if ($role === 'student') {
+        if (in_array($role,['student','teacher'],true)) {
             return [
                 'handled' => true,
-                'reply'   => "**Clinic Utilization Info:** The clinic is typically busiest during mid-day lunch hours (11:30 AM - 1:30 PM). Visiting in morning hours (8:30 AM - 11:00 AM) usually has shorter queue times.",
+                'reply'   => "**Clinic Utilization Info:** Ask clinic staff about current queue conditions. Aggregate clinic demand data is restricted to authorized personnel.",
                 'type'    => 'student_trend_info'
             ];
         }
@@ -291,7 +284,7 @@ class MICAWorkflowService
             $lines[] = "*Insufficient historical visit categorization to generate top reason breakdown.*";
         }
 
-        $lines[] = "\n**AI Estimated Prediction:** Based on historical trends, clinic traffic peaks on Mondays and Thursdays between 10:00 AM - 2:00 PM.";
+
 
         return ['handled' => true, 'reply' => implode("\n", $lines), 'type' => 'trend_grounded'];
     }
@@ -301,10 +294,11 @@ class MICAWorkflowService
      */
     private function handleEmergencyQuery(string $role): array
     {
-        if ($role === 'student') {
+        if($role==='admin'&&permission_profile($this->user,$this->db)!=='doctor')return ['handled'=>true,'reply'=>'Use your authorized Emergency Management page for emergency coordination. MICA does not disclose patient emergency details.','type'=>'access_denied'];
+        if (in_array($role,['student','teacher'],true)) {
             return [
                 'handled' => true,
-                'reply'   => "**EMERGENCY ASSISTANCE:** If you are experiencing a medical emergency right now, please use the **RED SOS EMERGENCY BUTTON** on your screen or alert the nearest faculty/clinic staff immediately.\n\n*Clinic Emergency Hotline: Monitored 24/7 by BPC Health Services.*",
+                'reply'   => "**EMERGENCY ASSISTANCE:** If you are experiencing a medical emergency right now, please use the **RED SOS EMERGENCY BUTTON** on your screen or alert the nearest faculty/clinic staff immediately.",
                 'type'    => 'sos_info'
             ];
         }

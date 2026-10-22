@@ -165,7 +165,7 @@ class AIService
         }
 
         // 4. Build Live System & Database Context
-        $systemContext = $this->contextService->getSystemContextString();
+        $systemContext = $this->contextService->getSystemContextString((bool)preg_match('/(my|own|aking|ko).*(record|consultation|visit|health|bmi)|(record|consultation|bmi).*(ko|akin)/i',$message));
         $recentHistory = $this->chatHistory->getMessagesForPrompt(10);
 
         // 5. Build Structured Multi-Turn Prompt
@@ -198,7 +198,7 @@ class AIService
         }
 
         // 7. Fallback Response (Clean Factual Response if API is offline)
-        $fallbackReply = $this->generateRuleBasedFallback($message, $intent, $systemContext);
+        $fallbackReply = 'The AI provider is temporarily unavailable. Please retry, or use the clinic pages for verified records. For emergencies, use the SOS button directly.';
         $this->chatHistory->addMessage('user', $message);
         $this->chatHistory->addMessage('assistant', $fallbackReply);
 
@@ -229,7 +229,7 @@ class AIService
 
         return "Good day! I am **MICA**, the BPC Clinic Intelligence Assistant.\n\n"
              . "**Clinic Status Overview:**\n"
-             . "- Live clinic monitoring and automated intelligence routines are active.\n"
+             . "- Run an intelligence scan to verify the latest monitoring state.\n"
              . "- You can ask natural language questions regarding **low-stock medicines**, **expiring supplies**, **today's appointments**, or **clinic statistics**.\n\n"
              . "*Please let me know which operational records or recommendations you wish to inspect.*";
     }

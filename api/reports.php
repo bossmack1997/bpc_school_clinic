@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
 require_role(['admin', 'nurse']);
+if(current_user()['role']==='admin')require_admin_permission('view_reports');
 header('Content-Type: application/json');
 
 $db = getDB();
@@ -35,6 +36,7 @@ if ($action === 'generate') {
         $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     } elseif ($type === 'inventory') {
+        require_inventory_access();
         $title = 'Medicine Inventory & Usage Report';
         $stmt = $db->prepare("
             SELECT m.medicine_name, m.category, m.dosage, m.quantity AS stock_remaining,

@@ -28,7 +28,7 @@ $pageTitle = 'Patient Clinic History';
       <div class="row g-3">
         <div class="col-lg-4">
           <div class="card p-3 shadow-sm border-0">
-            <h6 class="section-title mb-3"><i class="bi bi-person-search text-success me-1"></i> Search Patient</h6>
+            <h6 class="section-title mb-3"><i class="bi bi-person-badge text-success me-1"></i> Search Patient</h6>
             <div class="mb-3">
               <label class="form-label small fw-semibold">Search Student</label>
               <input type="text" id="studentSearch" class="form-control" placeholder="Name or student number...">

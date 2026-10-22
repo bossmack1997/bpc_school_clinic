@@ -6,12 +6,21 @@ header('Content-Type: application/json');
 $db = getDB();
 $userId = current_user()['id'];
 $action = $_REQUEST['action'] ?? 'list';
+if (in_array($action, ['details','mark_read','mark_all_read','delete','delete_selected'], true)) {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); json_response(false, [], 'Use POST.'); }
+    csrf_verify_or_die();
+}
 
 /**
  * Enrich notification rows with SOS emergency details (for nurse/admin)
  * so the modal can render student info + GPS for emergency notifications.
  */
 function enrich_sos($db, array $notifications) {
+    if (!in_array(current_user()['role'] ?? '', ['admin','nurse'], true)) {
+        foreach ($notifications as &$notification) $notification['sos'] = null;
+        unset($notification); return $notifications;
+    }
+    if(current_user()['role']==='admin'&&!has_admin_permission('view_emergencies')){foreach($notifications as &$notification)$notification['sos']=null;unset($notification);return $notifications;}
     $sosIds = [];
     foreach ($notifications as $n) {
         if (!empty($n['sos_emergency_id'])) {
@@ -26,7 +35,8 @@ function enrich_sos($db, array $notifications) {
                 SELECT se.id AS emergency_id, se.emergency_type, se.description,
                        se.status AS sos_status, se.location, se.location_source,
                        se.latitude, se.longitude, se.location_accuracy, se.location_updated_at,
-                       se.source, se.reporter_role,
+                       se.source, adv_u.role AS reporter_role, se.assigned_to, se.acknowledged_at, t.employee_id,
+                       CONCAT(responder.first_name, ' ', responder.last_name) AS responder_name,
                        se.created_at AS sos_created_at, se.responded_at, se.resolved_at,
                        s.student_number, s.course, s.year_level, s.gender,
                        u.first_name, u.last_name, u.email, u.phone,
@@ -35,9 +45,12 @@ function enrich_sos($db, array $notifications) {
                 LEFT JOIN students s ON s.id = se.student_id
                 LEFT JOIN users u ON u.id = COALESCE(s.user_id, (CASE WHEN se.source = 'sos' THEN se.user_id ELSE NULL END))
                 LEFT JOIN users adv_u ON adv_u.id = se.user_id
+                LEFT JOIN teachers t ON t.user_id = se.user_id
+                LEFT JOIN users responder ON responder.id = COALESCE(se.assigned_to,se.responded_by,se.acknowledged_by)
                 WHERE se.id IN ($inList)
             ")->fetchAll();
             foreach ($rows as $row) {
+                $row['can_respond']=admin_can_respond_sos();
                 $sosMap[(int)$row['emergency_id']] = $row;
             }
         } catch (PDOException $e) {
@@ -55,14 +68,14 @@ function enrich_sos($db, array $notifications) {
 }
 
 // ================================================================
-// Bell: latest 5 notifications + unread count (for the dropdown)
+// Bell: latest 12 notifications + unread count (for the dropdown)
 // ================================================================
 if ($action === 'latest') {
     $stmt = $db->prepare("
         SELECT * FROM notifications
         WHERE user_id = ?
-        ORDER BY FIELD(type, 'emergency') DESC, created_at DESC
-        LIMIT 5
+        ORDER BY is_read ASC, created_at DESC, id DESC
+        LIMIT 12
     ");
     $stmt->execute([$userId]);
     $notifications = $stmt->fetchAll();
@@ -82,8 +95,8 @@ if ($action === 'list') {
     $filter   = $_GET['filter'] ?? 'all';   // all | unread | read | emergency | appointment | medicine | inventory | student
     $search   = trim($_GET['search'] ?? '');
     $sort     = $_GET['sort'] ?? 'newest';  // newest | oldest
-    $limit    = min((int)($_GET['limit'] ?? 20), 100);
-    $offset   = (int)($_GET['offset'] ?? 0);
+    $limit    = max(1, min((int)($_GET['limit'] ?? 20), 100));
+    $offset   = max(0, (int)($_GET['offset'] ?? 0));
 
     $where = "WHERE n.user_id = ?";
     $params = [$userId];
@@ -160,7 +173,7 @@ if ($action === 'list') {
 // Single notification details
 // ================================================================
 if ($action === 'details') {
-    $id = (int)($_GET['id'] ?? 0);
+    $id = (int)($_POST['id'] ?? 0);
     $db->prepare("UPDATE notifications SET is_read = 1, read_at = COALESCE(read_at, NOW()) WHERE id = ? AND user_id = ?")
        ->execute([$id, $userId]);
 

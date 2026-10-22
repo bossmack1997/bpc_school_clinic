@@ -20,6 +20,7 @@
 class MICARegistrationValidator
 {
     private ?PDO $db;
+    private $sendOtp;
 
     // Known institutional domains for Bulacan Polytechnic College
     private static array $institutionalDomains = [
@@ -47,9 +48,12 @@ class MICARegistrationValidator
         'fakemailgenerator.com'
     ];
 
-    public function __construct(?PDO $db = null)
+    public function __construct(?PDO $db = null, ?callable $sendOtp = null)
     {
         $this->db = $db;
+        $this->sendOtp = $sendOtp ?? 'send_registration_otp_email';
+        date_default_timezone_set('Asia/Manila');
+        if($db)$db->exec("SET time_zone='+08:00'");
     }
 
     /**
@@ -159,7 +163,7 @@ class MICARegistrationValidator
 
         if ($isInstitutionalEmail) {
             $confidence += 0.25;
-            $reasons[] = 'Verified institutional email domain (@' . $emailDomain . ')';
+            $reasons[] = 'Recognized institutional email domain (@' . $emailDomain . ')';
         } else {
             $confidence -= 0.05;
             $anomalies[] = 'Non-institutional email domain (@' . $emailDomain . ')';
@@ -302,10 +306,12 @@ class MICARegistrationValidator
             }
         }
 
+        $trustedIdentity = false;
         // 8. Institutional Roster Verification & Identity-to-Email Ownership Check
         if ($this->db && $identifier) {
-            $rosterCheck = $this->checkInstitutionalRoster($identifier, $role, $email, $firstName, $lastName);
+            $rosterCheck = $this->checkInstitutionalRoster($identifier, $role, $email, $firstName, $lastName, trim($data['license_number']??''));
             if ($rosterCheck['matched']) {
+                $trustedIdentity = true;
                 $confidence += 0.30;
                 $reasons[] = 'Institutional roster record matched (' . $rosterCheck['details'] . ')';
             } elseif ($rosterCheck['impersonation_flag']) {
@@ -339,50 +345,14 @@ class MICARegistrationValidator
         // Clamp confidence between 0.00 and 1.00
         $confidence = max(0.0, min(1.0, round($confidence, 2)));
 
-        // 10. Final Decision Matrix (VERIFIED / REVIEW / REJECTED)
-        if (!empty($errors)) {
-            $decision = 'rejected';
-            $finalReason = implode(' ', $errors);
+        // Identity and role eligibility decide access; heuristic confidence never grants a role.
+        if ($errors) {
+            $decision='rejected';$finalReason=implode(' ',$errors);
         } else {
-            if ($role === 'student') {
-                if ($confidence >= 0.70 && $riskLevel === 'low') {
-                    $decision = 'approved';
-                    $reasons[] = 'All student credential and identity criteria verified.';
-                } elseif ($confidence >= 0.50 && $riskLevel !== 'high') {
-                    $decision = 'approved';
-                    $reasons[] = 'Standard student registration criteria satisfied.';
-                } else {
-                    $decision = 'review';
-                    $reasons[] = 'Student registration flagged for administrative review due to credential uncertainty.';
-                }
-            } elseif ($role === 'teacher') {
-                if ($isInstitutionalEmail && $confidence >= 0.75 && $riskLevel === 'low') {
-                    $decision = 'approved';
-                    $reasons[] = 'Institutional faculty credentials verified.';
-                } else {
-                    $decision = 'review';
-                    $reasons[] = 'Faculty account queued for clinic administrative verification.';
-                }
-            } elseif ($role === 'nurse') {
-                if ($isInstitutionalEmail && $confidence >= 0.85 && $riskLevel === 'low') {
-                    $decision = 'approved';
-                    $reasons[] = 'Verified clinical nurse credentials and license.';
-                } else {
-                    $decision = 'review';
-                    $reasons[] = 'Nurse registration queued for PRC credential verification by Clinic Head.';
-                }
-            } else { // admin
-                // Administrative self-registration requires authorization.
-                $decision = 'review';
-                $reasons[] = 'Doctor/Admin account request requires authorization by the School Clinic Head.';
-            }
-
-            $finalReason = implode('; ', array_unique($reasons));
-            if (empty($finalReason)) {
-                $finalReason = 'Account evaluated via MICA Intelligent Registration Validator.';
-            }
+            $decision=$role!=='admin' && $trustedIdentity && $riskLevel!=='high'?'approved':'review';
+            $finalReason=implode('; ',array_unique($reasons));
+            $finalReason.=$decision==='approved'?'; Trusted roster identity and role matched; OTP ownership still required.':'; Trusted identity and role eligibility require authorized review.';
         }
-
         return [
             'decision'   => $decision,
             'confidence' => $confidence,
@@ -398,7 +368,7 @@ class MICARegistrationValidator
     /**
      * Cross-reference against institutional_roster table
      */
-    private function checkInstitutionalRoster(string $identifier, string $role, string $email, string $firstName, string $lastName): array
+    private function checkInstitutionalRoster(string $identifier, string $role, string $email, string $firstName, string $lastName, string $license = ''): array
     {
         $result = [
             'matched'            => false,
@@ -409,9 +379,10 @@ class MICARegistrationValidator
         ];
 
         try {
-            $stmt = $this->db->prepare("SELECT * FROM institutional_roster WHERE identifier = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT * FROM institutional_roster WHERE identifier = ?");
             $stmt->execute([$identifier]);
-            $record = $stmt->fetch(PDO::FETCH_ASSOC);
+            $records=$stmt->fetchAll(PDO::FETCH_ASSOC);
+            $record=count($records)===1?$records[0]:null;
 
             if (!$record) {
                 // Not in pre-seeded roster (allowed if pattern is valid)
@@ -432,6 +403,11 @@ class MICARegistrationValidator
                 return $result;
             }
 
+            $norm=fn($value)=>mb_strtolower(preg_replace('/\s+/u',' ',trim($value)));
+            if (!in_array($record['status']??'',['eligible','registered'],true) || $norm($record['first_name'])!==$norm($firstName) || $norm($record['last_name'])!==$norm($lastName) || ($role==='nurse' && (!$license || empty($record['license_number']) || strcasecmp(trim($record['license_number']),$license)!==0))) {
+                $result['error']='Trusted identity, active eligibility or nursing license did not match.';
+                return $result;
+            }
             // 3. Match confirmed
             $result['matched'] = true;
             $result['details'] = 'Official BPC Roster: ' . $record['first_name'] . ' ' . $record['last_name'] . ' (' . $record['role'] . ')';
@@ -448,11 +424,18 @@ class MICARegistrationValidator
      */
     public function verifyOtp(int $userId, string $enteredOtp): array
     {
+        if(!$this->db)return ['status'=>'error','message'=>'Verification is unavailable.'];
+        $this->db->beginTransaction();
+        try { $result=$this->verifyOtpLocked($userId,$enteredOtp); $this->db->commit(); return $result; }
+        catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+    }
+    private function verifyOtpLocked(int $userId, string $enteredOtp): array
+    {
         if (!$this->db || $userId <= 0) {
             return ['status' => 'error', 'message' => 'Invalid verification request.'];
         }
 
-        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1 FOR UPDATE");
         $stmt->execute([$userId]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -460,6 +443,7 @@ class MICARegistrationValidator
             return ['status' => 'error', 'message' => 'User not found.'];
         }
 
+        if ($user['status']!=='pending') return ['status'=>'blocked','message'=>'Account verification is unavailable for this account state.'];
         if ($user['email_verified']) {
             return ['status' => 'already_verified', 'message' => 'Email address is already verified.', 'user' => $user];
         }
@@ -474,8 +458,9 @@ class MICARegistrationValidator
             ];
         }
 
+        if (!preg_match('/^[0-9]{6}$/D',$enteredOtp) || empty($user['otp_hash']) || empty($user['otp_expires_at'])) return ['status'=>'invalid','message'=>'A valid current verification code is required.'];
         // Check expiration
-        if (!empty($user['otp_expires_at']) && strtotime($user['otp_expires_at']) < time()) {
+        if (!empty($user['otp_expires_at']) && strtotime($user['otp_expires_at']) <= time()) {
             return [
                 'status'  => 'expired',
                 'message' => 'Verification code has expired. Please request a new code.'
@@ -485,8 +470,10 @@ class MICARegistrationValidator
         // Verify OTP hash
         $enteredHash = hash('sha256', trim($enteredOtp));
         if (!hash_equals($user['otp_hash'] ?? '', $enteredHash)) {
+            require_once __DIR__.'/../account_monitoring.php';
+            AccountMonitoringService::event($this->db,'otp_failure',(string)$userId,'Incorrect OTP submitted.',$userId);
             $newAttempts = $user['otp_attempts'] + 1;
-            $this->db->prepare("UPDATE users SET otp_attempts = ? WHERE id = ?")->execute([$newAttempts, $userId]);
+            $this->db->prepare("UPDATE users SET otp_attempts = ?, status=IF(? >= 5,'rejected',status), registration_status=IF(? >= 5,'rejected',registration_status) WHERE id = ?")->execute([$newAttempts, $newAttempts, $newAttempts, $userId]);
             $remaining = 5 - $newAttempts;
             return [
                 'status'  => 'invalid',
@@ -513,11 +500,21 @@ class MICARegistrationValidator
      */
     public function resendOtp(int $userId): array
     {
+        if(!$this->db)return ['status'=>'error','message'=>'Verification is unavailable.'];
+        $this->db->beginTransaction();
+        try{$draft=$this->prepareResendOtp($userId);$this->db->commit();}
+        catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+        if(($draft['status']??'')!=='ready')return $draft;
+        $sent=($this->sendOtp)($draft['email'],$draft['otp'],$draft['name'],$draft['role']);
+        return $sent?['status'=>'sent','message'=>'A new verification code has been dispatched.']:['status'=>'delivery_failed','message'=>'Verification email delivery failed. The account remains unverified; retry after the resend cooldown.'];
+    }
+    private function prepareResendOtp(int $userId): array
+    {
         if (!$this->db || $userId <= 0) {
             return ['status' => 'error', 'message' => 'Invalid user request.'];
         }
 
-        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1 FOR UPDATE");
         $stmt->execute([$userId]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -525,6 +522,7 @@ class MICARegistrationValidator
             return ['status' => 'error', 'message' => 'User not found.'];
         }
 
+        if($user['status']!=='pending' || $user['otp_attempts']>=5)return ['status'=>'blocked','message'=>'Contact authorized security personnel for account recovery.'];
         // 60-second cooldown check
         if (!empty($user['otp_last_sent_at'])) {
             $lastSent = strtotime($user['otp_last_sent_at']);
@@ -546,78 +544,7 @@ class MICARegistrationValidator
             WHERE id = ?
         ")->execute([$otpHash, $expiresAt, $userId]);
 
-        $fullName = trim($user['first_name'] . ' ' . $user['last_name']);
-        send_registration_otp_email($user['email'], $otpCode, $fullName, $user['role']);
-
-        return [
-            'status'  => 'sent',
-            'message' => 'A new verification code has been dispatched to ' . $user['email'] . '.'
-        ];
-    }
-
-    /**
-     * Create an AI Action review item in ai_actions table for accounts needing review
-     */
-    public function logReviewAction(int $userId, array $validationResult): ?int
-    {
-        if (!$this->db || $userId <= 0) {
-            return null;
-        }
-
-        $role = $validationResult['role'] ?? 'user';
-        $confidence = $validationResult['confidence'] ?? 0.50;
-        $riskLevel = $validationResult['risk_level'] ?? 'medium';
-        $reason = $validationResult['reason'] ?? 'Needs review';
-        $anomalies = $validationResult['anomalies'] ?? [];
-
-        $priority = match($riskLevel) {
-            'high'   => 'critical',
-            'medium' => 'high',
-            default  => 'medium'
-        };
-
-        $title = 'Review ' . ucfirst($role) . ' Registration: User #' . $userId;
-        $desc = "A new {$role} account requires validation.\n"
-              . "Confidence: " . round($confidence * 100) . "% | Risk: " . strtoupper($riskLevel) . "\n"
-              . "Reason: " . $reason . "\n"
-              . (!empty($anomalies) ? "Flags: " . implode(', ', $anomalies) : "");
-
-        try {
-            $stmt = $this->db->prepare("
-                INSERT INTO ai_actions (
-                    user_id, target_role, action_type, target_type, target_id,
-                    title, description, reason, priority, status, suggested_data
-                ) VALUES (
-                    ?, 'admin', 'registration_review', 'users', ?,
-                    ?, ?, ?, ?, 'new', ?
-                )
-            ");
-
-            $suggestedData = json_encode([
-                'user_id'    => $userId,
-                'role'       => $role,
-                'confidence' => $confidence,
-                'risk_level' => $riskLevel,
-                'reason'     => $reason,
-                'anomalies'  => $anomalies,
-                'metadata'   => $validationResult['metadata'] ?? []
-            ]);
-
-            $stmt->execute([
-                $userId,
-                $userId,
-                $title,
-                $desc,
-                $reason,
-                $priority,
-                $suggestedData
-            ]);
-
-            return (int)$this->db->lastInsertId();
-        } catch (Exception $e) {
-            error_log('Failed to log AI registration review action: ' . $e->getMessage());
-            return null;
-        }
+        return ['status'=>'ready','otp'=>$otpCode,'email'=>$user['email'],'name'=>trim($user['first_name'].' '.$user['last_name']),'role'=>$user['role']];
     }
 
     /**

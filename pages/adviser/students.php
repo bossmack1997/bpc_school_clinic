@@ -7,6 +7,18 @@ $u = current_user();
 $assignments = get_adviser_active_assignment($db, $u['id']);
 $allStudents = get_adviser_students($db, $u['id']);
 
+// ------------------------------------------------------------------
+// Server-side search by student name or ID (authorized students only)
+// ------------------------------------------------------------------
+$search = trim((string)($_GET['q'] ?? ''));
+if ($search !== '') {
+    $qLower = strtolower($search);
+    $allStudents = array_values(array_filter($allStudents, function ($st) use ($qLower) {
+        $haystack = strtolower(trim(($st['first_name'] ?? '') . ' ' . ($st['last_name'] ?? '') . ' ' . ($st['student_number'] ?? '') . ' ' . ($st['section'] ?? '')));
+        return str_contains($haystack, $qLower);
+    }));
+}
+
 // Build section groups based on adviser's active assignments
 $sectionGroups = [];
 
@@ -76,6 +88,13 @@ $pageTitle = 'My Advisory Class';
           <p class="text-muted small mb-0">Manage and monitor students grouped by their assigned Course and Section.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
+          <div class="search-wrap position-relative d-flex align-items-center" style="width:240px;max-width:100%;">
+            <i class="bi bi-search text-muted position-absolute" style="left:10px;z-index:2;pointer-events:none;"></i>
+            <input type="search" id="studentSearch" class="form-control form-control-sm ps-4" placeholder="Search by name or student ID" value="<?= e($search) ?>" aria-label="Search students">
+          </div>
+          <a href="students.php<?= $search !== '' ? '' : '?q=' ?>" class="btn btn-outline-secondary btn-sm <?= $search !== '' ? 'btn-danger' : '' ?>">
+            <i class="bi <?= $search !== '' ? 'bi-x-circle' : 'bi-arrow-clockwise' ?> me-1"></i> <?= $search !== '' ? 'Clear' : 'Refresh' ?>
+          </a>
           <button type="button" class="btn btn-outline-secondary btn-sm" id="expandAllBtn">
             <i class="bi bi-arrows-expand me-1"></i> Expand All
           </button>
@@ -87,6 +106,15 @@ $pageTitle = 'My Advisory Class';
           </a>
         </div>
       </div>
+
+      <?php if ($search !== ''): ?>
+        <div class="alert alert-info border d-flex align-items-center gap-2 mb-3">
+          <i class="bi bi-search text-info fs-5"></i>
+          <div class="small">
+            Showing <strong><?= count($allStudents) ?></strong> student(s) matching <strong><?= e($search) ?></strong>.
+          </div>
+        </div>
+      <?php endif; ?>
 
       <!-- Scope Notice Banner -->
       <div class="alert alert-light border d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">

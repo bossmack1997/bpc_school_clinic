@@ -14,6 +14,7 @@
  */
 require_once __DIR__ . '/../config/config.php';
 require_role('admin');
+if(permission_profile()==='mis'){require_once __DIR__.'/../includes/system_monitoring.php';json_response(true,['data'=>(new SystemMonitoringService(getDB()))->summary()]);}
 
 if (!headers_sent()) {
     header('Content-Type: application/json; charset=utf-8');
@@ -75,6 +76,7 @@ if (function_exists('get_admin_needs_attention_alerts')) {
 // Recent activity (audit trail) — compact, privacy-aware
 // ---------------------------------------------------------------------
 $recentActivity = [];
+if(has_admin_permission('view_audit_logs')) {
 $actStmt = $db->query(
     "SELECT al.action, al.module, al.created_at, u.first_name, u.last_name, u.role
      FROM activity_logs al
@@ -92,22 +94,25 @@ foreach ($actStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     ];
 }
 
+}
 json_response(true, [
-    'metrics' => [
-        'visits_today'       => $todaysVisits,
-        'active_students'    => $activeStudents,
-        'pending_approvals'  => $pendingTotal,
-        'low_stock'          => $lowStockCount,
-        'out_of_stock'       => $outOfStockCount,
-        'expired'            => $expiredCount,
-        'expiring_soon'      => $expiringSoon,
-        'inventory_attention' => $inventoryAttention,
-        'queue_waiting'      => $queueWaiting,
-        'queue_serving'      => $queueServing,
-        'queue_completed'    => $queueCompleted,
-        'active_emergencies' => $activeEmergencies,
-    ],
-    'attention_total' => $attentionTotal,
-    'recent_activity' => $recentActivity,
-    'server_time'     => date('c'),
+    'data' => [
+        'metrics' => [
+            'visits_today'       => $todaysVisits,
+            'active_students'    => $activeStudents,
+            'pending_approvals'  => $pendingTotal,
+            'low_stock'          => $lowStockCount,
+            'out_of_stock'       => $outOfStockCount,
+            'expired'            => $expiredCount,
+            'expiring_soon'      => $expiringSoon,
+            'inventory_attention' => $inventoryAttention,
+            'queue_waiting'      => $queueWaiting,
+            'queue_serving'      => $queueServing,
+            'queue_completed'    => $queueCompleted,
+            'active_emergencies' => $activeEmergencies,
+        ],
+        'attention_total' => $attentionTotal,
+        'recent_activity' => $recentActivity,
+        'server_time'     => date('c'),
+    ]
 ]);

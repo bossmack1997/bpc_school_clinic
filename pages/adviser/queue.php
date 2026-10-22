@@ -8,12 +8,14 @@
  */
 require_once __DIR__ . '/../../config/config.php';
 require_role('teacher');
+require_once __DIR__ . '/../../includes/clinic_availability.php';
 $db = getDB();
 $u = current_user();
 
 $stmt = $db->prepare("SELECT * FROM teachers WHERE user_id = ?");
 $stmt->execute([$u['id']]);
 $teacher = $stmt->fetch();
+$clinicAvailability=clinic_availability($db);
 
 $pageTitle = 'Faculty Clinic Queue';
 ?>
@@ -101,7 +103,7 @@ $pageTitle = 'Faculty Clinic Queue';
               </div>
               <div>
                 <div class="text-muted small fw-semibold">CLINIC STATUS</div>
-                <div class="fs-5 fw-bold text-primary"><span class="badge bg-success">OPEN TODAY</span></div>
+                <div class="fs-5 fw-bold text-primary"><span class="badge <?= $clinicAvailability['is_open']?'bg-success':'bg-danger' ?>"><?= e(strtoupper($clinicAvailability['label'])) ?></span></div>
               </div>
             </div>
           </div>

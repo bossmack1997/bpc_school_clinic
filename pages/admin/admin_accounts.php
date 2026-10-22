@@ -9,7 +9,7 @@
  * =====================================================================
  */
 require_once __DIR__ . '/../../config/config.php';
-require_role('admin');
+require_primary_admin();
 require_login();
 
 $db = getDB();
@@ -31,19 +31,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'create_admin') {
+    if ($action === 'invite_doctor') {
         $firstName     = trim($_POST['first_name'] ?? '');
         $middleName    = trim($_POST['middle_name'] ?? '');
         $lastName      = trim($_POST['last_name'] ?? '');
         $email         = strtolower(trim($_POST['email'] ?? ''));
         $username      = trim($_POST['username'] ?? '');
-        $password      = $_POST['password'] ?? '';
-        $confirmPass   = $_POST['confirm_password'] ?? '';
         $contact       = trim($_POST['contact_number'] ?? '');
-        $status        = trim($_POST['status'] ?? 'active');
+        $designation   = trim($_POST['official_designation'] ?? '');
+        $license       = trim($_POST['professional_license'] ?? '');
+        $appointment   = trim($_POST['appointment_reference'] ?? '');
+        $verification  = trim($_POST['verification_status'] ?? 'pending');
 
         if ($firstName === '' || $lastName === '') {
-            $errors[] = 'First name and Last name are required.';
+            $errors[] = 'First and last name are required.';
         }
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $errors[] = 'A valid email address is required.';
@@ -51,19 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($username === '' || !preg_match('/^[a-zA-Z0-9_]{3,50}$/', $username)) {
             $errors[] = 'Username must be 3-50 characters (letters, numbers, underscores only).';
         }
-        if ($password === '') {
-            $errors[] = 'Password is required.';
-        } elseif ($password !== $confirmPass) {
-            $errors[] = 'Passwords do not match.';
-        } else {
-            $pwErrors = validate_password_strength($password);
-            if (!empty($pwErrors)) {
-                $errors = array_merge($errors, $pwErrors);
-            }
-        }
-        if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
-            $status = 'active';
-        }
+        if ($designation === '') $errors[] = 'Professional designation is required.';
+        if ($appointment === '') $errors[] = 'Appointment reference is required.';
+        if (!in_array($verification, ['pending', 'verified'], true)) $errors[] = 'Select a valid appointment verification status.';
 
         if (!$errors) {
             $chk = $db->prepare("SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1");
@@ -76,7 +67,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$errors) {
             try {
                 $db->beginTransaction();
-                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $temporarySecret = bin2hex(random_bytes(32));
+                $hash = password_hash($temporarySecret, PASSWORD_DEFAULT);
+                $token = bin2hex(random_bytes(32));
+                $tokenHash = hash('sha256', $token);
+                $expiresAt = date('Y-m-d H:i:s', time() + 86400);
 
                 $stmt = $db->prepare("
                     INSERT INTO users (
@@ -87,8 +82,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ) VALUES (
                         'admin', 'co_admin', ?, ?, ?,
                         ?, ?, ?, ?,
-                        'assets/images/default-avatar.png', ?, 1,
-                        'approved', 'Administrator account created by Primary Administrator', 1.00, 'low'
+                        'assets/images/default-avatar.png', 'pending', 0,
+                        ?, ?, ?, 'low'
                     )
                 ");
                 $stmt->execute([
@@ -99,62 +94,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $middleName ?: null,
                     $lastName,
                     $contact ?: null,
-                    $status,
+                    $verification === 'verified' ? 'approved' : 'review',
+                    $verification === 'verified' ? 'Doctor appointment verified; secure password setup pending' : 'Doctor appointment verification and secure password setup pending',
+                    $verification === 'verified' ? 1.00 : 0.50,
                 ]);
                 $newId = (int)$db->lastInsertId();
 
-                log_activity($u['id'], 'Created administrator account', 'admin',
-                    "Admin account #$newId created for {$firstName} {$lastName} (@{$username})");
+                $profile = $db->prepare("INSERT INTO admin_profiles (user_id,profile,official_designation,appointment_reference,clinical_registration,verified_by,verified_at) VALUES (?,'doctor',?,?,?,?,NOW())");
+                $profile->execute([$newId, $designation, $appointment, $license ?: null, $u['id']]);
+                $invite = $db->prepare("INSERT INTO admin_invitations (user_id,token_hash,created_by,expires_at) VALUES (?,?,?,?)");
+                $invite->execute([$newId, $tokenHash, $u['id'], $expiresAt]);
+                $invitationId = (int)$db->lastInsertId();
+
+                log_activity($u['id'], 'Created Doctor account invitation', 'admin_profiles',
+                    "Doctor account #$newId provisioned; appointment reference recorded; password not set by MIS");
 
                 $db->commit();
-                set_flash('success', "Administrator account for {$firstName} {$lastName} created successfully.");
+                unset($temporarySecret);
+
+                $setupLink = APP_URL . '/auth/setup_account.php?token=' . rawurlencode($token);
+                $mailError = null;
+                $sent = send_doctor_invitation_email($email, trim("$firstName $lastName"), $setupLink, $expiresAt, $appointment, $mailError);
+                $delivery = $sent ? 'sent' : 'manual';
+                $db->prepare('UPDATE admin_invitations SET delivery_status=?,delivery_error=? WHERE id=?')
+                    ->execute([$delivery, $sent ? null : mb_substr((string)$mailError, 0, 255), $invitationId]);
+                if ($sent) {
+                    set_flash('success', "Secure account setup invitation sent to {$email}.");
+                } else {
+                    $_SESSION['manual_doctor_invitation'] = ['url'=>$setupLink, 'expires_at'=>$expiresAt, 'email'=>$email];
+                    set_flash('warning', 'The account is pending, but email delivery was unavailable. Use the one-time authorized setup link shown below.');
+                }
                 redirect('admin_accounts.php');
             } catch (Exception $e) {
                 if ($db->inTransaction()) $db->rollBack();
                 error_log('Admin account creation error: ' . $e->getMessage());
                 $errors[] = safe_error_message(
                     $e,
-                    'Failed to create the administrator account. Please check the details and try again.',
-                    'admin_accounts/create'
+                    'Failed to create the Doctor invitation. No partial account was retained.',
+                    'admin_accounts/invite_doctor'
                 );
             }
         }
     }
 
     if ($action === 'update_status') {
-        $id = (int)($_POST['user_id'] ?? 0);
-        $newStatus = trim($_POST['new_status'] ?? '');
-
-        if ($id > 0 && $id !== (int)$u['id']) {
-            $stmt = $db->prepare("SELECT role, admin_type FROM users WHERE id = ?");
-            $stmt->execute([$id]);
-            $target = $stmt->fetch();
-
-            if ($target && $target['role'] === 'admin') {
-                if ($target['admin_type'] === 'primary_admin') {
-                    $errors[] = 'The Primary Administrator account cannot be modified.';
-                } elseif (in_array($newStatus, ['active', 'inactive', 'pending'], true)) {
-                    $db->prepare("UPDATE users SET status = ? WHERE id = ?")->execute([$newStatus, $id]);
-                    log_activity($u['id'], 'Updated admin account status', 'admin',
-                        "Admin ID $id status set to {$newStatus}");
-                    set_flash('success', 'Admin account status updated.');
-                    redirect('admin_accounts.php');
-                }
-            }
-        }
+        http_response_code(410);
+        $errors[]='Use Account Security Exceptions with a documented reason and evidence reference.';
     }
+
 }
 
 // Fetch all admin accounts
 $stmt = $db->query("
-    SELECT id, role, admin_type, username, email, first_name, middle_name, last_name, phone,
-           status, created_at, last_login
-    FROM users
-    WHERE role = 'admin'
-    ORDER BY admin_type DESC, created_at DESC
+    SELECT u.id, u.role, u.admin_type, u.username, u.email, u.first_name, u.middle_name, u.last_name, u.phone,
+           u.status, u.created_at, u.last_login, p.profile, p.official_designation, p.appointment_reference,
+           (SELECT ai.delivery_status FROM admin_invitations ai WHERE ai.user_id=u.id ORDER BY ai.id DESC LIMIT 1) invitation_status
+    FROM users u
+    LEFT JOIN admin_profiles p ON p.user_id=u.id
+    WHERE u.role = 'admin'
+    ORDER BY u.admin_type DESC, u.created_at DESC
     LIMIT 500
 ");
 $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$manualInvitation = $_SESSION['manual_doctor_invitation'] ?? null;
+unset($_SESSION['manual_doctor_invitation']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -187,16 +190,24 @@ $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
       <?php endif; ?>
 
+      <?php if ($manualInvitation): ?>
+        <div class="alert alert-warning" role="status">
+          <div class="fw-semibold mb-1">Authorized manual delivery required</div>
+          <p class="small mb-2">Give this single-use link only to <?= e($manualInvitation['email']) ?> after independently verifying the appointee. It expires <?= e(format_date($manualInvitation['expires_at'], true)) ?>.</p>
+          <input class="form-control form-control-sm" type="text" readonly value="<?= e($manualInvitation['url']) ?>" aria-label="One-time Doctor account setup link">
+        </div>
+      <?php endif; ?>
+
       <!-- Hero / Header -->
       <div class="app-page-head">
         <div class="app-page-head__text">
           <div class="app-page-head__eyebrow">System</div>
-          <h2 class="app-page-head__title">Admin Accounts</h2>
-          <p class="app-page-head__sub">Manage authorized administrators who can access the BPC School Clinic system.</p>
+          <h2 class="app-page-head__title">Administrator Management</h2>
+          <p class="app-page-head__sub">Manage MIS continuity and verified Doctor clinical appointments without sharing unrestricted privileges.</p>
         </div>
         <div class="app-page-head__aside">
           <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAdminModal">
-            <i class="bi bi-plus-lg me-1"></i> Add Admin
+            <i class="bi bi-plus-lg me-1"></i> Add Doctor / Clinical Co-Administrator
           </button>
         </div>
       </div>
@@ -234,20 +245,21 @@ $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <tr>
                   <th>Name</th>
                   <th>Email / Username</th>
-                  <th>Role</th>
+                  <th>Designation / Role</th>
+                  <th>Verification</th>
                   <th>Status</th>
-                    <th>Created</th>
+                    <th>Last Login</th>
                     <th class="text-end">Actions</th>
                   </tr>
             </thead>
             <tbody>
               <?php if (empty($admins)): ?>
                 <tr>
-                  <td colspan="6">
+                  <td colspan="7">
                     <div class="empty-state">
                       <div class="empty-state__icon"><i class="bi bi-shield-lock"></i></div>
                       <h6 class="empty-state__title">No administrator accounts found</h6>
-                      <p class="empty-state__text">Add an administrator to grant another person access to clinic settings.</p>
+                      <p class="empty-state__text">Administrative appointments will appear here.</p>
                     </div>
                   </td>
                 </tr>
@@ -263,29 +275,23 @@ $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
                   </td>
                   <td>
                     <?php if ($admin['admin_type'] === 'primary_admin'): ?>
-                      <span class="app-badge app-badge--primary"><i class="bi bi-star-fill me-1"></i> Primary Admin</span>
+                      <div class="small fw-semibold"><?= e($admin['official_designation'] ?: 'MIS / IT Personnel') ?></div><span class="app-badge app-badge--primary"><i class="bi bi-star-fill me-1"></i> MIS Main Administrator</span>
+                    <?php elseif (($admin['profile'] ?? '') === 'doctor'): ?>
+                      <div class="small fw-semibold"><?= e($admin['official_designation'] ?: 'Doctor') ?></div><span class="app-badge app-badge--info"><i class="bi bi-heart-pulse me-1"></i> Clinical Co-Administrator</span>
                     <?php else: ?>
-                      <span class="app-badge app-badge--info"><i class="bi bi-person-badge me-1"></i> Co-Admin</span>
+                      <span class="app-badge app-badge--neutral"><i class="bi bi-person-badge me-1"></i> Legacy Administrator</span>
                     <?php endif; ?>
                   </td>
+                  <td><span class="app-badge app-badge--<?= ($admin['profile'] ?? '') === 'doctor' && $admin['invitation_status'] === 'sent' ? 'info' : (($admin['profile'] ?? '') === 'mis' ? 'success' : 'neutral') ?>"><?= e(($admin['profile'] ?? '') === 'mis' ? 'Verified' : ucfirst($admin['invitation_status'] ?: 'Recorded')) ?></span></td>
                   <td>
                     <span class="app-badge app-badge--<?= $admin['status'] === 'active' ? 'success' : 'neutral' ?>"><?= e(ucfirst($admin['status'])) ?></span>
                   </td>
                   <td>
-                    <div class="small"><?= e(format_date($admin['created_at'])) ?></div>
+                    <div class="small"><?= $admin['last_login'] ? e(format_date($admin['last_login'], true)) : '<span class="text-muted">Never</span>' ?></div>
                   </td>
                   <td class="text-end pe-2">
                     <?php if ($admin['admin_type'] !== 'primary_admin' && (int)$admin['id'] !== (int)$u['id']): ?>
-                      <div class="btn-group" role="group">
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                onclick="openStatusModal(<?= $admin['id'] ?>, '<?= e(addslashes($admin['first_name'] . ' ' . $admin['last_name'])) ?>', '<?= e($admin['status']) ?>')">
-                          <i class="bi bi-pencil"></i> Edit
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-danger"
-                                onclick="openDeactivateModal(<?= $admin['id'] ?>, '<?= e(addslashes($admin['first_name'] . ' ' . $admin['last_name'])) ?>')">
-                          <i class="bi bi-trash"></i> Disable
-                        </button>
-                      </div>
+                      <a class="btn btn-sm btn-outline-secondary" href="account_exceptions.php">Security exception</a>
                     <?php elseif ($admin['admin_type'] === 'primary_admin'): ?>
                       <span class="text-muted small"><i class="bi bi-lock me-1"></i> Protected</span>
                     <?php else: ?>
@@ -311,17 +317,17 @@ $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="modal-content border-0 shadow">
       <form method="POST" id="addAdminForm">
         <?= csrf_field() ?>
-        <input type="hidden" name="action" value="create_admin">
+        <input type="hidden" name="action" value="invite_doctor">
         <div class="modal-header border-0" style="background: linear-gradient(135deg, rgba(11, 107, 58, 0.05), rgba(11, 107, 58, 0.03));">
-          <h6 class="modal-title fw-semibold" id="addAdminModalTitle"><i class="bi bi-person-plus-fill me-1 text-primary"></i> Add Administrator</h6>
+          <h6 class="modal-title fw-semibold" id="addAdminModalTitle"><i class="bi bi-person-plus-fill me-1 text-primary"></i> Add Doctor / Clinical Co-Administrator</h6>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <p class="text-muted small mb-3">Create a new Administrator account with full System Administrator privileges. The account is created immediately and can log in using the normal login page.</p>
+          <p class="text-muted small mb-3">Provision a clinical-only account. The Doctor sets their own password through an expiring, single-use invitation; MIS never sees it.</p>
 
           <div class="row g-2">
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Full Name <span class="text-danger">*</span></label>
+              <label class="form-label small fw-semibold">First Name <span class="text-danger">*</span></label>
               <input type="text" name="first_name" class="form-control form-control-sm" required maxlength="80" placeholder="First name">
             </div>
             <div class="col-md-6">
@@ -346,85 +352,29 @@ $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
               <input type="text" name="contact_number" class="form-control form-control-sm" maxlength="30" placeholder="e.g. 09123456789">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Password <span class="text-danger">*</span></label>
-              <input type="password" name="password" class="form-control form-control-sm" required minlength="8" placeholder="Min. 8 characters">
-              <div class="form-text small">Must include uppercase, lowercase, number, and special character.</div>
+              <label class="form-label small fw-semibold">Professional Designation <span class="text-danger">*</span></label>
+              <input type="text" name="official_designation" class="form-control form-control-sm" required maxlength="150" placeholder="School Physician">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Confirm Password <span class="text-danger">*</span></label>
-              <input type="password" name="confirm_password" class="form-control form-control-sm" required minlength="8" placeholder="Re-enter password">
+              <label class="form-label small fw-semibold">Professional License Information</label>
+              <input type="text" name="professional_license" class="form-control form-control-sm" maxlength="150" placeholder="License / registration reference">
             </div>
-            <div class="col-12">
-              <label class="form-label small fw-semibold">Status</label>
-              <select name="status" class="form-select form-select-sm">
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="pending">Pending</option>
+            <div class="col-md-8">
+              <label class="form-label small fw-semibold">Appointment Reference <span class="text-danger">*</span></label>
+              <input type="text" name="appointment_reference" class="form-control form-control-sm" required maxlength="255" placeholder="Approved memorandum / board reference">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Verification Status</label>
+              <select name="verification_status" class="form-select form-select-sm">
+                <option value="pending">Pending review</option>
+                <option value="verified">Verified appointment</option>
               </select>
-              <div class="form-text small">Role is automatically set to Administrator. Password is never displayed.</div>
             </div>
           </div>
         </div>
         <div class="modal-footer border-0">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-success">Create Administrator</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-<!-- Status Update Modal -->
-<div class="modal fade" id="statusModal" tabindex="-1" aria-hidden="true" aria-labelledby="statusModalTitle">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content border-0 shadow">
-      <form method="POST">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="update_status">
-        <input type="hidden" name="user_id" id="statusUserId">
-        <input type="hidden" name="new_status" id="statusNewValue">
-<div class="modal-header">
-            <h6 class="modal-title" id="statusModalTitle"><?= bpc_icon('edit') ?> Update Admin Status</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <p>You are updating the status of <strong id="statusUserName">&mdash;</strong>.</p>
-          <label class="form-label small fw-semibold">New Status:</label>
-          <select name="new_status" id="statusSelect" class="form-select form-select-sm">
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="pending">Pending</option>
-          </select>
-        </div>
-        <div class="modal-footer border-0">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary">Update Status</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-<!-- Deactivate Modal -->
-<div class="modal fade" id="deactivateModal" tabindex="-1" aria-hidden="true" aria-labelledby="deactivateModalTitle">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content border-0 shadow">
-      <form method="POST">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="update_status">
-        <input type="hidden" name="user_id" id="deactivateUserId">
-        <input type="hidden" name="new_status" value="inactive">
-<div class="modal-header">
-            <h6 class="modal-title" id="deactivateModalTitle"><?= bpc_icon('user-x') ?> Disable Administrator</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <p>Disabling <strong id="deactivateUserName">&mdash;</strong> will prevent this administrator from logging in.</p>
-          <p class="text-muted small mb-0">Their account record is preserved. Re-enable from this page to restore access.</p>
-        </div>
-        <div class="modal-footer border-0">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-danger">Disable Admin</button>
+          <button type="submit" class="btn btn-sm btn-success">Create Pending Invitation</button>
         </div>
       </form>
     </div>
@@ -436,53 +386,15 @@ $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
 (function () {
   'use strict';
 
-  // Password confirmation validation on the Add Admin form
   const addForm = document.getElementById('addAdminForm');
   if (addForm) {
     addForm.addEventListener('submit', function (e) {
-      const pw = addForm.querySelector('input[name="password"]').value;
-      const confirm = addForm.querySelector('input[name="confirm_password"]').value;
-
-      if (pw !== confirm) {
-        e.preventDefault();
-        e.stopPropagation();
-        alert('Passwords do not match.');
-        return false;
-      }
-
-      if (pw.length < 8) {
-        e.preventDefault();
-        e.stopPropagation();
-        alert('Password must be at least 8 characters.');
-        return false;
-      }
-
-      // Check password complexity
-      if (!/[A-Z]/.test(pw) || !/[a-z]/.test(pw) || !/[0-9]/.test(pw) || !/[^\w\s]/.test(pw)) {
-        e.preventDefault();
-        e.stopPropagation();
-        alert('Password must contain uppercase, lowercase, number, and special character.');
-        return false;
-      }
-
       const btn = this.querySelector('button[type="submit"]');
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating invitation...';
     });
   }
 
-  window.openStatusModal = function (id, name, currentStatus) {
-    document.getElementById('statusUserId').value = id;
-    document.getElementById('statusUserName').textContent = name;
-    document.getElementById('statusSelect').value = currentStatus || 'active';
-    BPCModal.show('statusModal');
-  };
-
-  window.openDeactivateModal = function (id, name) {
-    document.getElementById('deactivateUserId').value = id;
-    document.getElementById('deactivateUserName').textContent = name;
-    BPCModal.show('deactivateModal');
-  };
 })();
 </script>
 </body>

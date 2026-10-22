@@ -253,5 +253,6 @@ $verifyUrl = APP_URL . '/pages/qr_verify.php?data=' . urlencode($qrData);
       }
     })();
   </script>
+<?php include __DIR__ . '/../../components/global_sos.php'; ?>
 </body>
 </html>

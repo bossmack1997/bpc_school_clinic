@@ -32,6 +32,41 @@ if (!function_exists('dbg_greeting')) {
     }
 }
 
+if (!function_exists('dbg_welcome_banner')) {
+    /**
+     * Shared welcome banner — identical structure across Student, Teacher,
+     * Nurse and Administrator dashboards.
+     *
+     * @param array $o role_label, name, clinic (is_open,label,hours), subtitle
+     */
+    function dbg_welcome_banner(array $o = []): void
+    {
+        $clinic = $o['clinic'] ?? ['is_open' => true, 'label' => 'Open', 'hours' => ''];
+        $isOpen = !empty($clinic['is_open']);
+        $dotClass = $isOpen ? 'dbg-wb-dot--open' : 'dbg-wb-dot--closed';
+        ?>
+        <section class="dbg-welcome-banner" aria-label="Clinic overview">
+          <div class="dbg-wb-inner">
+            <div class="dbg-wb-text">
+              <div class="dbg-wb-eyebrow">CLINIC OVERVIEW</div>
+              <h2 class="dbg-wb-title"><?= e(dbg_greeting()) ?>, <?= e($o['name'] ?? '') ?></h2>
+              <p class="dbg-wb-sub"><?= e($o['subtitle'] ?? 'Welcome to BPC School Clinic. Your health and well-being matter to us.') ?></p>
+            </div>
+            <div class="dbg-wb-status">
+              <span class="dbg-wb-chip">
+                <span class="dbg-wb-dot <?= e($dotClass) ?>"></span>
+                Clinic <span class="dbg-wb-status-text"><?= e($isOpen ? 'Open' : 'Closed') ?></span>
+                <?php if (!empty($clinic['hours'])): ?>
+                  <span class="dbg-wb-hours"><?= e($clinic['hours']) ?></span>
+                <?php endif; ?>
+              </span>
+            </div>
+          </div>
+        </section>
+        <?php
+    }
+}
+
 if (!function_exists('dbg_hero')) {
     /**
      * Role hero.

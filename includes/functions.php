@@ -139,6 +139,16 @@ function log_activity($userId, $action, $module = null, $details = null) {
 
 function push_notification($userId, $type, $title, $message, $link = null, $sosEmergencyId = null, $priority = 'medium', $relatedId = null) {
     $db = getDB();
+    if(in_array($type,['inventory','medicine','mica_inventory'],true)){
+        $recipient=$db->prepare('SELECT id,role,admin_type FROM users WHERE id=?');$recipient->execute([(int)$userId]);$recipient=$recipient->fetch(PDO::FETCH_ASSOC);
+        if($recipient&&$recipient['role']==='admin'&&!can_view_inventory($recipient,$db))return 0;
+    }
+
+    if ($type === 'announcement' && (int)$relatedId > 0) {
+        require_once __DIR__ . '/announcement_notifications.php';
+        return push_announcement_notification($db, (int)$userId, (int)$relatedId, (string)$title, (string)$message, (string)$link);
+    }
+
 
     // Notification Deduplication (Automation #7):
     // For non-emergency notifications, prevent spamming identical unread notifications within 24 hours
@@ -725,10 +735,10 @@ function calculate_queue_wait_time($db, $studentsAhead = 0) {
 /**
  * Log a QR scan to qr_scan_logs.
  */
-function log_qr_scan($db, $studentId, $qrToken, $purpose, $scannerId, $status = 'success', $location = null, $device = null, $metadata = null, $scanMethod = 'unknown') {
+function log_qr_scan($db, $studentId, $qrToken, $purpose, $scannerId, $status = 'success', $location = null, $device = null, $metadata = null, $scanMethod = 'unknown', $teacherId = null) {
     $stmt = $db->prepare("
-        INSERT INTO qr_scan_logs (student_id, qr_token, purpose, scanner_id, scanner_name, scan_location, device, ip_address, status, metadata, scan_method)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO qr_scan_logs (teacher_id, student_id, qr_token, purpose, scanner_id, scanner_name, scan_location, device, ip_address, status, metadata, scan_method)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $scannerName = null;
     if ($scannerId) {
@@ -742,7 +752,7 @@ function log_qr_scan($db, $studentId, $qrToken, $purpose, $scannerId, $status = 
     $metadata = $metadata ? json_encode($metadata) : null;
     $scanMethod = in_array($scanMethod, ['camera', 'upload', 'walk_in'], true) ? $scanMethod : 'unknown';
 
-    $stmt->execute([$studentId, $qrToken, $purpose, $scannerId, $scannerName, $location, $device, $ip, $status, $metadata, $scanMethod]);
+    $stmt->execute([$teacherId, $studentId, $qrToken, $purpose, $scannerId, $scannerName, $location, $device, $ip, $status, $metadata, $scanMethod]);
     return $db->lastInsertId();
 }
 
@@ -1559,6 +1569,18 @@ function get_admin_needs_attention_alerts(?PDO $db = null): array {
         error_log('get_admin_needs_attention_alerts error: ' . $e->getMessage());
     }
 
+    $viewer=current_user();
+    if($viewer && !is_primary_admin($viewer)) {
+        foreach(['critical','warning','info'] as $group)$alerts[$group]=array_values(array_filter($alerts[$group],function($alert)use($viewer){
+            $file=basename(explode('?', $alert['link'])[0]);
+            return match($file){
+                'emergencies.php'=>has_admin_permission('view_emergencies',$viewer),
+                'users.php'=>has_admin_permission('manage_users',$viewer)||has_admin_permission('approve_users',$viewer),
+                'security.php'=>has_admin_permission('manage_security',$viewer),
+                default=>false,
+            };
+        }));
+    }
     $alerts['total'] = count($alerts['critical']) + count($alerts['warning']) + count($alerts['info']);
     return $alerts;
 }

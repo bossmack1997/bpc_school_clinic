@@ -8,8 +8,10 @@
  */
 require_once __DIR__ . '/../../config/config.php';
 require_role('student');
+require_once __DIR__ . '/../../includes/clinic_availability.php';
 $db = getDB();
 $u = current_user();
+$clinicAvailability=clinic_availability($db);
 
 $stmt = $db->prepare("SELECT * FROM students WHERE user_id = ?");
 $stmt->execute([$u['id']]);
@@ -102,7 +104,7 @@ $pageTitle = 'Clinic Queue Tracker';
               </div>
               <div>
                 <div class="text-muted small fw-semibold">CLINIC STATUS</div>
-                <div class="fs-5 fw-bold text-primary"><span class="badge bg-success">OPEN TODAY</span></div>
+                <div class="fs-5 fw-bold text-primary"><span class="badge <?= $clinicAvailability['is_open']?'bg-success':'bg-danger' ?>"><?= e(strtoupper($clinicAvailability['label'])) ?></span></div>
               </div>
             </div>
           </div>

@@ -77,14 +77,7 @@ $pageTitle = 'Create an Account';
             <span class="btn btn-sm btn-outline-success mt-auto">Register as Nurse <i class="bi bi-arrow-right ms-1"></i></span>
           </a>
         </div>
-        <div class="col-sm-6" data-aos="fade-up" data-aos-delay="200">
-          <a href="register.php?role=admin" class="app-choice">
-            <div class="app-choice__icon"><i class="bi bi-shield-lock-fill"></i></div>
-            <div class="app-choice__title">Administrator</div>
-            <div class="app-choice__desc">System administration, account approvals, clinic configuration, and health reports.</div>
-            <span class="btn btn-sm btn-outline-dark mt-auto">Register as Admin <i class="bi bi-arrow-right ms-1"></i></span>
-          </a>
-        </div>
+        <div class="col-sm-6"><div class="app-choice"><div class="app-choice__icon"><i class="bi bi-shield-lock-fill"></i></div><div class="app-choice__title">Administration</div><div class="app-choice__desc">Accounts are provisioned by the Primary Administrator through the restricted administration workspace.</div><span class="small text-muted mt-auto">Public registration unavailable</span></div></div>
       </div>
 
       <p class="text-center small text-muted mt-4 mb-0">

@@ -8,7 +8,7 @@
  * Background automation runner for MICA Clinic Intelligence.
  * Can be executed via:
  * 1. CLI: php api/cron_automation.php
- * 2. Scheduled web cron with secret token: api/cron_automation.php?token=bpc_clinic_cron_secret
+ * 2. Scheduled web cron with secret token: api/cron_automation.php with a configured CRON_SECRET_TOKEN
  * ------------------------------------------------------------------
  */
 
@@ -20,9 +20,10 @@ $isCli = (php_sapi_name() === 'cli');
 if (!$isCli) {
     // Web request security verification
     $token = $_GET['token'] ?? $_SERVER['HTTP_X_CRON_AUTH'] ?? '';
-    $expectedToken = defined('CRON_SECRET_TOKEN') ? CRON_SECRET_TOKEN : 'bpc_clinic_cron_secret';
-    
-    if (!is_logged_in() && $token !== $expectedToken) {
+    $expectedToken = defined('CRON_SECRET_TOKEN') ? (string)CRON_SECRET_TOKEN : (string)getenv('CRON_SECRET_TOKEN');
+    $authorizedAdmin = false; // Interactive scans use the POST + CSRF protected assistant API.
+    $authorizedToken = $expectedToken !== '' && is_string($token) && hash_equals($expectedToken, $token);
+    if (!$authorizedAdmin && !$authorizedToken) {
         http_response_code(403);
         header('Content-Type: application/json');
         echo json_encode(['success' => false, 'message' => 'Unauthorized cron execution.']);
@@ -35,17 +36,8 @@ $engine = new MICAAutomationEngine($db);
 $results = $engine->runAllTasks();
 
 if ($isCli) {
-    echo "==============================================================\n";
-    echo "  MICA CLINIC INTELLIGENCE: SCHEDULED AUTOMATION RUN          \n";
-    echo "==============================================================\n";
-    echo "Timestamp: {$results['timestamp']}\n";
-    echo "Low Stock Items Scanned: {$results['low_stock']['count']} (Reorders Created: {$results['low_stock']['reorders_created']})\n";
-    echo "Expiring Medicines Scanned: {$results['expiring_medicines']['total']} (Expired: {$results['expiring_medicines']['expired']}, <=7d: {$results['expiring_medicines']['within_7d']}, <=30d: {$results['expiring_medicines']['within_30d']})\n";
-    echo "Graduating Students Checked: {$results['graduating_students']['count']}\n";
-    echo "Pending Requests: Users ({$results['pending_requests']['pending_users']})\n";
-    echo "Inventory Anomalies Detected: {$results['inventory_anomalies']['count']}\n";
-    echo "Automation run completed successfully.\n";
+    echo json_encode($results, JSON_PRETTY_PRINT).PHP_EOL;
 } else {
     header('Content-Type: application/json');
-    echo json_encode(['success' => true, 'data' => $results, 'message' => 'MICA background automation tasks executed.']);
+    echo json_encode(['success'=>true,'data'=>$results]);
 }

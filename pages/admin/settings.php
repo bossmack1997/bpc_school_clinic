@@ -3,7 +3,7 @@
  * pages/admin/settings.php
  * =====================================================================
  * AI-Enhanced School Clinic Management System for Bulacan Polytechnic College Healthcare Service Improvement
- * System Settings & Administrator Management Console
+ * System Settings — Institutional Configuration Only
  * =====================================================================
  */
 
@@ -11,12 +11,36 @@ require_once __DIR__ . '/../../config/config.php';
 require_role('admin');
 $db = getDB();
 $u = current_user();
-$pageTitle = 'System Settings & Administrators';
+$pageTitle = 'System Settings';
 
-$activeTab = $_GET['tab'] ?? 'general';
+$requestedTab = $_GET['tab'] ?? null;
+$activeTab = in_array($requestedTab, ['general', 'policies', 'integrations', 'maintenance'], true) ? $requestedTab : null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $activeTab = match ($_POST['action'] ?? '') {
+        'update_general_settings' => 'general',
+        'update_security_policies' => 'policies',
+        default => $activeTab,
+    };
+}
+
+$settingsAccess = [
+    'general'      => has_admin_permission('manage_settings', $u, $db),
+    'policies'     => has_admin_permission('manage_security', $u, $db),
+    'integrations' => has_admin_permission('manage_settings', $u, $db),
+    'maintenance'  => is_primary_admin($u),
+];
+if (!array_filter($settingsAccess)) {
+    admin_access_denied();
+}
+if ($activeTab !== null && empty($settingsAccess[$activeTab])) {
+    admin_access_denied();
+}
+if ($activeTab === null) {
+    $activeTab = array_key_first(array_filter($settingsAccess));
+}
 
 // -------------------------------------------------------------
-// POST Request Actions (Settings Update & Admin Permissions)
+// POST Request Actions (Settings Update)
 // -------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
@@ -49,102 +73,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('settings.php?tab=general');
     }
 
-    // 2. Update Co-Admin Permissions
-    if ($action === 'update_admin_permissions') {
-        // Only Primary Admin or admins with manage_settings can modify admin permissions
-        if (!is_primary_admin($u)) {
-            require_admin_permission('manage_settings');
+    // 2. Update Security Policies (configuration only)
+    if ($action === 'update_security_policies') {
+        require_admin_permission('manage_security');
+        $sessionTimeout  = (int)($_POST['session_timeout'] ?? 3600);
+        $loginAttempts   = (int)($_POST['max_login_attempts'] ?? 5);
+        $lockoutMinutes  = (int)($_POST['lockout_minutes'] ?? 15);
+        $passwordMinLen  = (int)($_POST['password_min_length'] ?? 8);
+
+        $settings = [
+            'security_session_timeout'  => (string)$sessionTimeout,
+            'security_max_login_attempts' => (string)$loginAttempts,
+            'security_lockout_minutes'  => (string)$lockoutMinutes,
+            'security_password_min_length' => (string)$passwordMinLen,
+        ];
+
+        foreach ($settings as $k => $v) {
+            $stmt = $db->prepare("INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()");
+            $stmt->execute([$k, $v]);
         }
 
-        $targetUserId = (int)($_POST['target_user_id'] ?? 0);
-        $permissions = $_POST['permissions'] ?? [];
-
-        if ($targetUserId > 0) {
-            $tStmt = $db->prepare("SELECT id, username, first_name, last_name, admin_type FROM users WHERE id = ? AND role = 'admin'");
-            $tStmt->execute([$targetUserId]);
-            $targetAdmin = $tStmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($targetAdmin) {
-                // Prevent altering primary admin via permissions table
-                if ($targetAdmin['admin_type'] !== 'primary_admin') {
-                    // Clear existing
-                    $db->prepare("DELETE FROM admin_permissions WHERE user_id = ?")->execute([$targetUserId]);
-
-                    // Insert new permissions
-                    $validPerms = ['manage_users', 'manage_sections', 'view_reports', 'manage_security', 'manage_settings', 'view_audit_logs'];
-                    $insStmt = $db->prepare("INSERT INTO admin_permissions (user_id, permission_key, granted_by, granted_at) VALUES (?, ?, ?, NOW())");
-                    
-                    $grantedList = [];
-                    foreach ($permissions as $pKey) {
-                        if (in_array($pKey, $validPerms, true)) {
-                            $insStmt->execute([$targetUserId, $pKey, $u['id']]);
-                            $grantedList[] = $pKey;
-                        }
-                    }
-
-                    $permStr = !empty($grantedList) ? implode(', ', $grantedList) : 'None';
-                    log_activity($u['id'], "Updated permissions for Co-Admin @{$targetAdmin['username']}: [{$permStr}]", 'admin');
-                    set_flash('success', "Permissions updated for Co-Admin {$targetAdmin['first_name']} {$targetAdmin['last_name']}.");
-                }
-            }
-        }
-        redirect('settings.php?tab=admins');
-    }
-
-    // 3. Transfer Primary Administrator Role (Succession)
-    if ($action === 'transfer_primary_admin') {
-        if (!is_primary_admin($u)) {
-            set_flash('danger', 'Only the current Primary Administrator can transfer primary leadership.');
-            redirect('settings.php?tab=admins');
-        }
-
-        $newPrimaryId = (int)($_POST['new_primary_id'] ?? 0);
-        if ($newPrimaryId > 0 && $newPrimaryId !== (int)$u['id']) {
-            $stmt = $db->prepare("SELECT id, username, first_name, last_name FROM users WHERE id = ? AND role = 'admin' AND status = 'active'");
-            $stmt->execute([$newPrimaryId]);
-            $successor = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($successor) {
-                $db->beginTransaction();
-                try {
-                    // Demote current user to co-admin
-                    $db->prepare("UPDATE users SET admin_type = 'co_admin' WHERE id = ?")->execute([$u['id']]);
-                    // Promote successor to primary_admin
-                    $db->prepare("UPDATE users SET admin_type = 'primary_admin' WHERE id = ?")->execute([$newPrimaryId]);
-
-                    // Grant all permissions to former primary admin so they retain full operational co-admin access
-                    $allPerms = ['manage_users', 'manage_sections', 'view_reports', 'manage_security', 'manage_settings', 'view_audit_logs'];
-                    $db->prepare("DELETE FROM admin_permissions WHERE user_id = ?")->execute([$u['id']]);
-                    $ins = $db->prepare("INSERT INTO admin_permissions (user_id, permission_key, granted_by, granted_at) VALUES (?, ?, ?, NOW())");
-                    foreach ($allPerms as $ap) {
-                        $ins->execute([$u['id'], $ap, $newPrimaryId]);
-                    }
-
-                    $db->commit();
-
-                    log_activity($u['id'], "Transferred Primary Administrator authority to @{$successor['username']} ({$successor['first_name']} {$successor['last_name']})", 'admin');
-                    // Update session
-                    $_SESSION['user']['admin_type'] = 'co_admin';
-
-                    set_flash('success', "Primary Administrator authority successfully transferred to {$successor['first_name']} {$successor['last_name']}.");
-                } catch (Exception $e) {
-                    $db->rollBack();
-                    set_flash('danger', safe_error_message(
-                        $e,
-                        'Failed to transfer administrator authority. Please try again.',
-                        'settings/transfer_authority'
-                    ));
-                }
-            }
-        }
-        redirect('settings.php?tab=admins');
+        log_activity($u['id'], 'Updated security policies', 'settings');
+        set_flash('success', 'Security policies updated successfully.');
+        redirect('settings.php?tab=policies');
     }
 }
 
 // -------------------------------------------------------------
 // Data Fetching
 // -------------------------------------------------------------
-// 1. Current System Settings
 $settingsRows = $db->query("SELECT setting_key, setting_value FROM system_settings")->fetchAll(PDO::FETCH_KEY_PAIR);
 $schoolName    = $settingsRows['school_name'] ?? 'Bulacan Polytechnic College';
 $clinicName    = $settingsRows['clinic_name'] ?? 'BPC Healthcare Clinic';
@@ -152,26 +109,59 @@ $schoolAddress = $settingsRows['school_address'] ?? 'Bulihan, City of Malolos, B
 $clinicContact = $settingsRows['clinic_contact'] ?? '(044) 791-2345';
 $themeMode     = $settingsRows['theme_mode'] ?? 'light';
 
-// 2. Administrators List
-$adminAccounts = $db->query("
-    SELECT id, username, first_name, last_name, email, admin_type, status, last_login, created_at
-    FROM users
-    WHERE role = 'admin'
-    ORDER BY FIELD(admin_type, 'primary_admin', 'co_admin'), created_at ASC
-    LIMIT 500
-")->fetchAll(PDO::FETCH_ASSOC);
+$sessionTimeout  = (int)($settingsRows['security_session_timeout'] ?? 3600);
+$loginAttempts   = (int)($settingsRows['security_max_login_attempts'] ?? 5);
+$lockoutMinutes  = (int)($settingsRows['security_lockout_minutes'] ?? 15);
+$passwordMinLen  = (int)($settingsRows['security_password_min_length'] ?? 8);
 
-// 3. Permissions Map for each Admin
-$adminPermsMap = [];
-$permRows = $db->query("SELECT user_id, permission_key FROM admin_permissions")->fetchAll(PDO::FETCH_ASSOC);
-foreach ($permRows as $pr) {
-    $adminPermsMap[$pr['user_id']][] = $pr['permission_key'];
-}
+// Integration status (read-only, no secrets exposed)
+$integrationStatus = [
+    'email'      => function_exists('send_registration_otp_email') ? 'configured' : 'not configured',
+    'micai'      => class_exists('MICAHubService') ? 'available' : 'not available',
+    'qr'         => class_exists('MICARegistrationValidator') ? 'available' : 'not available',
+    'pwa'        => file_exists(__DIR__ . '/../../manifest.json') ? 'available' : 'not available',
+];
+
+// Maintenance info
+$lastBackup = $db->query("SELECT status, filename, created_at FROM system_backups ORDER BY created_at DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <?php include __DIR__ . '/../../includes/head.php'; ?>
+  <style>
+    .settings-menu { display: grid; gap: 12px; min-width: 0; }
+    .settings-menu__item { min-width: 0; background: var(--surface, #fff); border: 1px solid var(--border); border-radius: var(--radius-lg, 16px); box-shadow: var(--shadow-sm); overflow: hidden; }
+    .settings-menu__toggle { list-style: none; cursor: pointer; }
+    .settings-menu__toggle::-webkit-details-marker { display: none; }
+    .settings-menu__item:not([open]) > [role="region"] { display: none; }
+    .settings-menu__toggle { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 84px; padding: 18px 20px; border: 0; text-align: left; background: transparent; color: var(--text-primary); }
+    .settings-menu__toggle:hover,
+    .settings-menu__item[open] > .settings-menu__toggle { background: var(--primary-light); }
+    .settings-menu__toggle:focus-visible { outline: 3px solid var(--primary); outline-offset: -3px; }
+    .settings-menu__icon { display: grid; place-items: center; flex: 0 0 44px; height: 44px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 20px; }
+    .settings-menu__label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .settings-menu__title { display: block; font-size: 1rem; font-weight: 650; line-height: 1.4; }
+    .settings-menu__description { display: block; margin-top: 4px; color: var(--text-secondary); font-size: .825rem; font-weight: 400; line-height: 1.5; }
+    .settings-menu__chevron { flex-shrink: 0; color: var(--primary); transition: transform .2s ease; }
+    .settings-menu__item[open] > .settings-menu__toggle .settings-menu__chevron { transform: rotate(90deg); }
+    .settings-menu__body { min-width: 0; padding: 20px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+    .settings-menu__body .card { min-width: 0; }
+    .settings-menu__body .d-flex { flex-wrap: wrap; gap: 8px; }
+    .status-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; }
+    .status-ok { background: #e7f7ee; color: #1e7a3a; border: 1px solid #bfe6cf; }
+    .status-warn { background: #fdf3e3; color: #9a6210; border: 1px solid #f3d3a8; }
+    .status-off { background: #fbeaea; color: #b3261e; border: 1px solid #f5c2c2; }
+    @media (max-width: 575.98px) {
+      .settings-menu__toggle { padding: 16px 12px; gap: 10px; }
+      .settings-menu__icon { flex-basis: 38px; height: 38px; font-size: 18px; }
+      .settings-menu__body { padding: 12px; }
+      .settings-menu__body .card.p-4 { padding: 16px !important; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .settings-menu__chevron { transition: none; }
+    }
+  </style>
 </head>
 <body>
 <div class="app-wrapper">
@@ -184,30 +174,27 @@ foreach ($permRows as $pr) {
       <div class="app-page-head d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
           <h5 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
-            <i class="bi bi-gear-wide-connected text-success"></i> System Settings &amp; Governance
+            <i class="bi bi-gear-wide-connected text-success"></i> System Settings
           </h5>
-          <p class="text-muted small mb-0">Configure institutional clinic metadata, manage co-administrator access privileges, and maintain leadership succession.</p>
+          <p class="text-muted small mb-0">Institutional clinic configuration, security policies, integration status, and maintenance information.</p>
         </div>
       </div>
 
-      <!-- Settings Navigation Tabs -->
-      <div class="d-flex gap-2 mb-3 border-bottom pb-2">
-        <a href="?tab=general" class="app-filter <?= $activeTab === 'general' ? "is-active" : "" ?>">
-          <i class="bi bi-sliders"></i> General Settings
-        </a>
-        <a href="?tab=admins" class="app-filter <?= $activeTab === 'admins' ? "is-active" : "" ?>">
-          <i class="bi bi-person-badge-fill"></i> Administrators Management
-          <span class="badge <?= $activeTab === 'admins' ? 'bg-white text-dark' : 'bg-secondary' ?> ms-1"><?= count($adminAccounts) ?></span>
-        </a>
-      </div>
-
-      <!-- TAB 1: GENERAL SETTINGS -->
-      <?php if ($activeTab === 'general'): ?>
+      <div class="settings-menu" id="settingsMenu">
+        <?php if ($settingsAccess['general']): ?>
+        <details class="settings-menu__item" name="admin-settings" <?= $activeTab === 'general' ? 'open' : '' ?>>
+          <summary class="settings-menu__toggle" id="settingsHeading-general" aria-controls="settingsPanel-general">
+              <span class="settings-menu__icon"><i class="bi bi-sliders" aria-hidden="true"></i></span>
+              <span class="settings-menu__label"><span class="settings-menu__title">General Settings</span><span class="settings-menu__description">Institutional clinic configuration and system information.</span></span>
+              <i class="bi bi-chevron-right settings-menu__chevron" aria-hidden="true"></i>
+          </summary>
+          <div id="settingsPanel-general" role="region" aria-labelledby="settingsHeading-general">
+            <div class="settings-menu__body">
         <div class="row g-3">
           <div class="col-lg-8">
             <div class="card p-4 shadow-sm border-0 rounded-3">
               <h6 class="fw-bold text-dark mb-3"><i class="bi bi-building text-success me-1"></i> Institutional Clinic Configuration</h6>
-              <form method="POST">
+              <form method="POST" action="settings.php?tab=general">
                 <?= csrf_field() ?>
                 <input type="hidden" name="action" value="update_general_settings">
 
@@ -268,212 +255,155 @@ foreach ($permRows as $pr) {
             </div>
           </div>
         </div>
-      <?php endif; ?>
-
-      <!-- TAB 2: ADMINISTRATORS MANAGEMENT -->
-      <?php if ($activeTab === 'admins'): ?>
-        <div class="card p-3 shadow-sm border-0 rounded-3 mb-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
-              <h6 class="fw-bold text-dark mb-1"><i class="bi bi-shield-shaded text-success me-1"></i> Active Administrator Accounts</h6>
-              <p class="text-muted small mb-0">Manage Primary and Co-Administrator roles, permission matrices, and succession continuity.</p>
             </div>
           </div>
-
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th>Administrator</th>
-                  <th>Designation</th>
-                  <th>Assigned Permissions</th>
-                  <th>Status</th>
-                  <th>Last Active</th>
-                  <th class="text-end">Privileges</th>
-                </tr>
-              </thead>
-              <tbody>
-                <?php if (!$adminAccounts): ?>
-                  <tr>
-                    <td colspan="6">
-                      <div class="empty-state">
-                        <div class="empty-state__icon"><i class="bi bi-shield-lock" aria-hidden="true"></i></div>
-                        <h6 class="empty-state__title">No administrator accounts found</h6>
-                        <p class="empty-state__text">Administrator accounts will appear here once they are created.</p>
-                      </div>
-                    </td>
-                  </tr>
-                <?php endif; ?>
-                <?php foreach ($adminAccounts as $adm): ?>
-                  <tr>
-                    <td>
-                      <div class="fw-bold text-dark"><?= e($adm['first_name'] . ' ' . $adm['last_name']) ?></div>
-                      <span class="text-muted small">@<?= e($adm['username']) ?> Â· <?= e($adm['email']) ?></span>
-                    </td>
-                    <td>
-                      <?php if ($adm['admin_type'] === 'primary_admin'): ?>
-                        <span class="badge bg-primary px-2 py-1"><i class="bi bi-star-fill me-1"></i> Primary Administrator</span>
-                      <?php else: ?>
-                        <span class="badge bg-secondary px-2 py-1">Co-Administrator</span>
-                      <?php endif; ?>
-                    </td>
-                    <td>
-                      <?php if ($adm['admin_type'] === 'primary_admin'): ?>
-                        <span class="badge bg-success-subtle text-success border border-success-subtle">Full Root Governance</span>
-                      <?php else: ?>
-                        <?php 
-                          $pList = $adminPermsMap[$adm['id']] ?? [];
-                          if (empty($pList)):
-                        ?>
-                          <span class="text-muted small italic">Standard Overview</span>
-                        <?php else: ?>
-                          <?php foreach ($pList as $p): ?>
-                            <span class="app-badge app-badge--primary"><?= str_replace('_', ' ', $p) ?></span>
-                          <?php endforeach; ?>
-                        <?php endif; ?>
-                      <?php endif; ?>
-                    </td>
-                    <td>
-                      <span class="badge bg-<?= $adm['status'] === 'active' ? 'success' : 'warning' ?>">
-                        <?= ucfirst($adm['status']) ?>
-                      </span>
-                    </td>
-                    <td class="small text-muted">
-                      <?= !empty($adm['last_login']) ? format_datetime($adm['last_login']) : 'Never' ?>
-                    </td>
-                    <td class="text-end">
-                      <?php if ($adm['admin_type'] !== 'primary_admin'): ?>
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPermissionsModal(<?= $adm['id'] ?>, '<?= e(addslashes($adm['first_name'] . ' ' . $adm['last_name'])) ?>', <?= htmlspecialchars(json_encode($adminPermsMap[$adm['id']] ?? [])) ?>)">
-                          <i class="bi bi-shield-check me-1"></i> Permissions
-                        </button>
-                      <?php else: ?>
-                        <span class="text-muted small">Primary Account</span>
-                      <?php endif; ?>
-                    </td>
-                  </tr>
-                <?php endforeach; ?>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Primary Admin Succession Transfer (Only visible to Primary Admin) -->
-        <?php if (is_primary_admin($u)): ?>
-          <div class="card p-3 shadow-sm border-0 rounded-3 border-start border-primary border-4">
-            <h6 class="fw-bold text-dark mb-1"><i class="bi bi-arrow-left-right text-primary me-1"></i> Primary Administrator Succession</h6>
-            <p class="text-muted small mb-3">Designate an active Co-Administrator as the new Primary Administrator. Your account will automatically remain an authorized Co-Administrator with full delegated access.</p>
-            
-            <form method="POST" onsubmit="return confirm('Are you certain you wish to transfer the Primary Administrator role? This action is logged immediately.');">
-              <?= csrf_field() ?>
-              <input type="hidden" name="action" value="transfer_primary_admin">
-              
-              <div class="row g-2 align-items-center">
-                <div class="col-md-6">
-                  <select name="new_primary_id" class="form-select form-select-sm" required>
-                    <option value="">Select Successor Co-Administrator...</option>
-                    <?php foreach ($adminAccounts as $adm): ?>
-                      <?php if ($adm['id'] != $u['id'] && $adm['status'] === 'active'): ?>
-                        <option value="<?= $adm['id'] ?>"><?= e($adm['first_name'] . ' ' . $adm['last_name']) ?> (@<?= e($adm['username']) ?>)</option>
-                      <?php endif; ?>
-                    <?php endforeach; ?>
-                  </select>
-                </div>
-                <div class="col-auto">
-                  <button type="submit" class="btn btn-sm btn-primary">
-                    <i class="bi bi-check2-circle me-1"></i> Transfer Primary Role
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
+        </details>
         <?php endif; ?>
 
-      <?php endif; ?>
+        <?php if ($settingsAccess['policies']): ?>
+        <details class="settings-menu__item" name="admin-settings" <?= $activeTab === 'policies' ? 'open' : '' ?>>
+          <summary class="settings-menu__toggle" id="settingsHeading-policies" aria-controls="settingsPanel-policies">
+              <span class="settings-menu__icon"><i class="bi bi-shield-lock-fill" aria-hidden="true"></i></span>
+              <span class="settings-menu__label"><span class="settings-menu__title">Security Policies</span><span class="settings-menu__description">Session expiration, login attempt limits, and password requirements.</span></span>
+              <i class="bi bi-chevron-right settings-menu__chevron" aria-hidden="true"></i>
+          </summary>
+          <div id="settingsPanel-policies" role="region" aria-labelledby="settingsHeading-policies">
+            <div class="settings-menu__body">
+              <div class="card p-4 shadow-sm border-0 rounded-3">
+                <h6 class="fw-bold text-dark mb-3"><i class="bi bi-shield-check text-success me-1"></i> Security Policy Configuration</h6>
+                <p class="text-muted small mb-4">These values configure authentication and session behavior. Changes apply to new sessions; active sessions retain their current policy until renewed.</p>
+                <form method="POST" action="settings.php?tab=policies">
+                  <?= csrf_field() ?>
+                  <input type="hidden" name="action" value="update_security_policies">
+                  <div class="row g-3">
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Session Timeout (seconds)</label>
+                      <input type="number" class="form-control" name="session_timeout" value="<?= e($sessionTimeout) ?>" min="300" max="86400" required>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Max Failed Login Attempts</label>
+                      <input type="number" class="form-control" name="max_login_attempts" value="<?= e($loginAttempts) ?>" min="3" max="20" required>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Lockout Duration (minutes)</label>
+                      <input type="number" class="form-control" name="lockout_minutes" value="<?= e($lockoutMinutes) ?>" min="5" max="1440" required>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Minimum Password Length</label>
+                      <input type="number" class="form-control" name="password_min_length" value="<?= e($passwordMinLen) ?>" min="6" max="64" required>
+                    </div>
+                  </div>
+                  <div class="mt-4 pt-3 border-top">
+                    <button type="submit" class="btn btn-success"><i class="bi bi-check-circle me-1"></i> Save Security Policies</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </details>
+        <?php endif; ?>
+
+        <?php if ($settingsAccess['integrations']): ?>
+        <details class="settings-menu__item" name="admin-settings" <?= $activeTab === 'integrations' ? 'open' : '' ?>>
+          <summary class="settings-menu__toggle" id="settingsHeading-integrations" aria-controls="settingsPanel-integrations">
+              <span class="settings-menu__icon"><i class="bi bi-plug" aria-hidden="true"></i></span>
+              <span class="settings-menu__label"><span class="settings-menu__title">Integration Configuration</span><span class="settings-menu__description">Status of connected services and system integrations.</span></span>
+              <i class="bi bi-chevron-right settings-menu__chevron" aria-hidden="true"></i>
+          </summary>
+          <div id="settingsPanel-integrations" role="region" aria-labelledby="settingsHeading-integrations">
+            <div class="settings-menu__body">
+              <div class="card p-4 shadow-sm border-0 rounded-3">
+                <h6 class="fw-bold text-dark mb-3"><i class="bi bi-plug text-success me-1"></i> Service Integration Status</h6>
+                <p class="text-muted small mb-4">Read-only status indicators. No credentials or secrets are displayed here.</p>
+                <div class="row g-3">
+                  <div class="col-md-4">
+                    <div class="card p-3 shadow-sm border-0 rounded-3 h-100">
+                      <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="status-chip <?= $integrationStatus['email'] === 'configured' ? 'status-ok' : 'status-off' ?>">
+                          <span class="status-chip__dot"></span> Email Service
+                        </span>
+                      </div>
+                      <p class="small text-muted mb-0">Registration OTP delivery and notification email transport.</p>
+                    </div>
+                  </div>
+                  <div class="col-md-4">
+                    <div class="card p-3 shadow-sm border-0 rounded-3 h-100">
+                      <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="status-chip <?= $integrationStatus['micai'] === 'available' ? 'status-ok' : 'status-off' ?>">
+                          <span class="status-chip__dot"></span> MICA Intelligence
+                        </span>
+                      </div>
+                      <p class="small text-muted mb-0">Security monitoring, alert reconciliation, and account verification intelligence.</p>
+                    </div>
+                  </div>
+                  <div class="col-md-4">
+                    <div class="card p-3 shadow-sm border-0 rounded-3 h-100">
+                      <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="status-chip <?= $integrationStatus['qr'] === 'available' ? 'status-ok' : 'status-off' ?>">
+                          <span class="status-chip__dot"></span> QR Code System
+                        </span>
+                      </div>
+                      <p class="small text-muted mb-0">Student and teacher clinic check-in QR generation and verification.</p>
+                    </div>
+                  </div>
+                  <div class="col-md-4">
+                    <div class="card p-3 shadow-sm border-0 rounded-3 h-100">
+                      <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="status-chip <?= $integrationStatus['pwa'] === 'available' ? 'status-ok' : 'status-off' ?>">
+                          <span class="status-chip__dot"></span> PWA / Offline Support
+                        </span>
+                      </div>
+                      <p class="small text-muted mb-0">Progressive Web App manifest and service worker availability.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+        <?php endif; ?>
+
+        <?php if ($settingsAccess['maintenance']): ?>
+        <details class="settings-menu__item" name="admin-settings" <?= $activeTab === 'maintenance' ? 'open' : '' ?>>
+          <summary class="settings-menu__toggle" id="settingsHeading-maintenance" aria-controls="settingsPanel-maintenance">
+              <span class="settings-menu__icon"><i class="bi bi-database" aria-hidden="true"></i></span>
+              <span class="settings-menu__label"><span class="settings-menu__title">Maintenance Configuration</span><span class="settings-menu__description">Backup status and system maintenance information.</span></span>
+              <i class="bi bi-chevron-right settings-menu__chevron" aria-hidden="true"></i>
+          </summary>
+          <div id="settingsPanel-maintenance" role="region" aria-labelledby="settingsHeading-maintenance">
+            <div class="settings-menu__body">
+              <div class="card p-4 shadow-sm border-0 rounded-3">
+                <h6 class="fw-bold text-dark mb-3"><i class="bi bi-database text-success me-1"></i> Backup &amp; Maintenance</h6>
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <div class="dbg-stat p-3 shadow-sm border-0 rounded-3">
+                      <div class="text-muted small fw-semibold text-uppercase">Last Backup</div>
+                      <h3 class="fw-bold text-dark mt-2 mb-1">
+                        <?= $lastBackup ? e($lastBackup['filename'] ?? '—') : '—' ?>
+                      </h3>
+                      <div class="small text-muted">
+                        <?= $lastBackup ? e($lastBackup['status']) : 'No backup recorded.' ?>
+                        <?= $lastBackup && !empty($lastBackup['created_at']) ? ' · ' . e(format_datetime($lastBackup['created_at'])) : '' ?>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="alert alert-info small border-0 shadow-sm">
+                      <i class="bi bi-info-circle me-1"></i>
+                      Backup creation and restoration are managed through the Security Center. Configuration values here are read-only.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+        <?php endif; ?>
+      </div>
 
     </div>
   </div>
 </div>
-
-<!-- Modal: Co-Admin Permissions Management -->
-<div class="modal fade" id="permissionsModal" tabindex="-1" aria-labelledby="permissionsModalTitle">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content border-0 shadow">
-      <form method="POST">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="update_admin_permissions">
-        <input type="hidden" name="target_user_id" id="permTargetUserId">
-
-<div class="modal-header">
-            <h6 class="modal-title" id="permissionsModalTitle"><?= bpc_icon('shield-lock') ?> Configure Co-Admin Permissions</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <p class="app-muted mb-3">Set delegated governance permissions for <strong id="permTargetUserName">Admin</strong>:</p>
-
-          <div class="form-check mb-2">
-            <input class="form-check-input perm-chk" type="checkbox" name="permissions[]" value="manage_users" id="chk_manage_users">
-            <label class="form-check-label small" for="chk_manage_users">
-              <strong>User Management</strong> â€” Suspend, reactivate, and reset accounts
-            </label>
-          </div>
-
-          <div class="form-check mb-2">
-            <input class="form-check-input perm-chk" type="checkbox" name="permissions[]" value="manage_sections" id="chk_manage_sections">
-            <label class="form-check-label small" for="chk_manage_sections">
-              <strong>Sections &amp; Classes</strong> â€” Configure sections and class advisers
-            </label>
-          </div>
-
-          <div class="form-check mb-2">
-            <input class="form-check-input perm-chk" type="checkbox" name="permissions[]" value="manage_security" id="chk_manage_security">
-            <label class="form-check-label small" for="chk_manage_security">
-              <strong>Security Oversight</strong> â€” Manage IP lockouts and rate-limiting
-            </label>
-          </div>
-
-          <div class="form-check mb-2">
-            <input class="form-check-input perm-chk" type="checkbox" name="permissions[]" value="view_reports" id="chk_view_reports">
-            <label class="form-check-label small" for="chk_view_reports">
-              <strong>Reporting &amp; Analytics</strong> â€” Export institutional clinic reports
-            </label>
-          </div>
-
-          <div class="form-check mb-2">
-            <input class="form-check-input perm-chk" type="checkbox" name="permissions[]" value="manage_settings" id="chk_manage_settings">
-            <label class="form-check-label small" for="chk_manage_settings">
-              <strong>System Settings</strong> â€” Modify institutional parameters
-            </label>
-          </div>
-
-          <div class="form-check mb-2">
-            <input class="form-check-input perm-chk" type="checkbox" name="permissions[]" value="view_audit_logs" id="chk_view_audit_logs">
-            <label class="form-check-label small" for="chk_view_audit_logs">
-              <strong>Audit Logs</strong> â€” Inspect system audit trails
-            </label>
-          </div>
-        </div>
-        <div class="modal-footer border-0">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-success">Save Permissions</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
 <?php include __DIR__ . '/../../components/footer.php'; ?>
-<script>
-function openPermissionsModal(id, name, permissions) {
-  document.getElementById('permTargetUserId').value = id;
-  document.getElementById('permTargetUserName').textContent = name;
-
-  // Reset checkboxes
-  document.querySelectorAll('.perm-chk').forEach(chk => {
-    chk.checked = permissions.includes(chk.value);
-  });
-
-  BPCModal.show('permissionsModal');
-}
-</script>
 </body>
 </html>

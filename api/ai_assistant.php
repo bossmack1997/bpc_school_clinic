@@ -19,7 +19,19 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
+$sosInput = json_decode(file_get_contents('php://input'), true);
+if (!is_array($sosInput)) $sosInput = [];
+$sosAction = $_POST['action'] ?? $sosInput['action'] ?? $_GET['action'] ?? '';
+if (in_array($sosAction, ['sos_emergency','sos_update_status'], true)) {
+    $_POST = array_merge($sosInput, $_POST);
+    $_POST['action'] = $sosAction === 'sos_emergency' ? 'sos' : 'update_status';
+    if ($sosAction === 'sos_update_status') $_POST['op'] = $_POST['status'] ?? '';
+    require __DIR__ . '/emergencies.php';
+    exit;
+}
 require_once __DIR__ . '/../includes/ai/AIService.php';
+require_once __DIR__ . '/../includes/ai/MICAAuthorization.php';
+require_once __DIR__ . '/../includes/ai/MICAHubService.php';
 
 if (!function_exists('clean_mica_output')) {
     function clean_mica_output(string $text): string {
@@ -56,6 +68,38 @@ if (!empty($rawInput)) {
 }
 $requestData = array_merge($_REQUEST, $jsonData);
 $action = $requestData['action'] ?? '';
+if($user['role']==='admin'&&$action==='deactivate_graduated')require_admin_permission('manage_users');
+if(in_array($action,['reorder_list','create_reorder'],true))require_inventory_access();
+if(in_array($action,['approve_reorder','reject_reorder'],true))require_inventory_access(true);
+
+if (!MICAAuthorization::actionAllowed((string)($user['role'] ?? ''), (string)$action)) {
+    http_response_code(403);
+    json_response(false, [], 'This MICA action is not available for your role.');
+}
+
+header('Cache-Control: no-store');
+if (!in_array($action,['history','daily_summary','recommended_actions','reorder_list','alert_details','archived_actions'],true)) {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); json_response(false,[],'Use POST.'); }
+    if(!csrf_verify($requestData['csrf_token']??'')){http_response_code(403);json_response(false,[],'Invalid CSRF token.');}
+}
+if(in_array($action,['chat','mica_chat'],true)){
+    $requests=array_filter($_SESSION['mica_request_times']??[],fn($at)=>$at>time()-60);
+    if(count($requests)>=20){http_response_code(429);json_response(false,[],'Please wait before sending more messages.');}
+    $requests[]=time();$_SESSION['mica_request_times']=$requests;
+    if(!is_string($requestData['message']??null)||mb_strlen($requestData['message'])>3000)json_response(false,[],'Messages must contain at most 3,000 characters.');
+}
+
+set_exception_handler(function(Throwable $e) {
+    error_log('MICA endpoint: '.$e->getMessage());
+    http_response_code(503);
+    json_response(false, [], 'Clinic intelligence is unavailable. Verify the MICA migration and database connection, then retry.');
+});
+$hub = new MICAHubService($db, $user);
+if ($action === 'alert_details' || $action === 'read_alert') {
+    $detail=$hub->detail((int)($requestData['action_id']??0), $action==='read_alert');
+    if (!$detail) { http_response_code(404); json_response(false, [], 'Alert unavailable for this account.'); }
+    json_response(true, ['alert'=>$detail]);
+}
 
 // Initialize AI Service
 $aiConfig = [
@@ -74,7 +118,8 @@ $aiService = new AIService($db, $user, $aiConfig);
 
 // Helper for JSON CSRF verification
 function require_csrf_check() {
-    csrf_verify_or_die();
+    global $requestData;
+    if(!csrf_verify($requestData['csrf_token']??'')){http_response_code(403);json_response(false,[],'Invalid CSRF token.');}
 }
 
 // ================================================================
@@ -84,6 +129,10 @@ if ($action === 'chat' || $action === 'mica_chat') {
     $message = trim($requestData['message'] ?? '');
     if ($message === '') {
         json_response(false, [], 'Please type a message.');
+    }
+    if (in_array(canonical_role((string)$user['role']), ['student','teacher'], true) && !MICAAuthorization::studentPromptAllowed($message)) {
+        http_response_code(403);
+        json_response(false, [], 'I can help with clinic information, your own records and queue, procedures, health education, announcements, and emergency guidance.');
     }
 
     $result = $aiService->processMessage($message);
@@ -105,10 +154,12 @@ if ($action === 'chat' || $action === 'mica_chat') {
 // ================================================================
 if ($action === 'daily_summary') {
     $summary = $aiService->getContextService()->getDailySummaryData();
-    $aiSummary = $aiService->getAutomationEngine()->generateDailyClinicSummary();
+    $aiSummary = ['generated_at'=>$summary['generated_at'], 'note'=>'Verified database summary; no AI prediction.'];
     $actions = $aiService->getActionService()->getRecommendedActions(null, 5);
 
     json_response(true, [
+        'last_scan' => $hub->lastScan(),
+        'last_attempt' => $hub->lastAttempt(),
         'metrics' => $summary,
         'ai_summary' => $aiSummary,
         'recommended_actions' => $actions
@@ -118,9 +169,9 @@ if ($action === 'daily_summary') {
 // ================================================================
 // ACTION: recommended_actions
 // ================================================================
-if ($action === 'recommended_actions') {
+if ($action === 'recommended_actions' || $action === 'archived_actions') {
     $limit = min(max((int)($requestData['limit'] ?? 15), 1), 50);
-    $actions = $aiService->getActionService()->getRecommendedActions(null, $limit);
+    $actions = $aiService->getActionService()->getRecommendedActions(null, $limit, $action === 'archived_actions');
     json_response(true, ['data' => $actions]);
 }
 
@@ -259,81 +310,21 @@ if ($action === 'run_automation') {
         json_response(false, [], 'Access denied.');
     }
 
-    $results = $aiService->getAutomationEngine()->runAllTasks();
+    try { $results = $hub->scan(); }
+    catch (RuntimeException $e) {
+        if (in_array($e->getMessage(), ['Another intelligence scan is running. Retry shortly.','Alert writer is busy. Retry shortly.'], true)) {
+            http_response_code(409); json_response(false, [], $e->getMessage());
+        }
+        throw $e;
+    }
     json_response(true, ['data' => $results], 'Autonomous intelligence scan completed.');
-}
-
-// ================================================================
-// ACTION: sos_emergency
-// ================================================================
-if ($action === 'sos_emergency') {
-    require_csrf_check();
-
-    $emergencyType = trim($requestData['emergency_type'] ?? 'General Medical Emergency');
-    $description   = trim($requestData['description'] ?? '');
-    $latitude      = !empty($requestData['latitude']) && is_numeric($requestData['latitude']) ? (float)$requestData['latitude'] : null;
-    $longitude     = !empty($requestData['longitude']) && is_numeric($requestData['longitude']) ? (float)$requestData['longitude'] : null;
-    $accuracy      = trim($requestData['accuracy'] ?? '');
-    $manualLoc     = trim($requestData['location'] ?? 'BPC Campus');
-    $locationSource= ($latitude !== null && $longitude !== null) ? 'gps' : 'manual';
-
-    $studentId = null;
-    if ($user['role'] === 'student') {
-        $sStmt = $db->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
-        $sStmt->execute([$user['id']]);
-        $studentId = $sStmt->fetchColumn() ?: null;
-    }
-
-    $stmt = $db->prepare("
-        INSERT INTO sos_emergencies 
-        (user_id, student_id, emergency_type, location, location_source, description, latitude, longitude, location_accuracy, location_updated_at, status, source, priority, reporter_role, ip_address)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'active', 'sos', 'urgent', ?, ?)
-    ");
-    $stmt->execute([
-        $user['id'],
-        $studentId,
-        $emergencyType,
-        $manualLoc,
-        $locationSource,
-        $description ?: 'SOS Emergency trigger initiated via MICA AI.',
-        $latitude,
-        $longitude,
-        $accuracy ?: null,
-        $user['role'],
-        $_SERVER['REMOTE_ADDR'] ?? null
-    ]);
-    $emergencyId = (int)$db->lastInsertId();
-
-    // Alert all nurses and admins
-    $staffStmt = $db->query("SELECT id FROM users WHERE role IN ('nurse','admin')");
-    $staff = $staffStmt->fetchAll(PDO::FETCH_COLUMN);
-    $reporterName = trim($user['first_name'] . ' ' . $user['last_name']);
-
-    foreach ($staff as $staffId) {
-        push_notification(
-            (int)$staffId,
-            'sos_emergency',
-            'CRITICAL SOS: ' . $emergencyType,
-            "Emergency reported by {$reporterName} at {$manualLoc}. Immediate clinic triage required.",
-            APP_URL . '/pages/nurse/emergencies.php',
-            $emergencyId,
-            'emergency'
-        );
-    }
-
-    log_activity($user['id'], 'Triggered SOS emergency alert', 'emergency', "Emergency #$emergencyId ({$emergencyType})");
-
-    json_response(true, [
-        'emergency_id' => $emergencyId,
-        'message' => 'Your emergency SOS alert has been transmitted to the School Clinic staff. Please remain where you are.'
-    ]);
 }
 
 // ================================================================
 // ACTION: history / clear_history
 // ================================================================
 if ($action === 'history') {
-    json_response(true, ['messages' => $aiService->getChatHistory()->getMessages()]);
+    json_response(true, ['history' => $aiService->getChatHistory()->getMessages(), 'messages' => $aiService->getChatHistory()->getMessages()]);
 }
 
 if ($action === 'clear_history') {

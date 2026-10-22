@@ -707,12 +707,10 @@ function escapeHtml(text) {
 
     if (role === 'nurse') {
       quickActions = [
-        { icon: '', label: 'Appointments', action: 'appointments_nurse' },
-        { icon: '', label: 'Medicine Stock', action: 'medicines' },
-        { icon: '', label: 'Emergencies', action: 'emergencies_nurse' },
-        { icon: '', label: 'Nearby Hospitals', action: 'nearby_hospital' },
-        { icon: '', label: 'Certificates', action: 'certificates_nurse' },
-        { icon: '', label: 'Announcements', action: 'announcements' },
+        { icon: '', label: 'Student Records', action: 'mica_student_records' },
+        { icon: '', label: 'Medicine Inventory', action: 'mica_inventory' },
+        { icon: '', label: 'Certificates', action: 'mica_certificates' },
+        { icon: '', label: 'Reports', action: 'mica_reports' },
       ];
     } else if (role === 'teacher' || role === 'adviser') {
       quickActions = [
@@ -732,13 +730,11 @@ function escapeHtml(text) {
       ];
     } else {
       quickActions = [
-        { icon: '', label: 'Nearest Hospital', action: 'nearby_hospital' },
-        { icon: '', label: 'BMI', action: 'bmi' },
-        { icon: '', label: 'Appointments', action: 'appointments' },
-        { icon: '', label: 'Records', action: 'records' },
-        { icon: '', label: 'Medicines', action: 'medicines' },
-        { icon: '', label: 'Vaccines', action: 'vaccines' },
-        { icon: '', label: 'SOS', action: 'sos' },
+        { icon: '', label: 'Clinic Information', action: 'clinic_information' },
+        { icon: '', label: 'My Queue', action: 'my_queue' },
+        { icon: '', label: 'My Health Record', action: 'records' },
+        { icon: '', label: 'Clinic Procedures', action: 'clinic_procedures' },
+        { icon: '', label: 'Emergency Help', action: 'sos' },
       ];
     }
 
@@ -1085,8 +1081,8 @@ function escapeHtml(text) {
           window.__MICA_SOS_LOC_TIME__ = Date.now();
 
           updateLocationBadge();
-          console.log('[MICA LOCATION DEBUG] Browser location: lat=' + lat + ', lng=' + lng + ', acc=' + accFormatted);
-          console.log('[MICA LOCATION DEBUG] State:', C.state.micaLocation);
+
+
           console.log('[MICA Geolocation] Location granted:', lat, lng, accFormatted, (isLow ? '(Low accuracy)' : '(Precise)'));
           resolve(C.state.micaLocation);
         },
@@ -1197,8 +1193,9 @@ function escapeHtml(text) {
   // mode: 'text' (default) — never speaks. 'voice' — speaks response.
   // ================================================================
   function sendMessage(text, mode) {
-    if (!text || text.trim() === '') return;
+    if (!text || text.trim() === '' || (C.dom.sendBtn && C.dom.sendBtn.disabled)) return;
 
+    if(window.MICAInventory && window.MICAInventory.command(text,C.dom.micaBody)){if(C.dom.micaInput)C.dom.micaInput.value='';return;}
     mode = mode || 'text';
     var message = text.trim().substring(0, C.config.maxTextLength);
     if (C.dom.micaInput) C.dom.micaInput.value = '';
@@ -1233,15 +1230,8 @@ function escapeHtml(text) {
       var hasCoords = (loc.latitude !== null && loc.latitude !== undefined && loc.longitude !== null && loc.longitude !== undefined);
       var isGranted = (C.state.locationState === 'granted' || loc.available === true);
 
-      console.log('[MICA LOCATION DEBUG] State:', C.state.micaLocation);
-      console.log('[MICA LOCATION DEBUG] Sending location to backend:', {
-        latitude: hasCoords ? loc.latitude : null,
-        longitude: hasCoords ? loc.longitude : null,
-        accuracy: hasCoords ? (loc.accuracy || '') : null,
-        status: isGranted && hasCoords ? 'granted' : (C.state.locationState || 'unrequested')
-      });
 
-      if (hasCoords && isGranted) {
+if (hasCoords && isGranted) {
         formData.append('latitude', loc.latitude);
         formData.append('longitude', loc.longitude);
         formData.append('accuracy', loc.accuracy || '');
@@ -1303,7 +1293,8 @@ function escapeHtml(text) {
           }
         })
         .catch(function (err) {
-          console.error('[MICA] Chat error:', err);
+          console.warn('[MICA] Chat request failed.');
+          if(C.dom.micaInput && !C.dom.micaInput.value)C.dom.micaInput.value=message;
           addMessage('ai', 'Sorry, I am having trouble connecting right now. Please try again.');
           if (!C.state.isPlaying) setMode('idle');
         })
@@ -1466,7 +1457,7 @@ function escapeHtml(text) {
         // The API returns { success, message, history, stats } — history is
         // at the top level, NOT nested under data. Guard against both shapes
         // so an empty/invalid response never throws an uncaught error.
-        var historyData = (data && data.history) || (data && data.data && data.data.history) || [];
+        var historyData = (data && (data.history || data.messages)) || (data && data.data && data.data.history) || [];
         if (!Array.isArray(historyData) || historyData.length === 0) {
           showPersonalizedGreeting();
           return;
@@ -1986,6 +1977,7 @@ function escapeHtml(text) {
         // history was loaded but body could be empty in edge cases
       }
       clearNotifBadge();
+      if (window.MICAInventory) window.MICAInventory.show(C.dom.micaBody, false, true);
 
       // HYBRID RULE: NEVER auto-start listening when the widget opens.
       // The user must explicitly press the microphone button.
@@ -2021,6 +2013,9 @@ function escapeHtml(text) {
       appointments: 'How do I book an appointment?',
       appointments_nurse: 'What appointments are scheduled today?',
       records: 'Show my medical records',
+      clinic_information: 'What are the clinic hours and services?',
+      my_queue: 'Show my current clinic queue status',
+      clinic_procedures: 'Explain the clinic procedures for students',
       medicines: 'What medicines are available in the clinic?',
       vaccines: 'What vaccines do I have on record?',
       vaccination: 'What vaccines do I have on record?',
@@ -2044,6 +2039,11 @@ function escapeHtml(text) {
       navigate_profile: 'Open Profile',
       logout: 'Logout',
     };
+
+    if (action === 'mica_student_records') { renderStudentRecordsPanel(); return; }
+    if (action === 'mica_inventory') { renderInventoryPanel(); return; }
+    if (action === 'mica_certificates') { renderCertificatesPanel(); return; }
+    if (action === 'mica_reports') { renderReportsPanel(); return; }
 
     var msg = messages[action] || messages[action.toLowerCase()] || 'Help me with clinic information';
 
@@ -2109,6 +2109,7 @@ function escapeHtml(text) {
 
     if (C.dom.micBtn) {
       C.dom.micBtn.type = 'button';
+      if(!supportsSpeechRecognition){C.dom.micBtn.disabled=true;C.dom.micBtn.title='Speech recognition is unavailable in this browser. Type your message instead.';}
       C.dom.micBtn.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -2451,6 +2452,294 @@ function escapeHtml(text) {
         reject(new Error('Audio play failed: ' + err.message));
       });
     });
+  }
+
+  // ================================================================
+  // MICA Structured Clinic Panels (Nurse)
+  // Deterministic, role-scoped interfaces backed by
+  // api/mica_clinic_tools.php. No raw SQL is executed from the client.
+  // ================================================================
+  function setPanelMode(active, title) {
+    if (!C.dom.micaBody) return;
+    C.dom.micaBody.innerHTML = '';
+    if (active) {
+      var header = document.createElement('div');
+      header.className = 'mica-panel-header d-flex align-items-center justify-content-between mb-3';
+      header.innerHTML =
+        '<button type="button" class="btn btn-outline-secondary btn-sm mica-panel-back" aria-label="Back to chat"><i class="bi bi-arrow-left me-1"></i> ' + escapeHtml(title || 'MICA') + '</button>' +
+        '<span class="mica-panel-loading d-none"><span class="spinner-border spinner-border-sm me-1"></span> Loading...</span>';
+      C.dom.micaBody.appendChild(header);
+      var container = document.createElement('div');
+      container.className = 'mica-panel-content';
+      C.dom.micaBody.appendChild(container);
+      header.querySelector('.mica-panel-back').onclick = function () {
+        C.dom.micaBody.innerHTML = '';
+        if (C.state.messages.length === 0 && !C.config.initialGreetingShown) showPersonalizedGreeting();
+        else if (C.state.messages.length > 0) {
+          C.state.messages.forEach(function (m) { addMessage(m.role, m.content); });
+        }
+      };
+    }
+  }
+  function micaPanelContainer() { return C.dom.micaBody ? C.dom.micaBody.querySelector('.mica-panel-content') : null; }
+  function micaPanelLoading(show) {
+    var el = C.dom.micaBody ? C.dom.micaBody.querySelector('.mica-panel-loading') : null;
+    if (el) el.classList.toggle('d-none', !show);
+  }
+  function micaApi(action, params) {
+    var url = C.config.appUrl + '/api/mica_clinic_tools.php?action=' + encodeURIComponent(action);
+    if (params) Object.keys(params).forEach(function (k) { url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
+    return fetch(url, { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+  function micaDownload(action, data) {
+    var fd = new FormData();
+    fd.append('action', action);
+    fd.append('csrf_token', C.config.csrfToken || $('meta[name="csrf-token"]').attr('content') || '');
+    if (data) Object.keys(data).forEach(function (k) { fd.append(k, data[k]); });
+    micaPanelLoading(true);
+    var ext = (data && data.format) ? data.format : 'bin';
+    fetch(C.config.appUrl + '/api/mica_clinic_tools.php', { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(function (r) {
+        var ct = (r.headers && typeof r.headers.get === 'function') ? (r.headers.get('Content-Type') || '') : '';
+        if (ct.indexOf('application/json') !== -1) return r.json().then(function (j) { throw new Error(j.message || 'Export failed.'); });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.blob();
+      })
+      .then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'BPC_' + action + '_' + new Date().toISOString().slice(0, 10) + '.' + ext;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      })
+      .catch(function (err) {
+        micaPanelLoading(false);
+        showStatus('Export failed: ' + err.message);
+        addMessage('ai', 'Download failed: ' + escapeHtml(err.message));
+      })
+      .finally(function () { micaPanelLoading(false); });
+  }
+
+  function renderStudentRecordsPanel() {
+    setPanelMode(true, 'Student Records');
+    var con = micaPanelContainer();
+    con.innerHTML =
+      '<div class="row g-2 mb-3"><div class="col-12"><div class="input-group"><span class="input-group-text"><i class="bi bi-search"></i></span><input type="search" class="form-control" id="micaSrSearch" placeholder="Search student by name or ID"></div></div></div>' +
+      '<div id="micaSrResults"></div>';
+    var searchIn = document.getElementById('micaSrSearch');
+    var results = document.getElementById('micaSrResults');
+    var timer = null;
+    function load(q) {
+      micaPanelLoading(true);
+      results.innerHTML = '<div class="text-muted p-3">Searching authorized student records...</div>';
+      micaApi('student_search', { q: q || '' }).then(function (res) {
+        var data = res.data || [];
+        results.innerHTML = '';
+        if (!data.length) { results.innerHTML = '<div class="text-muted p-3">No matching students found.</div>'; micaPanelLoading(false); return; }
+        data.forEach(function (s) {
+          var card = document.createElement('div');
+          card.className = 'card border-0 mb-2 shadow-sm';
+          card.innerHTML =
+            '<div class="card-body p-3"><div class="d-flex justify-content-between align-items-start"><div><div class="fw-bold">' + escapeHtml(s.name) + '</div><div class="small text-muted">' + escapeHtml(s.student_number) + ' &middot; ' + escapeHtml(s.section) + ' &middot; ' + escapeHtml(s.course) + '</div></div><button class="btn btn-sm btn-outline-primary mica-view-student" data-id="' + s.id + '">View Record</button></div></div>';
+          results.appendChild(card);
+        });
+        micaPanelLoading(false);
+      }).catch(function (err) {
+        results.innerHTML = '<div class="text-danger p-3">Unable to load student records.</div>';
+        micaPanelLoading(false);
+      });
+    }
+    searchIn.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { load(searchIn.value.trim()); }, 300); });
+    load('');
+    con.addEventListener('click', function (e) {
+      var btn = e.target.closest('.mica-view-student');
+      if (!btn) return;
+      var id = btn.dataset.id;
+      micaPanelLoading(true);
+      micaApi('student_detail', { id: id }).then(function (res) {
+        var d = res.data || {};
+        var stu = d.student || {};
+        var consultations = d.consultations || [];
+        var visits = d.visits || [];
+        var fullName = escapeHtml((stu.first_name || '') + ' ' + (stu.last_name || ''));
+        var html = '<div class="mb-3"><div class="d-flex justify-content-between align-items-center mb-2"><div><h6>' + fullName + '</h6><div class="small text-muted">' + escapeHtml(stu.student_number || '') + ' &middot; ' + escapeHtml(stu.course || '') + ' ' + escapeHtml(stu.year_level || '') + ' &middot; ' + escapeHtml(stu.section || '') + '</div></div><button class="btn btn-sm btn-outline-secondary mica-back-to-list"><i class="bi bi-arrow-left me-1"></i> Back</button></div></div>' +
+          '<div class="row g-3"><div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><h7 class="card-title small text-uppercase text-muted">Profile</h7><table class="table table-borderless small"><tr><th style="width:40%">Student ID</th><td>' + escapeHtml(stu.student_number || '') + '</td></tr><tr><th>Course / Year</th><td>' + escapeHtml(stu.course || '') + ' ' + escapeHtml(stu.year_level || '') + '</td></tr><tr><th>Section</th><td>' + escapeHtml(stu.section || '') + '</td></tr><tr><th>Blood Type</th><td>' + escapeHtml(stu.blood_type || '') + '</td></tr><tr><th>Allergies</th><td>' + escapeHtml(stu.allergies || 'None recorded') + '</td></tr></table></div></div></div><div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-body"><h7 class="card-title small text-uppercase text-muted">Consultations (' + consultations.length + ')</h7>';
+        if (!consultations.length) html += '<p class="text-muted small">No consultation records.</p>';
+        consultations.forEach(function (c) { html += '<div class="small border-bottom pb-2 mb-2">' + escapeHtml(c.chief_complaint || 'Visit') + ' <span class="text-muted">' + (c.consultation_date ? escapeHtml(c.consultation_date) : '') + '</span></div>'; });
+        html += '</div></div></div></div>';
+        if (visits.length) {
+          html += '<div class="col-12"><div class="card border-0 shadow-sm mt-3"><div class="card-body"><h7 class="card-title small text-uppercase text-muted">Visit History (' + visits.length + ')</h7>';
+          visits.forEach(function (v) { html += '<div class="small border-bottom pb-2 mb-2">' + escapeHtml(v.chief_complaint || 'Visit') + ' <span class="text-muted">' + (v.visit_date ? escapeHtml(v.visit_date) : '') + '</span></div>'; });
+          html += '</div></div></div>';
+        }
+        html += '<div class="mt-3"><button class="btn btn-sm btn-outline-primary" onclick="window.MICA.send(\'Show the medical history of student ' + fullName + '\')">Ask MICA about this student</button></div>';
+        con.innerHTML = html;
+        micaPanelLoading(false);
+        con.querySelector('.mica-back-to-list').onclick = function () { renderStudentRecordsPanel(); };
+      }).catch(function (err) {
+        con.innerHTML = '<div class="text-danger p-3">Unable to load student record.</div>';
+        micaPanelLoading(false);
+      });
+    });
+  }
+
+  function renderInventoryPanel() {
+    setPanelMode(true, 'Medicine Inventory');
+    var con = micaPanelContainer();
+    con.innerHTML =
+      '<div class="row g-2 mb-3"><div class="col-md-5"><div class="input-group"><span class="input-group-text"><i class="bi bi-search"></i></span><input type="search" class="form-control" id="micaInvSearch" placeholder="Search medicine by name"></div></div>' +
+      '<div class="col-md-3"><select class="form-select form-select-sm" id="micaInvFilter"><option value="all">All</option><option value="low">Low Stock</option><option value="available">Available</option><option value="expiring">Expiring Soon</option></select></div>' +
+      '<div class="col-md-4"><div class="d-flex gap-2"><button class="btn btn-success btn-sm w-100" id="micaInvExportPdf">PDF</button><button class="btn btn-success btn-sm w-100" id="micaInvExportXlsx">XLSX</button><button class="btn btn-success btn-sm w-100" id="micaInvExportCsv">CSV</button></div></div></div>' +
+      '<div id="micaInvResults"></div><div id="micaInvSummary" class="mt-2 small text-muted"></div>';
+    var searchIn = document.getElementById('micaInvSearch');
+    var filter = document.getElementById('micaInvFilter');
+    var results = document.getElementById('micaInvResults');
+    var summary = document.getElementById('micaInvSummary');
+    var timer = null;
+    function statusBadge(m) {
+      var st = m.computed_status || m.status || 'Available';
+      var cls = 'bg-secondary';
+      if (st === 'Available') cls = 'bg-success';
+      else if (st === 'Low Stock') cls = 'bg-warning text-dark';
+      else if (st === 'Out of Stock') cls = 'bg-danger';
+      else if (st === 'Expiring Soon' || st === 'Expired') cls = 'bg-info text-dark';
+      return '<span class="badge ' + cls + '">' + escapeHtml(st) + '</span>';
+    }
+    function load() {
+      micaPanelLoading(true);
+      results.innerHTML = '<div class="text-muted p-3">Loading medicine inventory...</div>';
+      summary.innerHTML = '';
+      micaApi('inventory_list', { q: searchIn.value.trim(), filter: filter.value }).then(function (res) {
+        var data = res.data || [];
+        results.innerHTML = '';
+        if (!data.length) { results.innerHTML = '<div class="text-muted p-3">No medicines found.</div>'; micaPanelLoading(false); return; }
+        var low = 0, exp = 0;
+        data.forEach(function (m) {
+          var st = m.computed_status || m.status || 'Available';
+          if (st === 'Low Stock' || st === 'Out of Stock') low++;
+          if (st === 'Expiring Soon' || st === 'Expired') exp++;
+          var row = document.createElement('div');
+          row.className = 'card border-0 mb-2 shadow-sm';
+          row.innerHTML =
+            '<div class="card-body p-3"><div class="d-flex justify-content-between align-items-start"><div><div class="fw-bold">' + escapeHtml(m.medicine_name) + '</div><div class="small text-muted">' + escapeHtml(m.category || '') + ' &middot; ' + escapeHtml(m.unit || 'pcs') + ' &middot; Batch ' + escapeHtml(m.batch_number || '—') + '</div></div><div class="text-end">' + statusBadge(m) + '<div class="small mt-1">' + (m.quantity != null ? m.quantity : '0') + ' <span class="text-muted">' + escapeHtml(m.unit || 'pcs') + '</span></div></div></div>' +
+            '<div class="mt-2 small"><span class="badge bg-light text-dark me-1">Reorder: ' + (m.reorder_level != null ? m.reorder_level : '—') + '</span><span class="badge bg-light text-dark">Expires: ' + (m.expiration_date ? escapeHtml(m.expiration_date) : '—') + '</span></div></div>';
+          results.appendChild(row);
+        });
+        summary.innerHTML = data.length + ' medicine(s) &middot; <strong class="text-danger">' + low + '</strong> low/out of stock &middot; <strong class="text-warning">' + exp + '</strong> expiring soon.';
+        micaPanelLoading(false);
+      }).catch(function (err) {
+        results.innerHTML = '<div class="text-danger p-3">Unable to load inventory.</div>';
+        micaPanelLoading(false);
+      });
+    }
+    searchIn.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(load, 300); });
+    filter.addEventListener('change', load);
+    load();
+    function doExport(fmt) { micaDownload('inventory_export', { from: '', to: '', format: fmt }); }
+    document.getElementById('micaInvExportPdf').onclick = function () { doExport('pdf'); };
+    document.getElementById('micaInvExportXlsx').onclick = function () { doExport('xlsx'); };
+    document.getElementById('micaInvExportCsv').onclick = function () { doExport('csv'); };
+  }
+
+  function renderCertificatesPanel() {
+    setPanelMode(true, 'Certificates');
+    var con = micaPanelContainer();
+    con.innerHTML =
+      '<div class="row g-2 mb-3"><div class="col-12"><div class="input-group"><span class="input-group-text"><i class="bi bi-search"></i></span><input type="search" class="form-control" id="micaCertSearch" placeholder="Search certificate by number or student"></div></div></div>' +
+      '<div id="micaCertResults"></div>';
+    var searchIn = document.getElementById('micaCertSearch');
+    var results = document.getElementById('micaCertResults');
+    var timer = null;
+    function load(q) {
+      micaPanelLoading(true);
+      results.innerHTML = '<div class="text-muted p-3">Searching certificates...</div>';
+      micaApi('certificate_list', { q: q || '' }).then(function (res) {
+        var data = res.data || [];
+        results.innerHTML = '';
+        if (!data.length) { results.innerHTML = '<div class="text-muted p-3">No certificates found.</div>'; micaPanelLoading(false); return; }
+        data.forEach(function (c) {
+          var row = document.createElement('div');
+          row.className = 'card border-0 mb-2 shadow-sm';
+          row.innerHTML =
+            '<div class="card-body p-3"><div class="d-flex justify-content-between align-items-start"><div><div class="fw-bold">' + escapeHtml(c.certificate_number || '—') + '</div><div class="small text-muted">' + escapeHtml(c.student_name || '') + ' &middot; ' + escapeHtml(c.student_number || '') + '</div></div><div class="d-flex gap-1"><button class="btn btn-sm btn-outline-primary mica-view-cert" data-id="' + c.id + '">View</button><button class="btn btn-sm btn-success mica-download-cert" data-id="' + c.id + '"><i class="bi bi-download me-1"></i></button></div></div>' +
+            '<div class="mt-2 small"><span class="badge bg-light text-dark me-1">' + escapeHtml(c.certificate_type || 'Medical Certificate') + '</span><span class="badge bg-light text-dark">Issued: ' + (c.date_issued ? escapeHtml(c.date_issued) : '—') + '</span></div>' +
+            (c.purpose ? '<div class="mt-1 small">' + escapeHtml(c.purpose) + '</div>' : '') +
+            '</div>';
+          results.appendChild(row);
+        });
+        micaPanelLoading(false);
+      }).catch(function (err) {
+        results.innerHTML = '<div class="text-danger p-3">Unable to load certificates.</div>';
+        micaPanelLoading(false);
+      });
+    }
+    searchIn.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { load(searchIn.value.trim()); }, 300); });
+    load('');
+    con.addEventListener('click', function (e) {
+      var dl = e.target.closest('.mica-download-cert');
+      if (dl) { window.location = C.config.appUrl + '/api/mica_clinic_tools.php?action=certificate_pdf&id=' + dl.dataset.id; return; }
+      var btn = e.target.closest('.mica-view-cert');
+      if (btn) { window.location = C.config.appUrl + '/api/mica_clinic_tools.php?action=certificate_pdf&id=' + btn.dataset.id; }
+    });
+  }
+
+  function renderReportsPanel() {
+    setPanelMode(true, 'Reports');
+    var con = micaPanelContainer();
+    con.innerHTML =
+      '<div class="row g-2 mb-3"><div class="col-md-3"><select class="form-select form-select-sm" id="micaRepType"><option value="daily_visits">Daily Clinic Visits</option><option value="clinic_activity">Clinic Activity</option><option value="emergencies">Emergency Incidents</option><option value="inventory">Medicine Inventory</option></select></div>' +
+      '<div class="col-md-3"><input type="date" class="form-control form-control-sm" id="micaRepFrom"></div>' +
+      '<div class="col-md-3"><input type="date" class="form-control form-control-sm" id="micaRepTo"></div>' +
+      '<div class="col-md-3"><button class="btn btn-primary btn-sm w-100" id="micaRepGenerate">Generate</button></div></div>' +
+      '<div id="micaRepResults"></div>';
+    var fromIn = document.getElementById('micaRepFrom');
+    var toIn = document.getElementById('micaRepTo');
+    var today = new Date().toISOString().slice(0, 10);
+    var monthStart = new Date(); monthStart.setDate(1);
+    fromIn.value = monthStart.toISOString().slice(0, 10);
+    toIn.value = today;
+    var results = document.getElementById('micaRepResults');
+    function doGenerate() {
+      micaPanelLoading(true);
+      results.innerHTML = '<div class="text-muted p-3">Generating report...</div>';
+      micaApi('report_preview', { type: document.getElementById('micaRepType').value, from: fromIn.value, to: toIn.value }).then(function (res) {
+        var report = res.data || {};
+        var rows = report.rows || [];
+        var html = '<div class="mb-3"><h6 class="fw-bold">' + escapeHtml(report.title || 'Clinic Report') + '</h6><div class="small text-muted">Period: ' + (report.from || '') + ' to ' + (report.to || '') + ' &middot; Generated: ' + new Date().toLocaleString() + ' &middot; Records: ' + rows.length + '</div></div>';
+        if (rows.length) {
+          html += '<div class="table-responsive"><table class="table table-bordered table-sm align-middle"><thead><tr>';
+          Object.keys(rows[0]).forEach(function (h) { html += '<th>' + escapeHtml(h) + '</th>'; });
+          html += '</tr></thead><tbody>';
+          rows.forEach(function (row) {
+            html += '<tr>';
+            Object.values(row).forEach(function (v) { html += '<td>' + escapeHtml(v == null ? '' : v) + '</td>'; });
+            html += '</tr>';
+          });
+          html += '</tbody></table></div>';
+        } else {
+          html += '<div class="text-muted p-3">No records found for this period.</div>';
+        }
+        html += '<div class="mt-3 d-flex gap-2"><button class="btn btn-outline-primary btn-sm mica-rep-export" data-fmt="pdf">PDF</button><button class="btn btn-outline-primary btn-sm mica-rep-export" data-fmt="xlsx">XLSX</button><button class="btn btn-outline-primary btn-sm mica-rep-export" data-fmt="csv">CSV</button></div>';
+        results.innerHTML = html;
+        micaPanelLoading(false);
+      }).catch(function (err) {
+        results.innerHTML = '<div class="text-danger p-3">Unable to generate report.</div>';
+        micaPanelLoading(false);
+      });
+    }
+    document.getElementById('micaRepGenerate').onclick = doGenerate;
+    con.addEventListener('click', function (e) {
+      var btn = e.target.closest('.mica-rep-export');
+      if (!btn) return;
+      micaDownload('report_export', { type: document.getElementById('micaRepType').value, from: fromIn.value, to: toIn.value, format: btn.dataset.fmt });
+    });
+    doGenerate();
   }
 })();
 

@@ -28,73 +28,18 @@ class MICAAutomationEngine
      */
     public function runAllTasks(): array
     {
-        $results = [
-            'timestamp'             => date('Y-m-d H:i:s'),
-            'low_stock'             => $this->checkLowStock(),
-            'expiring_medicines'    => $this->checkExpiringMedicines(),
-            'graduating_students'   => $this->checkGraduatingStudents(),
-            'pending_requests'      => $this->checkPendingRequests(),
-            'inventory_anomalies'   => $this->detectInventoryAnomalies(),
-            'daily_summary'         => $this->generateDailyClinicSummary(),
-        ];
-
-        return $results;
+        require_once __DIR__.'/MICAHubService.php';
+        return (new MICAHubService($this->db, ['id'=>0,'role'=>'admin']))->scan();
     }
 
     /**
-     * 1. Smart Inventory Intelligence & Suggested Reorders
-     * Calculates dynamic suggested reorder quantities based on recent consumption in medicine_logs.
+     * 1. Deterministic inventory monitoring and deduplicated staff notifications.
+     * Requisition quantities require staff confirmation; no automatic reorder is created.
      */
     public function checkLowStock(): array
     {
-        $stmt = $this->db->query("
-            SELECT id, medicine_name, generic_name, quantity, unit, reorder_level
-            FROM medicines
-            WHERE quantity <= reorder_level AND is_archived = 0
-            ORDER BY quantity ASC
-        ");
-        $lowMedicines = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $reordersCreated = 0;
-
-        foreach ($lowMedicines as $med) {
-            $medId = (int)$med['id'];
-            $currentStock = (int)$med['quantity'];
-            $reorderLevel = (int)$med['reorder_level'];
-
-            // Calculate historical monthly consumption over the last 60 days
-            $usageStmt = $this->db->prepare("
-                SELECT COALESCE(SUM(quantity), 0) as total_used, COUNT(*) as logs_count
-                FROM medicine_logs
-                WHERE medicine_id = ? AND action = 'stock_out' AND performed_at >= DATE_SUB(NOW(), INTERVAL 60 DAY)
-            ");
-            $usageStmt->execute([$medId]);
-            $usageData = $usageStmt->fetch(PDO::FETCH_ASSOC);
-            $totalUsed60d = (int)$usageData['total_used'];
-
-            // Intelligent reorder calculation: 30-day estimated need + safety buffer
-            if ($totalUsed60d > 0) {
-                $monthlyBurnRate = ceil($totalUsed60d / 2);
-                $suggestedQty = max($reorderLevel * 2, (int)($monthlyBurnRate * 1.5) - $currentStock);
-            } else {
-                // Fallback heuristic: 3x reorder level
-                $suggestedQty = max(20, $reorderLevel * 3);
-            }
-
-            $reason = ($currentStock <= 0)
-                ? "CRITICAL: Stock is currently exhausted (0 {$med['unit']})."
-                : "Stock level ({$currentStock} {$med['unit']}) is at or below minimum threshold ({$reorderLevel} {$med['unit']}).";
-
-            $res = $this->actionService->createReorderRequest($medId, $suggestedQty, $reason);
-            if (!empty($res['success']) && empty($res['duplicate'])) {
-                $reordersCreated++;
-            }
-        }
-
-        return [
-            'count' => count($lowMedicines),
-            'reorders_created' => $reordersCreated,
-            'items' => array_column($lowMedicines, 'medicine_name')
-        ];
+        require_once __DIR__ . '/../medicine_inventory_service.php';
+        return (new MedicineInventoryService($this->db))->monitor();
     }
 
     /**
@@ -215,41 +160,17 @@ class MICAAutomationEngine
 
     /**
      * 4. Pending Account & Clinic Action Requests
+     *
+     * Pending account monitoring is owned by MICAHubService::scan() which
+     * reconciles pending_review alerts against live AccountMonitoringService
+     * counts and deduplicates across scans. This engine no longer emits
+     * competing pending_review actions.
      */
     public function checkPendingRequests(): array
     {
-        $pendingUsers = (int)$this->db->query("SELECT COUNT(*) FROM users WHERE status = 'pending'")->fetchColumn();
-        $activeEmergencies = (int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
-
-        if ($pendingUsers > 0) {
-            $this->actionService->createAction([
-                'target_role'  => 'admin',
-                'action_type'  => 'pending_review',
-                'target_type'  => 'user',
-                'target_id'    => null,
-                'title'        => "{$pendingUsers} Pending Account Registration(s)",
-                'description'  => "There are {$pendingUsers} user account(s) awaiting administrator verification and approval.",
-                'reason'       => 'Pending registration backlog.',
-                'priority'     => 'high',
-            ]);
-        }
-
-        if ($activeEmergencies > 0) {
-            $this->actionService->createAction([
-                'target_role'  => 'nurse',
-                'action_type'  => 'emergency_triage',
-                'target_type'  => 'sos_emergency',
-                'target_id'    => null,
-                'title'        => "{$activeEmergencies} Active SOS Emergency Alert(s)",
-                'description'  => "There are {$activeEmergencies} live emergency request(s) requiring clinical response and triage.",
-                'reason'       => 'Active medical emergency response required.',
-                'priority'     => 'critical',
-            ]);
-        }
-
         return [
-            'pending_users'      => $pendingUsers,
-            'active_emergencies' => $activeEmergencies
+            'pending_users'      => (int)$this->db->query("SELECT COUNT(*) FROM users WHERE status = 'pending'")->fetchColumn(),
+            'active_emergencies' => (int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn(),
         ];
     }
 
@@ -328,15 +249,21 @@ class MICAAutomationEngine
     /**
      * 6. Daily Clinic Intelligence Summary Synthesis (Assistive Decision Support)
      */
-    public function generateDailyClinicSummary(): array
+    public function generateDailyClinicSummary(bool $includeInventory = true): array
     {
         $today = date('Y-m-d');
         $yesterday = date('Y-m-d', strtotime('-1 day'));
 
         $todayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$today'")->fetchColumn();
         $yesterdayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$yesterday'")->fetchColumn();
-        $lowStockMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE quantity <= reorder_level AND is_archived = 0")->fetchColumn();
-        $expiringMeds = (int)$this->db->query("SELECT COUNT(*) FROM medicines WHERE expiration_date IS NOT NULL AND expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND is_archived = 0")->fetchColumn();
+        $lowStockMeds = $expiringMeds = null;
+        if ($includeInventory) {
+            require_once __DIR__ . '/../medicine_inventory_service.php';
+            $inventory = new MedicineInventoryService($this->db);
+            $rows = $inventory->snapshot();
+            $lowStockMeds = count(MedicineInventoryService::filter($rows, ['status'=>'low_stock'], $today));
+            $expiringMeds = count(MedicineInventoryService::filter($rows, ['expiry'=>'expiring30'], $today));
+        }
         $activeEmergencies = (int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
         $pendingUsers = (int)$this->db->query("SELECT COUNT(*) FROM users WHERE status = 'pending'")->fetchColumn();
 
