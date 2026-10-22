@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif ($user['status'] !== 'active') {
                 login_rate_limit_clear($clientIp);
                 $errors[] = match($user['status']) {
-                    'pending' => 'Your email is verified. Institutional identity or role eligibility still requires verification. Contact clinic support if your records need updating.',
+                    'pending' => AccountMonitoringService::pendingMessage($user),
                     'inactive', 'suspended' => 'Your account is suspended. Contact authorized support for recovery.',
                     'rejected' => 'Your registration was rejected. Contact authorized support if you believe this is an error.',
                     default => 'Your account is disabled and cannot sign in.'

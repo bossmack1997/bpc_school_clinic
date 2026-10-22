@@ -85,6 +85,23 @@ checkActivation(AccountMonitoringService::statusLabel(account(301))==='Email Ver
 $counts=$monitor->counts();checkActivation($counts['total']===$counts['active']+$counts['inactive']+$counts['verification'],'MIS account statistics reconcile');
 checkActivation($monitor->directory(['tab'=>'email_pending'],true)['total']===2,'Email pending filter uses email verification flag');
 checkActivation($monitor->directory(['tab'=>'eligibility_pending'],true)['total']>=1,'Eligibility pending filter uses verified flag');
+checkActivation($monitor->eligibility(account(201))['code']==='roster_missing','Missing institutional evidence has a precise restricted-state reason');
+checkActivation($monitor->eligibility(account(502))['code']==='role_mismatch','Role mismatch has a precise restricted-state reason');
+checkActivation($monitor->eligibility(account(503))['code']==='license_mismatch','License mismatch has a precise restricted-state reason');
+checkActivation($monitor->eligibility(account(504))['code']==='roster_ineligible','Revoked roster has a precise restricted-state reason');
+fixture(507);$db->exec("UPDATE institutional_roster SET first_name=CONCAT(CHAR(194,160),'Alex',CHAR(194,160)),institutional_email='  activation_507@example.invalid  ' WHERE identifier='ACT-507'");
+checkActivation($validator->verifyOtp(507,'123456')['account_status']==='active','Harmless source name whitespace and email padding do not block a trusted identity');
+$db->exec('ALTER TABLE institutional_roster CHANGE license_number unavailable_license_number VARCHAR(100)');
+checkActivation($monitor->eligibility(account(503))['code']==='source_unavailable','Legacy roster missing required nursing evidence cannot grant nurse access');
+fixture(509,'student',false);$db->exec("INSERT INTO institutional_roster(identifier,role,first_name,last_name,institutional_email,status) VALUES ('ACT-509','student','Alex','Fixture','activation_509@example.invalid','eligible')");
+checkActivation($validator->verifyOtp(509,'123456')['account_status']==='active','Legacy roster without nursing-license column still activates a trusted student');
+$db->exec('ALTER TABLE institutional_roster CHANGE unavailable_license_number license_number VARCHAR(100)');
+$db->exec('ALTER TABLE institutional_roster CHANGE institutional_email unavailable_institutional_email VARCHAR(191)');
+fixture(508,'student',false);
+checkActivation($validator->verifyOtp(509,'123456')['status']==='blocked','Schema change cannot reopen an already active OTP challenge');
+checkActivation($monitor->eligibility(account(507))['code']==='source_unavailable','Outdated deployment schema is distinguished from identity failure');
+checkActivation($validator->verifyOtp(508,'123456')['account_status']==='pending' && account(508)['email_verified'],'Missing trusted evidence records OTP ownership while keeping access restricted');
+$db->exec('ALTER TABLE institutional_roster CHANGE unavailable_institutional_email institutional_email VARCHAR(191)');
 fixture(600);
 $db->exec('ALTER TABLE account_security_events CHANGE details unavailable_details VARCHAR(255)');
 try{$validator->verifyOtp(600,'123456');throw new LogicException('Missing audit unexpectedly succeeded');}catch(PDOException $e){}

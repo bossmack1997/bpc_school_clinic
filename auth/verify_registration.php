@@ -74,7 +74,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $state=$verifyResult['account_status'];
                 log_activity($userId,'Completed OTP and identity eligibility evaluation','auth','Account state: '.$state);
                 unset($_SESSION['pending_verification_user_id'],$_SESSION['demo_registration_otp']);
-                set_flash($state==='active'?'success':'info',$state==='active'?'Email and trusted identity verified. Your account is active.':'Email verified. Identity or role eligibility requires authorized review.');
+                $message='Email and trusted identity verified. Your account is active.';
+                if($state!=='active') {
+                    $q=$db->prepare('SELECT validation_reason FROM users WHERE id=?');$q->execute([$userId]);
+                    $message=AccountMonitoringService::pendingMessage($q->fetch()?:[]);
+                }
+                set_flash($state==='active'?'success':'info',$message);
                 redirect('login.php');
             } else {
                 $errors[] = $verifyResult['message'];

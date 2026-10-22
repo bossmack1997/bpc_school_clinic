@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/institutional_eligibility.php';
 /** Shared account statuses and trusted identity eligibility; no AI access decisions. */
 final class AccountMonitoringService
 {
@@ -43,22 +44,32 @@ final class AccountMonitoringService
         $db->prepare('INSERT INTO account_security_events (event_type,subject_key,user_id,details) VALUES (?,?,?,?)')->execute([$type,hash('sha256',strtolower(trim($subject))),$userId,mb_substr($details,0,255)]);
     }
     public function eligible(array $u): bool {
-        if(!in_array($u['role'],['student','teacher','nurse'],true)||($u['risk_level']??'low')==='high'||($u['registration_status']??'')==='rejected')return false;
+        return $this->eligibility($u)['eligible'];
+    }
+    public function eligibility(array $u): array {
+        if(!in_array($u['role'],['student','teacher','nurse'],true))return InstitutionalEligibility::result('restricted_role');
+        if(($u['risk_level']??'low')==='high'||($u['registration_status']??'')==='rejected')return InstitutionalEligibility::result('assessment_blocked');
         $table=['student'=>'students','teacher'=>'teachers','nurse'=>'nurses'][$u['role']];
         $column=$u['role']==='student'?'student_number':'employee_id';
-        $q=$this->db->prepare("SELECT $column FROM $table WHERE user_id=?");$q->execute([$u['id']]);$id=$q->fetchColumn();
-        if(!$id)return false;
-        $q=$this->db->prepare('SELECT first_name,last_name,role,institutional_email,status,license_number FROM institutional_roster WHERE identifier=?');$q->execute([$id]);$records=$q->fetchAll();$r=count($records)===1?$records[0]:null;
-        if(!$r||!in_array($r['status'],['eligible','registered'],true)||$r['role']!==$u['role'])return false;
-        $norm=fn($s)=>mb_strtolower(preg_replace('/\s+/u',' ',trim($s)));
-        if($norm($r['first_name'])!==$norm($u['first_name'])||$norm($r['last_name'])!==$norm($u['last_name'])||strcasecmp(trim($r['institutional_email']),trim($u['email']))!==0)return false;
-        if($u['role']==='nurse'){
-            $q=$this->db->prepare('SELECT license_number FROM nurses WHERE user_id=?');$q->execute([$u['id']]);$license=$q->fetchColumn();
-            if(!$license||empty($r['license_number'])||strcasecmp(trim($r['license_number']),trim($license))!==0)return false;
-        }
+        $q=$this->db->prepare("SELECT * FROM $table WHERE user_id=?");$q->execute([$u['id']]);$profiles=$q->fetchAll();
+        if(count($profiles)!==1 || !trim((string)($profiles[0][$column]??'')))return InstitutionalEligibility::result('profile_missing');
+        $profile=$profiles[0];$id=trim($profile[$column]);
+        $source=InstitutionalEligibility::roster($this->db,$id);
+        if(!isset($source['record']))return $source;
+        $identity=InstitutionalEligibility::matchIdentity($source['record'],$u,(string)($profile['license_number']??''));
+        if(!$identity['eligible'])return $identity;
         // A roster identifier cannot already belong to another account of this role.
         $q=$this->db->prepare("SELECT COUNT(*) FROM $table WHERE $column=? AND user_id<>?");$q->execute([$id,$u['id']]);
-        return (int)$q->fetchColumn()===0;
+        return (int)$q->fetchColumn()===0?$identity:InstitutionalEligibility::result('identifier_claimed');
+    }
+    public static function pendingMessage(array $u): string {
+        preg_match('/^\[eligibility:([a-z_]+)\]/',(string)($u['validation_reason']??''),$match);
+        $reason=match($match[1]??'unknown') {
+            'source_unavailable'=>'Institutional verification is temporarily unavailable. Contact clinic support.',
+            'roster_missing'=>'Your identifier could not be matched to trusted enrollment or staff records. Ask the registrar or authorized staff office to check those records.',
+            default=>InstitutionalEligibility::reason($match[1]??'unknown')
+        };
+        return 'Your email is verified. '.$reason.' Access remains limited until this check passes.';
     }
     public function finishVerification(int $id): string {
         $ownsTransaction=!$this->db->inTransaction();
@@ -68,9 +79,9 @@ final class AccountMonitoringService
             if(!$u||!$u['email_verified'])throw new RuntimeException('Email verification is required.');
             // Never reactivate an existing suspended/rejected account through OTP.
             if($u['status']!=='pending'){if($ownsTransaction)$this->db->commit();return $u['status'];}
-            $eligible=$this->eligible($u);
+            $assessment=$this->eligibility($u);$eligible=$assessment['eligible'];
             $status=$eligible?'active':'pending';
-            $reason=$eligible?'OTP verified; trusted roster identity and role matched.':'OTP verified; trusted identity or role eligibility requires authorized review.';
+            $reason='[eligibility:'.$assessment['code'].'] '.$assessment['reason'];
             // Repeated login checks must not duplicate review events or erase a rejection.
             if($u['registration_status']!=='rejected' && ($eligible || $u['validation_reason']!==$reason)) {
                 $this->db->prepare('UPDATE users SET status=?,registration_status=?,validation_reason=? WHERE id=?')->execute([$status,$eligible?'approved':'review',$reason,$id]);

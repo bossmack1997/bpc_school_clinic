@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/../institutional_eligibility.php';
 /**
  * MICARegistrationValidator.php
  * ------------------------------------------------------------------
@@ -324,6 +325,8 @@ class MICARegistrationValidator
                 $anomalies[] = 'Role eligibility mismatch: ' . $rosterCheck['error'];
                 $riskLevel = 'high';
                 $confidence = 0.10;
+            } elseif ($rosterCheck['error']!=='') {
+                $reasons[]=$rosterCheck['error'];
             }
         }
 
@@ -379,38 +382,18 @@ class MICARegistrationValidator
         ];
 
         try {
-            $stmt = $this->db->prepare("SELECT * FROM institutional_roster WHERE identifier = ?");
-            $stmt->execute([$identifier]);
-            $records=$stmt->fetchAll(PDO::FETCH_ASSOC);
-            $record=count($records)===1?$records[0]:null;
-
-            if (!$record) {
-                // Not in pre-seeded roster (allowed if pattern is valid)
-                return $result;
+            $source=InstitutionalEligibility::roster($this->db,$identifier);
+            if(!isset($source['record'])) {
+                $result['error']=$source['reason'];return $result;
             }
-
-            // 1. Role mismatch check
-            if ($record['role'] !== $role) {
-                $result['role_mismatch'] = true;
-                $result['error'] = 'The submitted institutional ID (' . $identifier . ') belongs to a ' . ucfirst($record['role']) . ', not ' . ucfirst($role) . '.';
-                return $result;
-            }
-
-            // 2. Email ownership check (Never trust entered email if roster specifies authorized email)
-            if (strcasecmp($record['institutional_email'], $email) !== 0) {
-                $result['impersonation_flag'] = true;
-                $result['error'] = 'The institutional ID (' . $identifier . ') is assigned to ' . $record['institutional_email'] . '. Identity ownership verification failed.';
-                return $result;
-            }
-
-            $norm=fn($value)=>mb_strtolower(preg_replace('/\s+/u',' ',trim($value)));
-            if (!in_array($record['status']??'',['eligible','registered'],true) || $norm($record['first_name'])!==$norm($firstName) || $norm($record['last_name'])!==$norm($lastName) || ($role==='nurse' && (!$license || empty($record['license_number']) || strcasecmp(trim($record['license_number']),$license)!==0))) {
-                $result['error']='Trusted identity, active eligibility or nursing license did not match.';
-                return $result;
-            }
-            // 3. Match confirmed
-            $result['matched'] = true;
-            $result['details'] = 'Official BPC Roster: ' . $record['first_name'] . ' ' . $record['last_name'] . ' (' . $record['role'] . ')';
+            $check=InstitutionalEligibility::matchIdentity($source['record'],[
+                'role'=>$role,'email'=>$email,'first_name'=>$firstName,'last_name'=>$lastName
+            ],$license);
+            $result['matched']=$check['eligible'];
+            $result['impersonation_flag']=$check['code']==='email_mismatch';
+            $result['role_mismatch']=$check['code']==='role_mismatch';
+            $result['error']=$check['eligible']?'':$check['reason'];
+            $result['details']=$check['reason'];
             return $result;
 
         } catch (Exception $e) {
