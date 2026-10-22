@@ -64,10 +64,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (strlen($otp) !== 6 || !ctype_digit($otp)) {
             $errors[] = 'Please enter a valid 6-digit verification code.';
         } else {  
-            $verifyResult = $validator->verifyOtp($userId, $otp);
+            try {$verifyResult = $validator->verifyOtp($userId, $otp);}
+            catch(Throwable $e) {
+                error_log('Registration verification failed: '.$e->getMessage());
+                $verifyResult=['status'=>'error','message'=>'Verification could not be completed. Please try again; no account activation was committed.'];
+            }
 
             if (in_array($verifyResult['status'],['verified','already_verified'],true)) {
-                $state=(new AccountMonitoringService($db))->finishVerification($userId);
+                $state=$verifyResult['account_status'];
                 log_activity($userId,'Completed OTP and identity eligibility evaluation','auth','Account state: '.$state);
                 unset($_SESSION['pending_verification_user_id'],$_SESSION['demo_registration_otp']);
                 set_flash($state==='active'?'success':'info',$state==='active'?'Email and trusted identity verified. Your account is active.':'Email verified. Identity or role eligibility requires authorized review.');

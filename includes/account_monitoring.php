@@ -6,6 +6,32 @@ final class AccountMonitoringService
     public static function bucket(string $status): string {
         return match($status){'active'=>'active','pending'=>'verification',default=>'inactive'};
     }
+    public static function statusLabel(array $user): string {
+        return match($user['status']) {
+            'pending' => !empty($user['email_verified']) ? 'Eligibility Verification Required' : 'Email Verification Pending',
+            'active' => 'Active',
+            'inactive', 'suspended' => 'Suspended',
+            'rejected' => 'Rejected',
+            default => ucfirst($user['status'])
+        };
+    }
+    /** Reconcile only the account whose password was just verified; never bulk activate. */
+    public function reconcileForLogin(int $id): array {
+        $this->db->beginTransaction();
+        try {
+            $q=$this->db->prepare('SELECT * FROM users WHERE id=? FOR UPDATE');$q->execute([$id]);$u=$q->fetch();
+            if(!$u)throw new RuntimeException('Account no longer exists.');
+            // Repair a legacy active-but-unverified public account only after password proof.
+            if($u['status']==='active' && !$u['email_verified'] && $u['role']!=='admin') {
+                $this->db->prepare("UPDATE users SET status='pending' WHERE id=?")->execute([$id]);
+                self::event($this->db,'email_verification_required',(string)$id,'Unverified public account restricted until OTP and eligibility checks pass.',$id);
+                $u['status']='pending';
+            }
+            if($u['status']==='pending' && $u['email_verified'])$this->finishVerification($id);
+            $q->execute([$id]);$u=$q->fetch();
+            $this->db->commit();return $u;
+        }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+    }
     public function counts(bool $includeAdmins=true): array {
         $where=$includeAdmins?'':" WHERE role <> 'admin'";
         $rows=$this->db->query('SELECT status,COUNT(*) AS total FROM users'.$where.' GROUP BY status')->fetchAll();
@@ -17,7 +43,7 @@ final class AccountMonitoringService
         $db->prepare('INSERT INTO account_security_events (event_type,subject_key,user_id,details) VALUES (?,?,?,?)')->execute([$type,hash('sha256',strtolower(trim($subject))),$userId,mb_substr($details,0,255)]);
     }
     public function eligible(array $u): bool {
-        if(!in_array($u['role'],['student','teacher','nurse'],true)||($u['risk_level']??'low')==='high')return false;
+        if(!in_array($u['role'],['student','teacher','nurse'],true)||($u['risk_level']??'low')==='high'||($u['registration_status']??'')==='rejected')return false;
         $table=['student'=>'students','teacher'=>'teachers','nurse'=>'nurses'][$u['role']];
         $column=$u['role']==='student'?'student_number':'employee_id';
         $q=$this->db->prepare("SELECT $column FROM $table WHERE user_id=?");$q->execute([$u['id']]);$id=$q->fetchColumn();
@@ -35,17 +61,21 @@ final class AccountMonitoringService
         return (int)$q->fetchColumn()===0;
     }
     public function finishVerification(int $id): string {
-        $this->db->beginTransaction();
+        $ownsTransaction=!$this->db->inTransaction();
+        if($ownsTransaction)$this->db->beginTransaction();
         try {
             $q=$this->db->prepare('SELECT * FROM users WHERE id=? FOR UPDATE');$q->execute([$id]);$u=$q->fetch();
             if(!$u||!$u['email_verified'])throw new RuntimeException('Email verification is required.');
             // Never reactivate an existing suspended/rejected account through OTP.
-            if($u['status']!=='pending'){$this->db->commit();return $u['status'];}
+            if($u['status']!=='pending'){if($ownsTransaction)$this->db->commit();return $u['status'];}
             $eligible=$this->eligible($u);
             $status=$eligible?'active':'pending';
             $reason=$eligible?'OTP verified; trusted roster identity and role matched.':'OTP verified; trusted identity or role eligibility requires authorized review.';
-            $this->db->prepare('UPDATE users SET status=?,registration_status=?,validation_reason=? WHERE id=?')->execute([$status,$eligible?'approved':'review',$reason,$id]);
-            self::event($this->db,$eligible?'identity_verified':'identity_review',(string)$id,$reason,$id);
+            // Repeated login checks must not duplicate review events or erase a rejection.
+            if($u['registration_status']!=='rejected' && ($eligible || $u['validation_reason']!==$reason)) {
+                $this->db->prepare('UPDATE users SET status=?,registration_status=?,validation_reason=? WHERE id=?')->execute([$status,$eligible?'approved':'review',$reason,$id]);
+                self::event($this->db,$eligible?'identity_verified':'identity_review',(string)$id,$reason,$id);
+            }
             if($eligible && $u['role']==='student'){
                 $q=$this->db->prepare('SELECT id FROM students WHERE user_id=?');$q->execute([$id]);$student=$q->fetchColumn();
                 if($student)ensure_student_qr($this->db,(int)$student,$id);
@@ -53,13 +83,17 @@ final class AccountMonitoringService
             if($eligible && $u['role']==='teacher'){
                 $q=$this->db->prepare('SELECT id FROM teachers WHERE user_id=?');$q->execute([$id]);if($teacher=$q->fetchColumn())ensure_teacher_qr($this->db,(int)$teacher,$id);
             }
-            $this->db->commit();return $status;
-        }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+            if($ownsTransaction)$this->db->commit();return $status;
+        }catch(Throwable $e){if($ownsTransaction && $this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
     public function directory(array $filters,bool $includeAdmins): array {
         $where=[$includeAdmins?'1=1':"u.role<>'admin'"];$params=[];
         $status=$filters['tab']??'all';
         if($status==='pending')$where[]="u.status='pending'";
+        if($status==='email_pending')$where[]="u.status='pending' AND u.email_verified=0";
+        if($status==='eligibility_pending')$where[]="u.status='pending' AND u.email_verified=1";
+        if($status==='suspended')$where[]="u.status IN ('inactive','suspended')";
+        if($status==='rejected')$where[]="u.status='rejected'";
         if($status==='active')$where[]="u.status='active'";
         if($status==='inactive')$where[]="u.status NOT IN ('active','pending')";
         $role=$filters['role']??'';

@@ -253,7 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                log_activity($userId, 'Initiated teacher registration with advisory sections (pending OTP & Admin approval)', 'auth');
+                log_activity($userId, 'Initiated teacher registration (pending OTP and trusted faculty eligibility)', 'auth');
 
             } elseif ($role === 'nurse') {
                 $employeeId    = $validation['metadata']['employee_id'] ?? trim($_POST['employee_id'] ?? '');

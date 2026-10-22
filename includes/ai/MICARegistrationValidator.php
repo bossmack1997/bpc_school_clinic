@@ -426,7 +426,16 @@ class MICARegistrationValidator
     {
         if(!$this->db)return ['status'=>'error','message'=>'Verification is unavailable.'];
         $this->db->beginTransaction();
-        try { $result=$this->verifyOtpLocked($userId,$enteredOtp); $this->db->commit(); return $result; }
+        try {
+            $result=$this->verifyOtpLocked($userId,$enteredOtp);
+            if($result['status']==='verified') {
+                require_once __DIR__.'/../account_monitoring.php';
+                $result['account_status']=(new AccountMonitoringService($this->db))->finishVerification($userId);
+            } elseif($result['status']==='already_verified') {
+                $result['account_status']=$result['user']['status'];
+            }
+            $this->db->commit();return $result;
+        }
         catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
     private function verifyOtpLocked(int $userId, string $enteredOtp): array
@@ -484,7 +493,7 @@ class MICARegistrationValidator
         // Successful verification
         $this->db->prepare("
             UPDATE users 
-            SET email_verified = 1, otp_hash = NULL, otp_attempts = 0 
+            SET email_verified = 1, otp_hash = NULL, otp_expires_at = NULL, otp_attempts = 0
             WHERE id = ?
         ")->execute([$userId]);
 
@@ -522,7 +531,7 @@ class MICARegistrationValidator
             return ['status' => 'error', 'message' => 'User not found.'];
         }
 
-        if($user['status']!=='pending' || $user['otp_attempts']>=5)return ['status'=>'blocked','message'=>'Contact authorized security personnel for account recovery.'];
+        if($user['status']!=='pending' || $user['email_verified'] || $user['otp_attempts']>=5)return ['status'=>'blocked','message'=>'A new code is not available for this account state. Contact authorized security personnel if recovery is needed.'];
         // 60-second cooldown check
         if (!empty($user['otp_last_sent_at'])) {
             $lastSent = strtotime($user['otp_last_sent_at']);
