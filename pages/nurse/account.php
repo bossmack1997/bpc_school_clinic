@@ -85,7 +85,7 @@ $pageTitle = 'Nurse Account Dashboard';
             <div>
               <span class="badge bg-white text-success px-2 py-1 mb-2 fw-semibold">School Clinic Staff Portal</span>
               <h1 class="h3 mb-1 fw-bold text-white">Welcome, <?= e($nurseName) ?></h1>
-              <p class="mb-0 text-white-50">Your email is verified and your basic account is active.</p>
+              <p class="mb-0 text-white-50"><?= (!empty($nurseDetail['email_verified']) && ($nurseDetail['account_status'] ?? '') === 'active') ? 'Your email is verified and your basic account is active.' : 'Your account needs attention before clinical review can proceed. See the checklist below.' ?></p>
             </div>
             <div class="d-flex gap-2">
               <a href="profile.php" class="btn btn-sm btn-light text-success fw-semibold">
@@ -177,6 +177,8 @@ $pageTitle = 'Nurse Account Dashboard';
         </div>
       </section>
 
+      <section class="card border-0 shadow-sm mb-3"><div class="card-body p-4"><h2 class="h6 fw-bold">Your clinical review checklist</h2><ul class="list-unstyled small mb-0"><?php foreach ($nurseDetail['eligibility']['checks'] as $chk): ?><li class="mb-1"><?= $chk['ok'] === true ? '&#10004;' : ($chk['ok'] === false ? '&#10008;' : '&#9203;') ?> <strong><?= e($chk['label']) ?>:</strong> <?= e($chk['detail']) ?></li><?php endforeach; ?></ul><p class="small text-muted mt-2 mb-0">Email verification is completed with your one-time code; it cannot be waived. Institutional verification is a separate decision made by the Doctor.</p></div></section>
+
       <div class="row g-3">
         <!-- Professional Credentials Column -->
         <div class="col-lg-6">
@@ -188,19 +190,19 @@ $pageTitle = 'Nurse Account Dashboard';
               <div class="col-sm-6">
                 <div class="p-2 border rounded bg-light">
                   <div class="small text-muted">PRC License Number</div>
-                  <div class="fw-bold"><?= e($nurseDetail['license_number'] ?? 'Not provided') ?></div>
+                  <div class="fw-bold"><?= e($nurseDetail['license_number'] ?: 'Not provided') ?></div>
                 </div>
               </div>
               <div class="col-sm-6">
                 <div class="p-2 border rounded bg-light">
                   <div class="small text-muted">Employee ID</div>
-                  <div class="fw-bold"><?= e($nurseDetail['employee_id'] ?? 'Not provided') ?></div>
+                  <div class="fw-bold"><?= e($nurseDetail['employee_id'] ?: 'Not provided') ?></div>
                 </div>
               </div>
               <div class="col-sm-6">
                 <div class="p-2 border rounded bg-light">
                   <div class="small text-muted">Designation / Position</div>
-                  <div class="fw-semibold"><?= e($nurseDetail['position'] ?? 'School Clinic Nurse') ?></div>
+                  <div class="fw-semibold"><?= e($nurseDetail['position'] ?: 'Not provided') ?></div>
                 </div>
               </div>
               <div class="col-sm-6">
@@ -272,7 +274,7 @@ $pageTitle = 'Nurse Account Dashboard';
             <div class="border rounded p-3 bg-light">
               <div class="d-flex align-items-center justify-content-between mb-1">
                 <strong>Account Security Status</strong>
-                <span class="badge bg-success">Email Verified</span>
+                <?php if (!empty($nurseDetail['email_verified'])): ?><span class="badge bg-success">Email Verified</span><?php else: ?><span class="badge bg-danger">Email Not Verified</span><?php endif; ?>
               </div>
               <p class="small text-muted mb-0">Account ID: #<?= (int)$user['id'] ?> &bull; Username: @<?= e($user['username']) ?></p>
             </div>

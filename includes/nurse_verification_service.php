@@ -45,6 +45,63 @@ final class NurseVerificationService
         if($this->missingSchema)error_log('Clinical review schema incomplete missing='.implode(',',$this->missingSchema));
     }
 
+    /**
+     * Evidence checklist for clinical approval. Pure function: it never changes data.
+     * Institutional appointment verification is a Doctor attestation that cannot be
+     * derived from the database, so it is reported as pending (ok = null) here.
+     *
+     * @return array{checks: array<string,array{label:string,ok:?bool,detail:string}>, blockers: string[], eligible: bool}
+     */
+    public static function evaluateEligibility(array $n, bool $institutionalAttested = false): array
+    {
+        $checks = [];
+        $blockers = [];
+        $add = static function (string $key, string $label, ?bool $ok, string $detail, ?string $blocker) use (&$checks, &$blockers): void {
+            $checks[$key] = ['label' => $label, 'ok' => $ok, 'detail' => $detail];
+            if ($blocker !== null) $blockers[] = $blocker;
+        };
+
+        $status = (string)($n['account_status'] ?? $n['status'] ?? '');
+        $active = $status === 'active';
+        $add('account', 'Account status', $active, $active ? 'Active' : 'Account is "' . ($status !== '' ? $status : 'unknown') . '"',
+            $active ? null : 'Account must be active (currently ' . ($status !== '' ? $status : 'unknown') . ')');
+
+        $verified = !empty($n['email_verified']);
+        $add('email', 'Email verification', $verified, $verified ? 'Verified by one-time code' : 'Email address is not verified',
+            $verified ? null : 'Email address has not been verified by the Nurse');
+
+        $license = trim((string)($n['license_number'] ?? ''));
+        if ($license === '') {
+            $add('prc', 'PRC registration', false, 'No PRC registration number on file (nurses.license_number is empty)', 'PRC registration number is missing');
+        } elseif (!preg_match('/^(?=.*\d)[A-Za-z0-9][A-Za-z0-9\-\/ ]{3,29}$/', $license)) {
+            $add('prc', 'PRC registration', false, 'Recorded value is not a valid registration number format', 'PRC registration number format is invalid');
+        } else {
+            $add('prc', 'PRC registration', true, 'Number recorded: ' . $license . ' (authenticity is verified by the Doctor)', null);
+        }
+
+        $position = trim((string)($n['position'] ?? ''));
+        $add('position', 'Appointment position', $position !== '', $position !== '' ? $position : 'No school appointment position on file',
+            $position !== '' ? null : 'School appointment position is missing');
+
+        $path = str_replace('\\', '/', trim((string)($n['valid_id_path'] ?? '')));
+        if ($path === '') {
+            $add('document', 'Supporting document', false, 'No supporting credential uploaded', 'Supporting credential document is missing');
+        } elseif (str_contains($path, '..') || str_contains($path, "\0") || !preg_match('#^(storage/registration_documents|assets/images)/#', ltrim($path, '/'))) {
+            $add('document', 'Supporting document', false, 'Stored document path is not in an approved location', 'Supporting credential path is invalid');
+        } elseif (defined('BASE_PATH') && !is_file(BASE_PATH . '/' . ltrim($path, '/'))) {
+            $add('document', 'Supporting document', false, 'Document record exists but the file is not found on the server', 'Supporting credential file is missing from storage');
+        } else {
+            $add('document', 'Supporting document', true, 'Document on file', null);
+        }
+
+        if ($institutionalAttested) {
+            $add('institutional', 'Institutional verification', true, 'Doctor attested appointment verification', null);
+        } else {
+            $add('institutional', 'Institutional verification', null, 'Doctor must confirm employment/assignment against school records at review', 'Institutional appointment verification not confirmed by the Doctor');
+        }
+        return ['checks' => $checks, 'blockers' => $blockers, 'eligible' => !$blockers];
+    }
+
     private function requireDoctorActor(): array
     {
         $actor = $this->actor ?? current_user();
@@ -163,7 +220,10 @@ final class NurseVerificationService
                 (int)($r['self_service_only'] ?? 0),
                 $r['account_status'] ?? 'pending'
             );
+            $r['eligibility'] = self::evaluateEligibility($r);
+            $r['_last'] = true;
         }
+        unset($r);
 
         return $rows;
     }
@@ -208,6 +268,7 @@ final class NurseVerificationService
             $row['account_status'] ?? 'pending'
         );
 
+        $row['eligibility'] = self::evaluateEligibility($row);
         $row['history'] = $this->getHistory($userId);
         return $row;
     }
@@ -251,23 +312,28 @@ final class NurseVerificationService
         $this->requireDoctorActor();
         $this->detectSchema();
         if ($this->hasColumns) {
-            $stmt = $this->db->query("
-                SELECT 
-                    SUM(IF(clinical_authorization_status = 'pending', 1, 0)) AS pending_count,
-                    SUM(IF(clinical_authorization_status = 'needs_information', 1, 0)) AS needs_info_count,
-                    SUM(IF(clinical_authorization_status = 'authorized', 1, 0)) AS authorized_count,
-                    SUM(IF(clinical_authorization_status = 'rejected', 1, 0)) AS rejected_count,
-                    SUM(IF(clinical_authorization_status = 'revoked', 1, 0)) AS revoked_count,
+            // Same population as the listing: every nurse account LEFT JOINed to its nurses row.
+            $res = $this->db->query("
+                SELECT
+                    SUM(n.clinical_authorization_status = 'pending') AS pending_count,
+                    SUM(n.clinical_authorization_status = 'needs_information') AS needs_info_count,
+                    SUM(n.clinical_authorization_status = 'authorized') AS authorized_count,
+                    SUM(n.clinical_authorization_status = 'rejected') AS rejected_count,
+                    SUM(n.clinical_authorization_status = 'revoked') AS revoked_count,
+                    SUM(n.id IS NULL OR n.clinical_authorization_status IS NULL
+                        OR n.clinical_authorization_status NOT IN ('pending','needs_information','authorized','rejected','revoked')) AS unclassified_count,
                     COUNT(*) AS total_nurses
-                FROM nurses
-            ");
-            $res = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                FROM users u
+                LEFT JOIN nurses n ON n.user_id = u.id
+                WHERE u.role = 'nurse'
+            ")->fetch(PDO::FETCH_ASSOC) ?: [];
             return [
                 'pending' => (int)($res['pending_count'] ?? 0),
                 'needs_information' => (int)($res['needs_info_count'] ?? 0),
                 'authorized' => (int)($res['authorized_count'] ?? 0),
                 'rejected' => (int)($res['rejected_count'] ?? 0),
                 'revoked' => (int)($res['revoked_count'] ?? 0),
+                'unclassified' => (int)($res['unclassified_count'] ?? 0),
                 'total' => (int)($res['total_nurses'] ?? 0),
             ];
         }
@@ -305,6 +371,7 @@ final class NurseVerificationService
         $this->db->beginTransaction();
         try {
             $q=$this->db->prepare("SELECT u.status,u.email_verified,u.self_service_only,n.* FROM users u JOIN nurses n ON n.user_id=u.id WHERE u.id=? AND u.role='nurse' FOR UPDATE");$q->execute([$actor['id']]);$nurse=$q->fetch(PDO::FETCH_ASSOC);
+            if($nurse && ($nurse['status']!=='active' || !$nurse['email_verified']))throw new RuntimeException($nurse['status']!=='active' ? 'Your account is '.$nurse['status'].'. Credentials can be submitted only on an active account; contact the Clinic Head.' : 'Verify your email address with your one-time code before submitting credentials.');
             if(!$nurse || $nurse['status']!=='active' || !$nurse['email_verified'] || !$nurse['self_service_only'] || $nurse['clinical_authorization_status']==='authorized' || $nurse['clinical_authorization_status']==='revoked')throw new RuntimeException('This account is not eligible for credential resubmission. Contact the Clinic Head.');
             $document=$document ?: $nurse['valid_id_path'];
             if(!$document)throw new InvalidArgumentException('Upload a supporting professional credential.');
@@ -317,12 +384,12 @@ final class NurseVerificationService
         } catch(Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
     }
 
-    public function authorize(int $id, string $notes = '', string $password = '', int $version = -1): void { $this->decide($id, 'authorize', $notes, $password, $version); }
+    public function authorize(int $id, string $notes = '', string $password = '', int $version = -1, bool $institutionalVerified = false): void { $this->decide($id, 'authorize', $notes, $password, $version, $institutionalVerified); }
     public function requestInformation(int $id, string $notes, string $password = '', int $version = -1): void { $this->decide($id, 'request_info', $notes, $password, $version); }
     public function reject(int $id, string $notes, string $password = '', int $version = -1): void { $this->decide($id, 'reject', $notes, $password, $version); }
     public function revoke(int $id, string $notes, string $password = '', int $version = -1): void { $this->decide($id, 'revoke', $notes, $password, $version); }
 
-    private function decide(int $id, string $action, string $notes, string $password, int $version): void
+    private function decide(int $id, string $action, string $notes, string $password, int $version, bool $institutionalVerified = false): void
     {
         if (!$this->ready()) throw new RuntimeException('Clinical authorization schema is unavailable. Ask MIS to apply the reviewed migration.');
         $actor = $this->requireDoctorActor();
@@ -341,7 +408,11 @@ final class NurseVerificationService
             $previous = $nurse['clinical_authorization_status'];
             $next = ['authorize'=>'authorized','request_info'=>'needs_information','reject'=>'rejected','revoke'=>'revoked'][$action];
             if ($previous === $next || ($action === 'revoke' && $previous !== 'authorized') || ($action !== 'revoke' && $previous === 'authorized')) throw new RuntimeException('This decision is no longer applicable. Reload the application.');
-            if ($action === 'authorize' && ($nurse['status'] !== 'active' || empty($nurse['email_verified']) || empty($nurse['license_number']) || empty($nurse['position']) || empty($nurse['valid_id_path']))) throw new RuntimeException('Approval requires an active verified account, professional registration, appointment position and supporting credential. Record the institutional appointment verification reference in review notes.');
+            if ($action === 'authorize') {
+                $nurse['account_status'] = $nurse['status'];
+                $eligibility = self::evaluateEligibility($nurse, $institutionalVerified);
+                if (!$eligibility['eligible']) throw new RuntimeException('Clinical approval blocked: ' . implode('; ', $eligibility['blockers']) . '.');
+            }
             $this->db->prepare('UPDATE users SET self_service_only=?, credential_version=COALESCE(credential_version,0)+1, reviewed_by=?, reviewed_at=NOW(), validation_reason=? WHERE id=?')->execute([$action === 'authorize' ? 0 : 1, $actor['id'], $notes, $id]);
             $this->db->prepare('UPDATE nurses SET clinical_authorization_status=?, clinical_reviewed_by=?, clinical_reviewed_at=NOW(), clinical_review_notes=? WHERE user_id=?')->execute([$next,$actor['id'],$notes,$id]);
             $this->db->prepare('INSERT INTO nurse_clinical_reviews(nurse_user_id,doctor_user_id,action,previous_status,new_status,notes) VALUES (?,?,?,?,?,?)')->execute([$id,$actor['id'],$action,$previous,$next,$notes]);
