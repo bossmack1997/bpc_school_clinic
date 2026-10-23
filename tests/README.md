@@ -26,6 +26,14 @@ it no longer writes transactional fixtures into the configured school database.
 `nurse_authorization_safety_audit.php` now asserts restrictive authorization,
 rather than reproducing the previously documented unsafe grants.
 
+Student UI regression: `php tests/mis_admin_http.php --doctor-clinical
+--staff-verification --student-ui`. Add `--student-ui-browser` with headless Chrome
+on loopback port 9337 to test all eight requested widths, carousel controls,
+actual QR download/print handlers, uploaded avatars and Nurse publishing.
+`student_ui_checks.php` is an included disposable fixture. No school records are
+copied into it. `STUDENT_UI_WIDTHS=320,1440` optionally narrows a focused browser
+rerun; the default is all eight widths.
+
 Cleanup audits:
 
 - `python tools/audit_cleanup_sources.py`: offline inventory, candidate references,

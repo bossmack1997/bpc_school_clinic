@@ -78,9 +78,9 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
 
     <!-- Profile -->
     <div class="dropdown">
-      <button class="profile-trigger" data-bs-toggle="dropdown">
+      <button class="profile-trigger" data-bs-toggle="dropdown" aria-label="Open profile menu">
         <?php $profileImage = trim((string)($u['profile_picture'] ?? '')); ?>
-        <img src="<?= e($profileImage !== '' ? app_url($profileImage) : asset_url('images/default-avatar.svg')) ?>" onerror="this.onerror=null;this.src='<?= e(asset_url('images/default-avatar.svg')) ?>'" class="avatar" alt="Profile">
+        <img src="<?= e(avatar_url($profileImage)) ?>" onerror="this.onerror=null;this.src='<?= e(asset_url('images/default-avatar.svg')) ?>'" class="avatar" data-avatar-user="<?=(int)$u['id']?>" alt="Profile">
         <span class="name d-none d-md-inline"><?= e($u['first_name'] . ' ' . $u['last_name']) ?></span>
         <span class="role-badge bg-primary-light text-primary d-none d-lg-inline"><?= e($navDoctor ? 'Doctor / Clinical Co-Administrator' : get_role_display_name($u['role'])) ?></span>
       </button>

@@ -72,7 +72,7 @@ if ($action === 'available_contacts') {
         $contacts[] = [
             'id'=>(int)$person['id'], 'name'=>trim($person['first_name'].' '.$person['last_name']),
             'first_name'=>$person['first_name'], 'role'=>canonical_role($person['role']) === 'teacher' ? 'Teacher' : 'Student',
-            'avatar'=>!empty($person['profile_picture']) ? app_url($person['profile_picture']) : asset_url('images/default-avatar.svg'),
+            'avatar'=>avatar_url($person['profile_picture'] ?? null),
             'presence_status'=>$presence['status'], 'presence_badge'=>$presence['badge'], 'availability_label'=>$presence['label']
         ];
     }
@@ -106,7 +106,7 @@ if ($action === 'available_staff') {
             $availabilityLabel = 'Away from desk';
         }
 
-        $avatar = !empty($n['profile_picture']) ? app_url($n['profile_picture']) : asset_url('images/default-avatar.svg');
+        $avatar = avatar_url($n['profile_picture'] ?? null);
 
         $staffList[] = [
             'id'                 => (int)$n['id'],
@@ -381,7 +381,7 @@ if ($action === 'list_conversations') {
                 'role'              => $other['role'],
                 'role_label'        => $roleLabel,
                 'subtext'           => $subText,
-                'avatar'            => !empty($other['profile_picture']) ? app_url($other['profile_picture']) : asset_url('images/default-avatar.svg'),
+                'avatar'            => avatar_url($other['profile_picture'] ?? null),
                 'presence_status'   => $presence['status'],
                 'presence_badge'    => $presence['badge'],
                 'is_online'         => ($presence['status'] === 'online')
@@ -487,7 +487,7 @@ if ($action === 'get_messages') {
             'role'            => $other['role'],
             'role_label'      => $roleLabel,
             'subtext'         => $subText,
-            'avatar'          => !empty($other['profile_picture']) ? app_url($other['profile_picture']) : asset_url('images/default-avatar.svg'),
+            'avatar'          => avatar_url($other['profile_picture'] ?? null),
             'presence_status' => $presence['status'],
             'presence_label'  => $presence['label'],
             'presence_badge'  => $presence['badge'],
@@ -532,9 +532,9 @@ if ($action === 'get_messages') {
         $msg['id'] = (int)$msg['id'];
         $msg['sender_id'] = (int)$msg['sender_id'];
         $msg['is_outgoing'] = ($msg['sender_id'] === $userId);
-        $msg['avatar'] = !empty($msg['profile_picture']) ? app_url($msg['profile_picture']) : asset_url('images/default-avatar.svg');
+        $msg['avatar'] = avatar_url($msg['profile_picture'] ?? null);
         $msg['attachment_url'] = !empty($msg['attachment_path']) ? APP_URL . '/api/messages.php?action=download_attachment&id=' . (int)$msg['id'] : null;
-        unset($msg['attachment_path']);
+        unset($msg['attachment_path'],$msg['profile_picture']);
     }
     unset($msg);
 

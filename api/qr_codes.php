@@ -152,7 +152,7 @@ if ($action === 'my_qr') {
     json_response(true, [
         'data' => [
             'qr_data'   => $qr['qr_data'],
-            'student'   => $student,
+            'student'   => array_replace($student,['profile_picture'=>profile_image_path($student['profile_picture'] ?? null) ?? '', 'avatar_url'=>avatar_url($student['profile_picture'] ?? null)]),
             'status'    => $qr['status'],
             'generated_at' => $qr['generated_at'],
         ],
@@ -192,7 +192,7 @@ if ($action === 'data') {
     json_response(true, [
         'data' => [
             'qr_data'   => $qr['qr_data'],
-            'student'   => $student,
+            'student'   => array_replace($student,['profile_picture'=>profile_image_path($student['profile_picture'] ?? null) ?? '', 'avatar_url'=>avatar_url($student['profile_picture'] ?? null)]),
             'status'    => $qr['status'],
             'generated_at' => $qr['generated_at'],
         ],
@@ -694,7 +694,7 @@ if ($action === 'upload_verify') {
         'section'        => $student['section'] ?? '',
         'gender'         => $student['gender'] ?? '',
         'email'          => $student['email'] ?? '',
-        'profile_picture'=> $student['profile_picture'] ?? '',
+        'profile_picture'=> profile_image_path($student['profile_picture'] ?? null) ?? '', 'avatar_url'=>avatar_url($student['profile_picture'] ?? null),
     ];
 
     json_response(true, [
@@ -1027,7 +1027,7 @@ if ($action === 'student_health_pass') {
     ", [$studentId], null);
 
     json_response(true, [
-        'student'   => $student,
+        'student'   => array_replace($student,['profile_picture'=>profile_image_path($student['profile_picture'] ?? null) ?? '', 'avatar_url'=>avatar_url($student['profile_picture'] ?? null)]),
         'qr'          => [
             'qr_data'       => $qrData,
             'qr_token'      => $qrToken,  // server-only, never exposed in QR payload
@@ -1204,7 +1204,7 @@ if ($action === 'smart_scan') {
             'section'        => 'Teacher/Staff',
             'gender'         => '',
             'email'          => $student['email'] ?? '',
-            'profile_picture'=> $student['profile_picture'] ?? '',
+            'profile_picture'=> profile_image_path($student['profile_picture'] ?? null) ?? '', 'avatar_url'=>avatar_url($student['profile_picture'] ?? null),
         ];
         if (!$performCheckIn) {
             log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'success', $location, null, ['scan_intent' => 'walk_in'], $scanMethod, $teacherId);
@@ -1254,7 +1254,7 @@ if ($action === 'smart_scan') {
         'section'        => $student['section'],
         'gender'         => $student['gender'],
         'email'          => $student['email'],
-        'profile_picture'=> $student['profile_picture'],
+        'profile_picture'=> profile_image_path($student['profile_picture'] ?? null) ?? '', 'avatar_url'=>avatar_url($student['profile_picture'] ?? null),
     ];
 
     // 4a. Latest Self-Recorded BMI

@@ -48,6 +48,7 @@ $sbNav = [
             ],
             'Clinic Operations' => [
                 ['list', 'Clinic Queue', 'queue.php'],
+                ['megaphone', 'Clinic Announcements', 'announcements.php'],
             ],
             'Communication' => [
                 ['chat', 'Messages', 'messages.php'],

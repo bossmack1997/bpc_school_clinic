@@ -3,7 +3,8 @@ require_once __DIR__.'/../../config/config.php';require_role('teacher');require_
 $db=getDB();$u=current_user();$students=get_adviser_students($db,$u['id']);$clinic=clinic_availability($db);
 $stmt=$db->prepare("SELECT id,employee_id,department FROM teachers WHERE user_id=? LIMIT 1");$stmt->execute([$u['id']]);$teacher=$stmt->fetch()?:[];
 $ticket=null;if(!empty($teacher['id'])){$stmt=$db->prepare("SELECT id,queue_number,status,created_at,served_at,completed_at FROM queue_numbers WHERE teacher_id=? AND created_at>=CURDATE() AND status IN ('waiting','called','serving','completed') ORDER BY id DESC LIMIT 1");$stmt->execute([$teacher['id']]);$ticket=$stmt->fetch()?:null;}
-$stmt=$db->query("SELECT id,title,created_at FROM announcements WHERE audience='all' ORDER BY is_pinned DESC,created_at DESC LIMIT 3");$announcements=$stmt->fetchAll(PDO::FETCH_ASSOC);
+require_once __DIR__.'/../../includes/announcement_service.php';
+try{$announcements=array_slice((new AnnouncementService($db,$u))->listing(),0,3);}catch(Throwable $error){$announcements=[];error_log('Teacher announcements unavailable');}
 $consultationCount=0;if(!empty($teacher['id'])){$stmt=$db->prepare("SELECT COUNT(*) FROM consultations WHERE teacher_id=? AND patient_type='teacher'");$stmt->execute([$teacher['id']]);$consultationCount=(int)$stmt->fetchColumn();}
 $pageTitle='Teacher Dashboard';
 $teacherName=trim(($u['first_name']??'').' '.($u['last_name']??''));

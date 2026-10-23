@@ -56,7 +56,7 @@ $pageTitle = 'Smart Health Pass';
         <!-- Student Details + QR Status Card -->
         <div class="col-lg-8 col-xl-9">
           <div class="hp-details-card p-4">
-            <div class="d-flex align-items-start gap-3 mb-3">
+            <div class="hp-patient-heading d-flex align-items-start gap-3 mb-3">
               <img id="studentPhoto" src="<?= asset_url('images/default-avatar.svg') ?>" alt="Student Photo" class="hp-student-photo">
               <div class="flex-grow-1">
                 <h4 class="hp-student-name mb-1" id="studentName">—</h4>
@@ -205,7 +205,7 @@ $pageTitle = 'Smart Health Pass';
     // Student photo
     const photoEl = document.getElementById('studentPhoto');
     if (s.profile_picture) {
-      photoEl.src = APP + '/' + s.profile_picture;
+      photoEl.src = s.avatar_url || APP + '/' + s.profile_picture;
     } else {
       photoEl.src = '<?= asset_url('images/default-avatar.svg') ?>';
     }
@@ -420,6 +420,7 @@ $pageTitle = 'Smart Health Pass';
     const img = getQrDataUrl();
     if (!img) { toastError('No QR image available.'); return; }
     const w = window.open('', '_blank');
+    if (!w) { toastError('Allow pop-ups to print your health pass.'); return; }
     w.document.write(`
       <html><head><title>BPC Smart Health Pass</title>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
