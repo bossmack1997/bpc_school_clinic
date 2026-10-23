@@ -52,11 +52,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS `nurse_clinical_reviews` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 echo "  + Ensured table `nurse_clinical_reviews` exists\n";
 
-// 3. Sync existing nurses
-$db->exec("UPDATE `nurses` n
-JOIN `users` u ON u.id = n.user_id
-SET n.clinical_authorization_status = IF(COALESCE(u.self_service_only, 0) = 0, 'authorized', 'pending')
-WHERE n.clinical_authorization_status IS NULL OR n.clinical_authorization_status = 'pending'");
-echo "  + Synchronized initial authorization status for existing nurse records\n";
+// Authorization requires an explicit verified review. Never infer it from legacy scope.
+// For Hostinger, use the guarded SQL migration and separate verification script.
 
 echo "Migration complete.\n";

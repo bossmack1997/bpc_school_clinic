@@ -23,7 +23,6 @@ $pageTitle = 'Clinical Oversight Dashboard';
         <?php foreach ([
           'today_consultations' => 'Consultations today',
           'queue_awaiting_completion' => 'Queue awaiting completion',
-          'pending_nurse_verifications' => 'Nurse Verifications Pending',
           'active_nurses' => 'Active nurse accounts',
           'stock_warnings' => 'Medicine stock warnings',
           'active_emergencies' => 'Active SOS emergencies'
@@ -31,22 +30,13 @@ $pageTitle = 'Clinical Oversight Dashboard';
           <div class="col-6 col-xl-4 col-xxl-2">
             <div class="card p-3 border-0 shadow-sm h-100">
               <span class="small text-muted"><?= $label ?></span>
-              <strong class="fs-3 <?= ($key === 'pending_nurse_verifications' && !empty($data[$key])) ? 'text-warning' : '' ?>"><?= (int)($data[$key] ?? 0) ?></strong>
-              <?php if ($key === 'pending_nurse_verifications' && !empty($data[$key])): ?>
-                <a href="nurse_verification.php" class="small text-decoration-none mt-1">Review requests &rarr;</a>
-              <?php endif; ?>
+              <strong class="fs-3"><?= (int)($data[$key] ?? 0) ?></strong>
             </div>
           </div>
         <?php endforeach; ?>
       </div>
 
       <div class="d-flex flex-wrap gap-2 mb-3">
-        <a href="nurse_verification.php" class="btn btn-sm btn-success">
-          <i class="bi bi-person-check me-1"></i>Nurse Verification
-          <?php if (!empty($data['pending_nurse_verifications'])): ?>
-            <span class="badge bg-warning text-dark ms-1"><?= (int)$data['pending_nurse_verifications'] ?></span>
-          <?php endif; ?>
-        </a>
         <a href="consultations.php" class="btn btn-sm btn-primary">Document consultation</a>
         <a href="patients.php" class="btn btn-sm btn-outline-primary">Patient Records</a>
         <a href="../admin/inventory.php" class="btn btn-sm btn-outline-primary">Medicine Oversight</a>

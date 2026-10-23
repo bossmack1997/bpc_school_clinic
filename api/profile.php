@@ -20,13 +20,14 @@ if ($action === 'save_account_settings' || $action === 'change_password') {
 
 if ($action === 'update_info') {
     if (!csrf_verify($_POST['csrf_token'] ?? '')) { http_response_code(403); json_response(false, [], 'Your session form expired. Refresh the page and try again.'); }
+    foreach(['first_name','middle_name','last_name','phone','email'] as $field){if(!is_string($_POST[$field]??'')){http_response_code(422);json_response(false,[],'Invalid personal information.');}}
     $firstName = trim($_POST['first_name'] ?? '');
     $middleName = trim($_POST['middle_name'] ?? '');
     $lastName  = trim($_POST['last_name'] ?? '');
     $phone     = trim($_POST['phone'] ?? '');
     $email     = trim($_POST['email'] ?? '');
 
-    if (!$firstName || !$lastName || !filter_var($email, FILTER_VALIDATE_EMAIL)
+    if (!$firstName || !$lastName || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email)>120
         || mb_strlen($firstName) > 60 || mb_strlen($middleName) > 60 || mb_strlen($lastName) > 60) {
         json_response(false, [], 'Please provide a valid name and email.');
     }

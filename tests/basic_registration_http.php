@@ -207,7 +207,7 @@ try {
     curl_close($recovery);
     require_once __DIR__.'/../includes/doctor_invitation_service.php';
     $inviteChallenge=null;
-    $invitations=new DoctorInvitationService($db,function($email,$name,$url)use(&$inviteChallenge){parse_str(parse_url($url,PHP_URL_QUERY),$query);$inviteChallenge=$query['token'];return true;});
+    $invitations=new DoctorInvitationService($db,function($email,$name,$url)use(&$inviteChallenge){parse_str(parse_url($url,PHP_URL_FRAGMENT),$query);$inviteChallenge=$query['token'];return true;});
     $actor=(int)$db->query("SELECT id FROM users WHERE username='http_fixture_admin'")->fetchColumn();
     $invitations->create($actor,['first_name'=>'Doctor','last_name'=>'Fixture','username'=>'http_doctor','email'=>'http_doctor@example.invalid','official_designation'=>'School Physician','appointment_reference'=>'HTTP-SYNTHETIC','verification_status'=>'verified']);
     $doctor=client();$setup=token(request($doctor,'/auth/setup_account.php?token='.$inviteChallenge));

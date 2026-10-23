@@ -1,0 +1,162 @@
+{
+  "review_date": "2026-10-23",
+  "production_status": "NO-GO pending live checks and explicit approval",
+  "recorded_target_database": "u962995739_bpc_clinic",
+  "target_live_confirmed": false,
+  "production_sql_executed": false,
+  "deployment_executed": false,
+  "runtime_upload": [
+    {
+      "path": "api/profile.php",
+      "bytes": 17441,
+      "sha256": "efa1ef8ccb5541d640839d0a5f0548703257cf9964f18b1f598e72f2667c8464"
+    },
+    {
+      "path": "assets/js/mis-admin.js",
+      "bytes": 4081,
+      "sha256": "5f6cff8f611098a5ea816900cae30f28010516397823857f310ceebb9ea49e13"
+    },
+    {
+      "path": "auth/setup_account.php",
+      "bytes": 8000,
+      "sha256": "95b9dd9f6095ac4711e7c7b43c722fbbd3c92561e27e85de4fdf0a71d20dc5fd"
+    },
+    {
+      "path": "components/sidebar.php",
+      "bytes": 10615,
+      "sha256": "6d79d4f74e2cdb95199419f2008b1941a24e86ce05549bd6b65405e75ea9a49b"
+    },
+    {
+      "path": "includes/csrf.php",
+      "bytes": 939,
+      "sha256": "eb8086a913a56ff65252ef3e21398d5ac0d56efac132a8a7c646492ee2b636ff"
+    },
+    {
+      "path": "includes/doctor_clinical_service.php",
+      "bytes": 5767,
+      "sha256": "9b148b9c802263c084fafb4c46b69f71ab4fa6fea944c36329fd32c4866d3265"
+    },
+    {
+      "path": "includes/doctor_invitation_service.php",
+      "bytes": 13253,
+      "sha256": "74957d24db74ee5f0595a1243d2957d7e818191dc286a272d20a7ef8b27fd951"
+    },
+    {
+      "path": "includes/mail.php",
+      "bytes": 20146,
+      "sha256": "41035583e46b0a31fc8539761b6cab6e342edb9aeca3c45999bc9064b63ca2bf"
+    },
+    {
+      "path": "includes/permission_profiles.php",
+      "bytes": 5231,
+      "sha256": "e824bc599f3e211085b85c3f6affde42fa5178c3911db74f2df589649672c392"
+    },
+    {
+      "path": "pages/admin/admin_accounts.php",
+      "bytes": 19720,
+      "sha256": "7d91d82c3d5841f0dc068aaf0da484839c785a27801ab29e67fdec9153555420"
+    },
+    {
+      "path": "pages/admin/profile.php",
+      "bytes": 11687,
+      "sha256": "55e8f89875bff8a2a1aa7deb45128956b8720fbeea5c7cb0df10018b2ffc6fc3"
+    },
+    {
+      "path": "pages/doctor/dashboard.php",
+      "bytes": 3335,
+      "sha256": "27fcdfccbe18476a954900b36d5528862da6d45ac89960120f60099535fe50c2"
+    },
+    {
+      "path": "pages/doctor/profile.php",
+      "bytes": 118,
+      "sha256": "a62440a41c930d62f1b80e780c9ca27568a1c0c6d25eb71534fdb4df5dc3e709"
+    }
+  ],
+  "required_existing_dependencies_match_or_review_before_replacement": [
+    {
+      "path": "assets/css/mis-admin-mobile.css",
+      "bytes": 2656,
+      "sha256": "9766247f3d2ab1d8befa5919d9c794355172740a15ace5b53dc642630854b4c3"
+    },
+    {
+      "path": "includes/head.php",
+      "bytes": 4815,
+      "sha256": "385db788c449254e3ecf0898284e40f64ba2d983754fc3872309d49cc7dc0d34"
+    },
+    {
+      "path": "pages/doctor/settings.php",
+      "bytes": 114,
+      "sha256": "18572ca1d0f10ba9cbadb842b9271363c413187560c1d7c25e0848f2e9f1c891"
+    },
+    {
+      "path": "includes/account_settings.php",
+      "bytes": 4629,
+      "sha256": "de7d89c2e5adcbd0757a785cfbd76f49a0a2dd8102bbf23ce4309e52120ac665"
+    }
+  ],
+  "operator_sql_do_not_publish": [
+    {
+      "path": "database/preflight_doctor_invitations_hostinger.sql",
+      "bytes": 23413,
+      "sha256": "9c44b070d91aacb1a31d392ad72b9fb3e8f03e7df053fbbbbdba02697dc7ccf7"
+    },
+    {
+      "path": "database/migration_doctor_invitations_hostinger.sql",
+      "bytes": 24713,
+      "sha256": "f2114353f0f9152fcb9962740d4bbca51834ecf174381d6b17b2b42f191284b9"
+    },
+    {
+      "path": "database/verify_doctor_invitations_hostinger.sql",
+      "bytes": 23690,
+      "sha256": "472e061e6911d16d93bb603a8d8005573382a2ee8d37447fda330681a375d92b"
+    }
+  ],
+  "optional_cli_not_required_for_phpmyadmin": {
+    "path": "setup/migrate_doctor_invitations.php",
+    "bytes": 1139,
+    "sha256": "61efbf8399603dc23ff39beac544eb28628c7b49d9b1f3fd13bfe103a3614a76"
+  },
+  "excluded": [
+    ".env and credentials",
+    "tests/",
+    "docs/",
+    "scratch/",
+    "database/*nurse*",
+    "includes/nurse_verification_service.php",
+    "pages/doctor/nurse_verification.php",
+    "backups and database dumps",
+    "unrelated worktree edits"
+  ],
+  "static_sql_review": [
+    {
+      "file": "database/preflight_doctor_invitations_hostinger.sql",
+      "statement_count": 8,
+      "statement_types": [
+        "SELECT"
+      ],
+      "static_check": "PASS - text inspection only"
+    },
+    {
+      "file": "database/migration_doctor_invitations_hostinger.sql",
+      "statement_count": 14,
+      "statement_types": [
+        "DEALLOCATE",
+        "EXECUTE",
+        "PREPARE",
+        "SELECT",
+        "SET"
+      ],
+      "static_check": "PASS - text inspection only"
+    },
+    {
+      "file": "database/verify_doctor_invitations_hostinger.sql",
+      "statement_count": 11,
+      "statement_types": [
+        "SELECT",
+        "SHOW"
+      ],
+      "static_check": "PASS - text inspection only"
+    }
+  ],
+  "note": "Hashes identify reviewed local bytes, not remote parity or approval. Uploads/SQL require explicit approval. Recompute manifest after any source change."
+}

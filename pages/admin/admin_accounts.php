@@ -11,6 +11,7 @@
 require_once __DIR__ . '/../../config/config.php';
 require_primary_admin();
 require_login();
+if(permission_profile()!=='mis' || !has_permission('manage_users'))admin_access_denied('MIS account-provisioning permission required.');
 
 $db = getDB();
 $u = current_user();
@@ -37,24 +38,31 @@ if($_SERVER['REQUEST_METHOD']==='POST') {
     else {
         try {
             if(!is_string($_POST['request_nonce']??null) || !hash_equals($_SESSION['doctor_invite_nonce'],$_POST['request_nonce'])) {$statusCode=409;throw new DomainException('This form was already submitted or expired. Refresh the page before retrying.');}
-            $service=new DoctorInvitationService($db);
+            $service=new DoctorInvitationService($db,null,static function(): void {
+                // Persist replay protection before SMTP and release the session lock.
+                $_SESSION['doctor_invite_nonce']=bin2hex(random_bytes(32));
+                session_write_close();
+            });
             $action=$_POST['action']??'';
             if($action==='invite_doctor')$result=$service->create((int)$u['id'],$_POST);
             elseif($action==='resend_invitation' && is_scalar($_POST['user_id']??null))$result=$service->resend((int)$u['id'],(int)$_POST['user_id']);
             else throw new InvalidArgumentException('Unsupported invitation action.');
-            $_SESSION['doctor_invite_nonce']=bin2hex(random_bytes(32));
+            if(session_status()!==PHP_SESSION_ACTIVE)session_start();
             unset($_SESSION['manual_doctor_invitation']);
-            $message=$result['delivery_status']==='sent'?'Secure invitation sent to the appointee.':'The account remains pending. Email delivery was not confirmed; use Resend invitation after checking mail availability.';
+            $message=$result['delivery_status']==='sent'?'Invitation accepted by the mail service. Ask the appointee to check their inbox.':'The account remains pending. Email delivery was not confirmed; use Resend invitation after checking mail availability.';
             set_flash($result['delivery_status']==='sent'?'success':'warning',$message);
             if($isInvitationAjax){http_response_code($result['delivery_status']==='sent'?200:202);json_response(true,['redirect'=>'admin_accounts.php','delivery_status'=>$result['delivery_status']],$message);}
             redirect('admin_accounts.php');
-        }catch(InvalidArgumentException|DomainException $e){$errors[]=$e->getMessage();}
+        }catch(InvalidArgumentException $e){$statusCode=422;$errors[]=$e->getMessage();}
+        catch(DomainException $e){$statusCode=409;$errors[]=$e->getMessage();}
+        catch(PDOException $e){error_log('Doctor invitation database request failed; code='.(string)$e->getCode());$statusCode=$e->getCode()==='23000'?409:503;$errors[]=$statusCode===409?'An account already uses this identity, or its invitation is no longer eligible. Refresh the account list.':'Invitation storage is unavailable. Refresh the account list before retrying.';}
         catch(Throwable $e){error_log('Doctor invitation request failed; code='.(string)$e->getCode());$statusCode=503;$errors[]='The invitation request could not be completed. Check the current account status before retrying.';}
     }
     http_response_code($statusCode);
     if($isInvitationAjax)json_response(false,[],implode(' ',$errors));
 }
 // Fetch all admin accounts
+try {
 $stmt = $db->query("
     SELECT u.id, u.role, u.admin_type, u.username, u.email, u.first_name, u.middle_name, u.last_name, u.phone,
            u.status, u.created_at, u.last_login, p.profile, p.official_designation, p.appointment_reference,
@@ -66,6 +74,7 @@ $stmt = $db->query("
     LIMIT 500
 ");
 $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch(Throwable $e){http_response_code(503);$admins=[];$errors[]='Doctor invitation storage is unavailable. Ask the operator to check the Phase 1 schema before sending invitations.';error_log('Doctor invitation list unavailable; code='.(string)$e->getCode());}
 
 unset($_SESSION['manual_doctor_invitation']);
 ?>
@@ -219,7 +228,7 @@ unset($_SESSION['manual_doctor_invitation']);
 <!-- Add Admin Modal -->
 <div class="modal fade" id="addAdminModal" tabindex="-1" aria-hidden="true" aria-labelledby="addAdminModalTitle" data-reopen="<?=$errors?'true':'false'?>">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <form method="POST" id="addAdminForm" class="modal-content border-0 shadow">
+    <form method="POST" action="<?=e(app_url('pages/admin/admin_accounts.php'))?>" id="addAdminForm" class="modal-content border-0 shadow">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="invite_doctor"><input type="hidden" name="request_nonce" value="<?=e($_SESSION['doctor_invite_nonce'])?>">
         <div class="modal-header border-0" style="background: linear-gradient(135deg, rgba(11, 107, 58, 0.05), rgba(11, 107, 58, 0.03));">
@@ -245,7 +254,7 @@ unset($_SESSION['manual_doctor_invitation']);
             </div>
             <div class="col-12">
               <label for="doctor-email" class="form-label small fw-semibold">Email Address <span class="text-danger">*</span></label>
-              <input type="email" id="doctor-email" name="email" value="<?=doctor_old('email')?>" class="form-control form-control-sm" required placeholder="admin@bpc.edu.ph">
+              <input type="email" id="doctor-email" name="email" maxlength="120" value="<?=doctor_old('email')?>" class="form-control form-control-sm" required placeholder="admin@bpc.edu.ph">
             </div>
             <div class="col-12">
               <label for="doctor-username" class="form-label small fw-semibold">Username <span class="text-danger">*</span></label>
@@ -271,8 +280,8 @@ unset($_SESSION['manual_doctor_invitation']);
             </div>
             <div class="col-md-4">
               <label for="doctor-verification_status" class="form-label small fw-semibold">Verification Status</label>
-              <select id="doctor-verification_status" name="verification_status" class="form-select form-select-sm">
-                <option value="pending" <?=($_POST['verification_status']??'pending')==='pending'?'selected':''?>>Pending review</option>
+              <select id="doctor-verification_status" name="verification_status" class="form-select form-select-sm" required>
+                <option value="" <?=($_POST['verification_status']??'pending')==='pending'?'selected':''?>>Not verified</option>
                 <option value="verified" <?=($_POST['verification_status']??'')==='verified'?'selected':''?>>Verified appointment</option>
               </select>
             </div>

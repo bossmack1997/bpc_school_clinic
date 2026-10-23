@@ -60,3 +60,4 @@ runMsgCheck(
 );
 
 echo "\nAll Mobile Clinic Messages UI checks PASSED!\n";
+

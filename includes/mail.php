@@ -260,6 +260,8 @@ function send_doctor_invitation_email($toEmail, $doctorName, $setupLink, $expire
 
     try {
         $mailer->isSMTP();
+        $mailer->Timeout = 15;
+        $mailer->getSMTPInstance()->Timelimit = 20;
         $mailer->Host       = getenv('MAIL_HOST') ?: 'smtp.gmail.com';
         $mailer->SMTPAuth   = true;
         $mailer->Username   = getenv('MAIL_USERNAME') ?: '';

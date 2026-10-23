@@ -9,7 +9,10 @@ $userStmt = $db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
 $userStmt->execute([$u['id']]);
 $userRecord = $userStmt->fetch() ?: $u;
 
-$isDoctorSettings = permission_profile($u, $db) === 'doctor'
+$isDoctor = permission_profile($u, $db) === 'doctor';
+$professional = [];
+if($isDoctor){$q=$db->prepare('SELECT official_designation,appointment_reference,clinical_registration FROM admin_profiles WHERE user_id=?');$q->execute([$u['id']]);$professional=$q->fetch()?:[];}
+$isDoctorSettings = $isDoctor
     && basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'settings.php';
 $pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
 ?>
@@ -41,8 +44,8 @@ $pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
             <h5 class="fw-bold mb-1"><?= e($userRecord['first_name'] . ($userRecord['middle_name'] ? ' ' . $userRecord['middle_name'] : '') . ' ' . $userRecord['last_name']) ?></h5>
             <p class="text-muted small mb-1"><i class="bi bi-envelope me-1"></i> <?= e($userRecord['email']) ?></p>
             <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
-              <span class="badge bg-success"><i class="bi bi-shield-lock-fill me-1"></i> System Administrator</span>
-              <span class="badge bg-primary-light text-primary"><i class="bi bi-building me-1"></i> Clinic Administration</span>
+              <span class="badge bg-success"><i class="bi bi-shield-lock-fill me-1"></i> <?= $isDoctor ? 'Doctor / Clinical Co-Administrator' : 'System Administrator' ?></span>
+              <span class="badge bg-primary-light text-primary"><i class="bi bi-building me-1"></i> <?= $isDoctor ? 'Clinical Governance' : 'Clinic Administration' ?></span>
               <span class="badge bg-secondary"><i class="bi bi-person-badge me-1"></i> ID: <?= e($userRecord['username']) ?></span>
             </div>
           </div>
@@ -54,20 +57,24 @@ $pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
           <section class="card p-4 h-100">
             <h2 class="h6 section-title mb-3"><i class="bi bi-briefcase-fill text-success me-1"></i> Professional Information</h2>
             <div class="row g-3 small">
-              <div class="col-sm-6"><div class="text-muted">Role</div><div class="fw-bold text-success">System Administrator</div></div>
-              <div class="col-sm-6"><div class="text-muted">Department</div><div class="fw-bold text-dark">Clinic Management &amp; IT</div></div>
+              <div class="col-sm-6"><div class="text-muted">Role</div><div class="fw-bold text-success"><?= $isDoctor ? 'Doctor / Clinical Co-Administrator' : 'System Administrator' ?></div></div>
+              <div class="col-sm-6"><div class="text-muted">Department</div><div class="fw-bold text-dark"><?= $isDoctor ? 'Clinical Services' : 'Clinic Management &amp; IT' ?></div></div>
               <div class="col-sm-6"><div class="text-muted">Account Status</div><span class="badge bg-success">Active</span></div>
               <div class="col-sm-6"><div class="text-muted">Username</div><div class="fw-bold text-dark"><?= e($userRecord['username']) ?></div></div>
             </div>
             <div class="alert alert-light border mt-4 mb-0 py-2 small">
               <i class="bi bi-info-circle text-primary me-1"></i>
-              Administrator privileges and security policies are managed at the root system configuration level.
+              <?= $isDoctor ? 'Professional appointment details are verified by MIS. Clinical permissions do not include technical account administration.' : 'Administrator privileges and security policies are managed at the root system configuration level.' ?>
             </div>
           </section>
         </div>
         <div class="col-lg-6">
           <section class="card p-4 h-100">
             <h2 class="h6 section-title mb-3"><i class="bi bi-shield-check text-success me-1"></i> Role Permissions</h2>
+            <?php if($isDoctor): ?>
+            <dl class="small"><dt>Designation</dt><dd><?=e($professional['official_designation']??'')?></dd><dt>Appointment reference</dt><dd><?=e($professional['appointment_reference']??'')?></dd><dt>Professional registration</dt><dd><?=e($professional['clinical_registration']??'Not recorded')?></dd></dl>
+            <p class="small text-muted mb-0">Clinical oversight and supported clinical governance functions. Nurse authorization is reserved for Phase 2.</p>
+            <?php else: ?>
             <ul class="small mb-0 text-muted ps-3">
               <li class="mb-2">Manage user accounts, role access, and staff registrations.</li>
               <li class="mb-2">Access clinic performance analytics, reports, and logs.</li>
@@ -75,6 +82,7 @@ $pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
               <li class="mb-2">Publish and manage campus-wide clinic announcements.</li>
               <li>Monitor security audit trails, database backups, and activity.</li>
             </ul>
+            <?php endif; ?>
           </section>
         </div>
       </div>
@@ -88,7 +96,7 @@ $pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
               <div class="col-md-4"><label class="form-label" for="doctor-first-name">First Name</label><input id="doctor-first-name" class="form-control" name="first_name" maxlength="60" required value="<?= e($userRecord['first_name'] ?? '') ?>"></div>
               <div class="col-md-4"><label class="form-label" for="doctor-middle-name">Middle Name</label><input id="doctor-middle-name" class="form-control" name="middle_name" maxlength="60" value="<?= e($userRecord['middle_name'] ?? '') ?>"></div>
               <div class="col-md-4"><label class="form-label" for="doctor-last-name">Last Name</label><input id="doctor-last-name" class="form-control" name="last_name" maxlength="60" required value="<?= e($userRecord['last_name'] ?? '') ?>"></div>
-              <div class="col-md-6"><label class="form-label" for="doctor-email">Email Address</label><input id="doctor-email" type="email" class="form-control" name="email" maxlength="150" required value="<?= e($userRecord['email'] ?? '') ?>"></div>
+              <div class="col-md-6"><label class="form-label" for="doctor-email">Email Address</label><input id="doctor-email" type="email" class="form-control" name="email" maxlength="120" required value="<?= e($userRecord['email'] ?? '') ?>"></div>
               <div class="col-md-6"><label class="form-label" for="doctor-phone">Contact Number</label><input id="doctor-phone" type="tel" class="form-control" name="phone" maxlength="30" value="<?= e($userRecord['phone'] ?? '') ?>"></div>
             </div><button class="btn btn-success mt-3" type="submit"><i class="bi bi-check-circle me-1"></i>Save Personal Information</button></form>
           </section>

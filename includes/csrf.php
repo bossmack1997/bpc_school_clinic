@@ -19,7 +19,7 @@ function csrf_field() {
 }
 
 function csrf_verify($token) {
-    if (empty($_SESSION['csrf_token']) || empty($token)) {
+    if (!is_string($_SESSION['csrf_token'] ?? null) || !is_string($token) || $_SESSION['csrf_token'] === '' || $token === '') {
         return false;
     }
     return hash_equals($_SESSION['csrf_token'], $token);

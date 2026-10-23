@@ -136,7 +136,6 @@ if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Adminis
      ['file-medical','Consultations','consultations.php'],
  ],
  'Clinical Supervision'=>[
-     ['user-check','Nurse Verification','nurse_verification.php'],
      ['pill','Medicine Oversight','inventory.php'],
      ['alert-triangle','Emergency Oversight','emergencies.php'],
      ['file-medical','Clinical Reports','reports.php']

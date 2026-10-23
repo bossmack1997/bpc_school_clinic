@@ -39,6 +39,7 @@ function enforce_profile_route(): void {
     if($p==='mis' && str_contains($path,'/pages/doctor/'))admin_access_denied('Clinical authorization required.');
     $ownSosHistory=$file==='emergencies.php' && ($_SERVER['REQUEST_METHOD']??'GET')==='GET' && ($_POST['action']??$_GET['action']??'')==='list' && ($_GET['mine']??'')==='1';
     if($p==='mis' && !$ownSosHistory && str_contains($path,'/api/') && in_array($file,['emergencies.php','global_sos.php','queue.php','qr_codes.php'],true))admin_access_denied('Clinical monitoring is restricted to authorized clinic personnel.');
+    if($p==='doctor' && $file==='nurse_verification.php')admin_access_denied('Nurse clinical authorization is not available in Phase 1.');
     if($p==='doctor'){
         $technicalPages=['users.php','account_exceptions.php','admin_accounts.php','security.php','activity_logs.php','sections.php','qr_management.php','qr_scanner.php','pwa_debug.php','system_monitoring.php','backups.php','role_profiles.php'];
         $technicalApis=['users.php','settings.php','sections.php','activity_logs.php','admin_profiles.php','system_backups.php'];

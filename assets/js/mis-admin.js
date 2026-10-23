@@ -16,32 +16,36 @@
     if (form.dataset.invitationBound) return;
     form.dataset.invitationBound = 'true';
     const button = form.querySelector('button[type="submit"]');
+    if (!button) return;
     const original = button.innerHTML;
-    function restore() { form.dataset.busy = ''; button.disabled = false; button.innerHTML = original; }
+    function restore() { form.dataset.busy = ''; form.removeAttribute('aria-busy'); button.disabled = false; button.innerHTML = original; }
     window.addEventListener('pageshow', restore);
     form.addEventListener('submit', async function (event) {
       event.preventDefault();
       if (form.dataset.busy === 'true' || !form.reportValidity()) return;
-      form.dataset.busy = 'true';
-      button.disabled = true;
-      button.textContent = 'Sending invitation…';
-      const notice = form.id === 'addAdminForm' ? feedback : (function () {
-        let el = form.querySelector('[role="alert"]');
-        if (!el) { el = document.createElement('div'); el.className = 'small text-danger mt-1'; el.setAttribute('role', 'alert'); form.appendChild(el); }
-        return el;
-      })();
-      notice.hidden = true;
+      form.dataset.busy = 'true'; form.setAttribute('aria-busy', 'true');
+      button.disabled = true; button.textContent = 'Sending invitation?';
+      let notice; let deadline;
+      const controller = new AbortController();
       try {
-        const response = await fetch(form.action || window.location.href, {method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}});
-        if (response.redirected || !(response.headers.get('content-type') || '').includes('application/json')) throw new Error('Your session may have expired. Sign in again, then reopen this form.');
-        const result = await response.json();
-        if (!response.ok || !result.success) throw new Error(result.message || 'The invitation could not be completed. Please retry.');
-        window.location.assign(result.redirect || 'admin_accounts.php');
+        notice = form.id === 'addAdminForm' ? feedback : form.querySelector('[role="alert"]');
+        if (!notice) { notice = document.createElement('div'); notice.className = 'alert alert-danger small mt-2'; notice.setAttribute('role', 'alert'); (form.querySelector('.modal-body') || form).appendChild(notice); }
+        notice.hidden = true;
+        deadline = window.setTimeout(() => controller.abort(), 45000);
+        const response = await fetch(form.action || window.location.href, {method: 'POST', body: new FormData(form), credentials: 'same-origin', signal: controller.signal, headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}});
+        if (response.status === 401) throw new Error('Your session expired. Sign in again, then reopen this form.');
+        if (response.redirected) throw new Error('The invitation request was redirected. Refresh the account list before retrying.');
+        if (!(response.headers.get('content-type') || '').toLowerCase().includes('application/json')) throw new Error('The server returned an unexpected response. Refresh the account list before retrying.');
+        let result;
+        try { result = await response.json(); } catch (_) { throw new Error('The server response could not be read. Refresh the account list before retrying.'); }
+        if (!response.ok || result?.success !== true) throw new Error(typeof result?.message === 'string' ? result.message : 'The invitation could not be completed. Refresh the account list before retrying.');
+        const destination = new URL(result.redirect || 'admin_accounts.php', window.location.href);
+        if (destination.origin !== window.location.origin) throw new Error('The server returned an invalid destination. Refresh the account list.');
+        window.location.assign(destination.href);
       } catch (error) {
-        notice.textContent = error.message || 'The request could not be completed. Check your connection and retry.';
-        notice.hidden = false;
-        notice.scrollIntoView({block: 'nearest'});
-      } finally { restore(); }
+        const message = error.name === 'AbortError' ? 'The request timed out. The account may already be pending. Refresh the account list before resending.' : (error instanceof TypeError ? 'Connection failed. Refresh the account list before retrying; the account may already be pending.' : error.message);
+        if (notice) { notice.textContent = message || 'The request could not be completed. Refresh the account list.'; notice.hidden = false; notice.scrollIntoView({block: 'nearest'}); }
+      } finally { window.clearTimeout(deadline); restore(); }
     });
   });
 })();

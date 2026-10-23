@@ -6,81 +6,42 @@ date_default_timezone_set('Asia/Manila');
 
 if (is_logged_in()) redirect(dashboard_url_for(current_user()['role']));
 
-$db = getDB();
-$db->exec("SET time_zone='+08:00'");
-$token = trim((string)($_POST['token'] ?? $_GET['token'] ?? ''));
-$tokenHash = preg_match('/^[a-f0-9]{64}$/D', $token) ? hash('sha256', $token) : '';
-$error = '';
+require_once __DIR__.'/../includes/doctor_invitation_service.php';
+$service = new DoctorInvitationService(getDB());
+$rawToken = $_POST['token'] ?? $_GET['token'] ?? '';
+$token = is_string($rawToken) ? trim($rawToken) : '';
 $success = false;
-$invitation = null;
-
-if ($tokenHash !== '') {
-    $q = $db->prepare("SELECT ai.id,ai.user_id,ai.expires_at,ai.used_at,u.email,u.first_name,u.last_name,u.status,u.registration_status,p.profile
-        FROM admin_invitations ai
-        JOIN users u ON u.id=ai.user_id
-        JOIN admin_profiles p ON p.user_id=u.id
-        WHERE ai.token_hash=? AND u.role='admin' AND u.admin_type='co_admin' LIMIT 1");
-    $q->execute([$tokenHash]);
-    $invitation = $q->fetch(PDO::FETCH_ASSOC) ?: null;
-}
-
-if (!$invitation || $invitation['profile'] !== 'doctor') {
-    $error = 'This account setup invitation is invalid.';
-} elseif ($invitation['used_at']) {
-    $error = 'This account setup invitation has already been used.';
-} elseif (strtotime($invitation['expires_at']) <= time()) {
-    $error = 'This account setup invitation has expired. Contact the MIS Administrator for a new invitation.';
-} elseif (($invitation['status']??'')!=='pending') {
-    $error = 'This account is no longer eligible for invitation activation.';
-} elseif (($invitation['registration_status'] ?? '') !== 'approved') {
-    $error = 'The clinical appointment is still awaiting authorized verification. Account activation is not yet available.';
-}
-
+try {$invitation = $service->inspect($token);$error = DoctorInvitationService::eligibilityError($invitation);}
+catch(Throwable $e){http_response_code(503);$invitation=null;$error='Account setup is temporarily unavailable. Contact the MIS Administrator.';error_log('Doctor invitation lookup unavailable.');}
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
-    csrf_verify_or_die();
-    $password = (string)($_POST['password'] ?? '');
-    $confirm = (string)($_POST['confirm_password'] ?? '');
-    $passwordErrors = validate_password_strength($password);
-    if ($password !== $confirm) $passwordErrors[] = 'Passwords do not match.';
-
-    if ($passwordErrors) {
-        $error = implode(' ', array_unique($passwordErrors));
+    if (!is_string($_POST['csrf_token'] ?? null) || !csrf_verify($_POST['csrf_token'])) {
+        http_response_code(403);$error = 'This form expired. Refresh the page and try again.';
+    } elseif (($_POST['action'] ?? '') === 'load_invitation') {
+        // Fragment bridge validates the link without consuming it.
+    } elseif (!is_string($_POST['password'] ?? null) || !is_string($_POST['confirm_password'] ?? null)) {
+        http_response_code(422);$error = 'Enter and confirm a valid password.';
     } else {
-        try {
-            $db->beginTransaction();
-            $q = $db->prepare("SELECT ai.id,ai.user_id,ai.expires_at,ai.used_at,u.status,u.registration_status,p.profile
-                FROM admin_invitations ai JOIN users u ON u.id=ai.user_id JOIN admin_profiles p ON p.user_id=u.id
-                WHERE ai.token_hash=? AND u.role='admin' AND u.admin_type='co_admin' FOR UPDATE");
-            $q->execute([$tokenHash]);
-            $locked = $q->fetch(PDO::FETCH_ASSOC);
-            if (!$locked || $locked['profile'] !== 'doctor' || $locked['used_at'] || $locked['status']!=='pending' || strtotime($locked['expires_at']) <= time() || $locked['registration_status'] !== 'approved') {
-                throw new RuntimeException('The invitation is no longer eligible for activation.');
-            }
-            $db->prepare("UPDATE users SET password_hash=?,status='active',email_verified=1,credential_version=COALESCE(credential_version,0)+1 WHERE id=?")
-                ->execute([password_hash($password, PASSWORD_DEFAULT), $locked['user_id']]);
-            $db->prepare('UPDATE admin_invitations SET used_at=NOW() WHERE id=? AND used_at IS NULL')->execute([$locked['id']]);
-            $db->prepare('UPDATE admin_invitations SET used_at=COALESCE(used_at,NOW()) WHERE user_id=? AND id<>? AND used_at IS NULL')->execute([$locked['user_id'], $locked['id']]);
-            $db->prepare("INSERT INTO activity_logs(user_id,action,module,details,ip_address) VALUES (?,'Doctor account activated','admin_profiles','Password created by appointee through a single-use invitation; password contents not logged.',?)")
-                ->execute([$locked['user_id'], $_SERVER['REMOTE_ADDR'] ?? null]);
-            $db->commit();
-            $success = true;
-        } catch (Throwable $e) {
-            if ($db->inTransaction()) $db->rollBack();
-            error_log('Doctor setup failed; code='.(string)$e->getCode());
-            $error = 'Account activation could not be completed. Request a new invitation from the MIS Administrator.';
-        }
+        try {$service->accept($token,$_POST['password'],$_POST['confirm_password']);$success=true;}
+        catch (InvalidArgumentException|DomainException $e) {http_response_code(422);$error=$e->getMessage();$invitation=$service->inspect($token);}
+        catch (Throwable $e) {http_response_code(503);error_log('Doctor setup failed; code='.(string)$e->getCode());$error='Account activation could not be completed. Contact the MIS Administrator.';}
     }
 }
+
 ?>
 <!doctype html>
 <html lang="en">
 <head>
+  <script>
+  // New invitation secrets arrive in a fragment, never in request URLs/referrers.
+  (()=>{const params=new URLSearchParams(location.hash.slice(1)),token=params.get('token');if(!token||!/^[a-f0-9]{64}$/.test(token))return;history.replaceState(null,'',location.pathname);addEventListener('DOMContentLoaded',()=>{const form=document.createElement('form');form.method='POST';form.action=location.pathname;for(const [name,value] of Object.entries({action:'load_invitation',token,csrf_token:<?=json_encode(csrf_token(),JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>})){const field=document.createElement('input');field.type='hidden';field.name=name;field.value=value;form.appendChild(field);}document.body.appendChild(form);form.submit();},{once:true});})();
+  </script>
   <?php include __DIR__ . '/../includes/head.php'; ?>
   <style>
     body{background:linear-gradient(135deg,#eef8f1,#f8fafc);min-height:100vh}.setup-wrap{max-width:540px;margin:7vh auto;padding:16px}.setup-card{background:#fff;border:1px solid #dce8df;border-radius:18px;box-shadow:0 18px 45px rgba(15,80,45,.12);padding:28px}.password-rules{font-size:.82rem;color:#64748b}.password-rules span{display:block}.password-rules .valid{color:#137333}.password-rules .valid:before{content:'✓ '}.field-error{color:#b42318;font-size:.82rem;min-height:1.25rem}
   </style>
 </head>
 <body>
+<noscript><p class="alert alert-warning">Enable JavaScript to open a new invitation securely.</p></noscript>
 <main class="setup-wrap">
   <section class="setup-card" aria-labelledby="setupTitle">
     <div class="text-center mb-4"><img src="<?= e(APP_URL) ?>/assets/images/bpc_logo.png" alt="BPC" width="64"><h1 class="h4 mt-3" id="setupTitle">Clinical Co-Administrator Account Setup</h1></div>
@@ -93,13 +54,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
     <?php else: ?>
       <?php if ($error): ?><div class="alert alert-danger" role="alert"><?= e($error) ?></div><?php endif; ?>
       <p class="text-muted small">Hello <?= e(trim(($invitation['first_name'] ?? '') . ' ' . ($invitation['last_name'] ?? ''))) ?>. Create your own password to activate the verified Doctor profile.</p>
-      <form method="post" id="setupAccountForm" novalidate>
+      <form method="post" id="setupAccountForm" novalidate><input type="hidden" name="action" value="activate">
         <?= csrf_field() ?><input type="hidden" name="token" value="<?= e($token) ?>">
         <label class="form-label fw-semibold" for="password">Password</label>
-        <div class="input-group"><input class="form-control" id="password" name="password" type="password" autocomplete="new-password" required aria-describedby="passwordRules passwordError"><button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Show password" aria-controls="password" aria-pressed="false"><i class="bi bi-eye" aria-hidden="true"></i></button></div>
+        <div class="input-group"><input class="form-control" id="password" name="password" type="password" maxlength="72" autocomplete="new-password" required aria-describedby="passwordRules passwordError"><button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Show password" aria-controls="password" aria-pressed="false"><i class="bi bi-eye" aria-hidden="true"></i></button></div>
         <div class="password-rules mt-2" id="passwordRules"><span data-rule="length">At least 8 characters</span><span data-rule="upper">One uppercase letter</span><span data-rule="lower">One lowercase letter</span><span data-rule="number">One number</span><span data-rule="special">One special character</span></div>
         <label class="form-label fw-semibold mt-3" for="confirm_password">Confirm password</label>
-        <input class="form-control" id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required aria-describedby="passwordError">
+        <input class="form-control" id="confirm_password" name="confirm_password" type="password" maxlength="72" autocomplete="new-password" required aria-describedby="passwordError">
         <div id="passwordError" class="field-error mt-1" role="alert" aria-live="polite"></div>
         <button class="btn btn-success w-100 mt-3" id="submitBtn" type="submit">Activate account securely</button>
       </form>

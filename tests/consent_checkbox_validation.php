@@ -85,3 +85,4 @@ $samplePostWithoutConsent = [
 runConsentCheck(!isset($samplePostWithoutConsent['certify']), "Unchecked consent lacks 'certify' parameter on submit");
 
 echo "\nAll Registration Consent Checkbox checks PASSED!\n";
+
