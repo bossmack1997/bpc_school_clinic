@@ -24,8 +24,19 @@ if (is_logged_in()) {
     redirect(dashboard_url_for(current_user()['role']));
 }
 
+// Keep infrastructure failures distinct from applicant validation failures.
+set_exception_handler(function (Throwable $e) {
+    $reference = bin2hex(random_bytes(6));
+    error_log('Registration failure ref='.$reference.' type='.get_class($e).' code='.(string)$e->getCode().' driver='.(string)($e instanceof PDOException?($e->errorInfo[1]??'unknown'):'none'));
+    http_response_code(503);
+    $message = 'Registration could not be completed. Please try again later. Reference: '.$reference;
+    if (strtolower($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='xmlhttprequest') json_response(false,['error_code'=>$e instanceof PDOException?'database_error':'server_error','reference'=>$reference],$message);
+    echo htmlspecialchars($message,ENT_QUOTES,'UTF-8');
+});
 $db = getDB();
 $errors = [];
+$fieldErrors = [];
+$registrationErrorCode = 'validation_error';
 $old = $_POST ?? [];
 $registrationAjax=strtolower($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='xmlhttprequest';
 $registrationStatus=422;
@@ -94,7 +105,7 @@ foreach ($allSections as $s) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if(!is_string($_POST['csrf_token']??null)||!csrf_verify($_POST['csrf_token'])){
         http_response_code(403);
-        if($registrationAjax)json_response(false,[],'Your registration form expired. Refresh the page and try again.');
+        if($registrationAjax)json_response(false,['error_code'=>'csrf_error'],'Your registration form expired. Refresh the page and try again.');
         exit('Your registration form expired. Refresh the page and try again.');
     }
 
@@ -136,27 +147,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $columns=$db->query('SHOW COLUMNS FROM users')->fetchAll(PDO::FETCH_COLUMN);
     if(array_diff(['email_verified_at','self_service_only'],$columns)){
-        error_log('Registration schema incomplete; apply database/migration_basic_otp_activation.php via authorized deployment.');
+        error_log('Registration schema incomplete; missing='.implode(',',array_diff(['email_verified_at','self_service_only'],$columns)).'; apply database/migration_basic_otp_activation.php via authorized deployment.');
         $errors[]='Registration is temporarily unavailable while a system update is completed. Please try again later.';
         $registrationStatus=503;
+        $registrationErrorCode='schema_update_required';
     }
 
-    // Process file uploads first so validator can evaluate uploaded ID
-    $profilePicRel = upload_registration_file('profile_picture', 'assets/images/profiles', 'user', ['image/jpeg','image/png','image/webp'])
-                     ?: 'assets/images/default-avatar.png';
-    $validIdRel = upload_registration_file('valid_id', 'storage/registration_documents', 'valid_id', ['image/jpeg','image/png','image/webp','application/pdf']);
+    // Stop on deployment failures; never append unrelated applicant errors.
+    if (!$errors) {
+        // Process file uploads first so validator can evaluate uploaded ID
+        $profilePicRel = upload_registration_file('profile_picture', 'assets/images/profiles', 'user', ['image/jpeg','image/png','image/webp'])
+                         ?: 'assets/images/default-avatar.png';
+        $validIdRel = upload_registration_file('valid_id', 'storage/registration_documents', 'valid_id', ['image/jpeg','image/png','image/webp','application/pdf']);
 
-    // MICA Intelligent Registration Validation
-    $validator = new MICARegistrationValidator($db);
-    $validation = $validator->validateRegistration($_POST, !empty($validIdRel));
+        // MICA Intelligent Registration Validation
+        $validator = new MICARegistrationValidator($db);
+        $validation = $validator->validateRegistration($_POST, !empty($validIdRel));
 
-    if (!empty($validation['errors'])) {
-        $errors = array_merge($errors,$validation['errors']);
-    } elseif ($validation['decision'] === 'rejected') {
-        $errors[] = $validation['reason'] ?: 'Registration rejected based on automated credential validation.';
+        if (!empty($validation['errors'])) {
+            $errors = array_merge($errors,$validation['errors']);
+        } elseif ($validation['decision'] === 'rejected') {
+            $errors[] = $validation['reason'] ?: 'Registration rejected based on automated credential validation.';
+        }
+
+        $fieldErrors = $validation['field_errors'] ?? [];
+        if ($fieldErrors && preg_match('/already|exists/i',implode(' ',$errors))) {
+            $registrationStatus=409; $registrationErrorCode='duplicate_account';
+        }
     }
-
-    if ($errors) {
+    if ($errors && $registrationStatus!==503) {
         $kind=preg_match('/already|duplicate/i',implode(' ',$errors))?'duplicate_indicator':(preg_match('/identity|ownership|eligib|roster/i',implode(' ',$errors))?'identity_failure':'invalid_registration');
         AccountMonitoringService::event($db,$kind,$email?:$username,'Registration rejected by deterministic validation.');
     }
@@ -338,11 +357,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($db->inTransaction()) $db->rollBack();
             error_log('Registration transaction failed; code='.(string)$e->getCode().'; driver='.(string)($e instanceof PDOException?($e->errorInfo[1]??'unknown'):'none'));
             $registrationStatus=$e instanceof PDOException&&(int)($e->errorInfo[1]??0)===1062?409:503;
+            $registrationErrorCode=$registrationStatus===409?'duplicate_account':'database_error';
             $errors[]=$registrationStatus===409?'An account with these details already exists. Sign in or choose another username and email.':'Registration could not be completed. Please try again later.';
         }
     }
 }
-if($errors){http_response_code($registrationStatus);if($registrationAjax)json_response(false,[],implode(' ',$errors));}
+if($errors){http_response_code($registrationStatus);if($registrationAjax)json_response(false,['error_code'=>$registrationErrorCode,'field_errors'=>$fieldErrors,'errors'=>$errors],$fieldErrors?'Please correct the highlighted registration fields.':implode(' ',$errors));}
 
 $pageTitle = 'Create an Account';
 ?>
@@ -412,7 +432,7 @@ $pageTitle = 'Create an Account';
       <?php if ($errors): ?>
         <div class="alert alert-danger py-2.5 px-3 small d-flex align-items-start gap-2 mb-3 rounded-3" role="alert">
           <i class="bi bi-exclamation-triangle-fill fs-6 mt-0.5 text-danger flex-shrink-0"></i>
-          <div><?= implode('<br>', array_map('e', $errors)) ?></div>
+          <div><?= implode('<br>',array_map('e',array_values(array_diff($errors,array_values($fieldErrors))))) ?: 'Please correct the highlighted registration fields.' ?></div>
         </div>
       <?php endif; ?>
 
@@ -712,6 +732,7 @@ $pageTitle = 'Create an Account';
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-envelope"></i></span>
                 <input type="email" name="email" id="emailInput" class="form-control" required autocomplete="email" placeholder="name@example.com" value="<?= e($old['email'] ?? '') ?>">
+                <?php if(isset($fieldErrors['email'])): ?><div class="text-danger small" id="emailInputError"><?= e($fieldErrors['email']) ?></div><?php endif; ?>
               </div>
               <div class="form-text small text-muted">A 6-digit OTP will be dispatched to this address.</div>
             </div>
@@ -720,6 +741,7 @@ $pageTitle = 'Create an Account';
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-at"></i></span>
                 <input type="text" name="username" id="usernameInput" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" autocomplete="username" placeholder="Choose a username" value="<?= e($old['username'] ?? '') ?>">
+                <?php if(isset($fieldErrors['username'])): ?><div class="text-danger small" id="usernameInputError"><?= e($fieldErrors['username']) ?></div><?php endif; ?>
               </div>
               <div class="form-text small text-muted">Letters, numbers, underscores only (3-50 chars).</div>
             </div>
@@ -1131,6 +1153,8 @@ $pageTitle = 'Create an Account';
 
   form.addEventListener('submit', function (e) {
     let firstInvalid = null;
+    const usernameInput = document.getElementById('usernameInput');
+    usernameInput.value = usernameInput.value.trim();
     form.querySelectorAll('input, select, textarea').forEach(clearFieldError);
     const visibleRequired = Array.from(form.querySelectorAll('[required]')).filter(input => input.offsetParent !== null && !input.disabled);
     visibleRequired.forEach(input => {
@@ -1141,6 +1165,10 @@ $pageTitle = 'Create an Account';
       else if (input.type === 'file' && !input.files.length) message = 'Please choose a file.';
       if (message) { setFieldError(input, message); if (!firstInvalid) firstInvalid = input; }
     });
+    if (!/^[A-Za-z0-9_]{3,50}$/.test(usernameInput.value)) {
+      setFieldError(usernameInput, 'Username must be 3-50 characters containing only letters, numbers, and underscores.');
+      if (!firstInvalid) firstInvalid = usernameInput;
+    }
     mobileFields.forEach(id => {
       const input = document.getElementById(id);
       if (!input || input.offsetParent === null || !input.value.trim()) return;

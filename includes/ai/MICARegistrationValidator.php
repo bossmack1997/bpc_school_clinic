@@ -120,7 +120,7 @@ class MICARegistrationValidator
             $errors[] = 'Please enter a valid email address.';
         }
 
-        if ($username && !preg_match('/^[a-zA-Z0-9_]{3,50}$/', $username)) {
+        if ($username && !preg_match('/^[a-zA-Z0-9_]{3,50}$/D', $username)) {
             $errors[] = 'Username must be 3-50 characters containing only letters, numbers, and underscores.';
         }
 
@@ -356,7 +356,13 @@ class MICARegistrationValidator
             $finalReason=implode('; ',array_unique($reasons));
             $finalReason.=$decision==='approved'?'; Basic account: email OTP verification is required; no staff permissions granted.':'; Clinical or administrator access requires authorized provisioning.';
         }
+        $fieldErrors=[];
+        foreach($errors as $error) {
+            if(stripos($error,'username')!==false)$fieldErrors['username']=$error;
+            elseif(stripos($error,'email')!==false)$fieldErrors['email']=$error;
+        }
         return [
+            'field_errors' => $fieldErrors,
             'decision'   => $decision,
             'confidence' => $confidence,
             'risk_level' => $riskLevel,

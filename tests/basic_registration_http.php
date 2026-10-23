@@ -51,6 +51,11 @@ try {
         $probe=['csrf_token'=>$csrf,'role'=>'student','first_name'=>'Alex','last_name'=>'Fixture','username'=>'legacy_fixture','email'=>'legacy@example.invalid','password'=>'FixturePass!42','confirm_password'=>'FixturePass!42','certify'=>1,'student_number'=>'LEGACY001','course'=>'BSIT','year_level'=>'1','section'=>'A','contact_number'=>'09123456789'];
         $blocked=request($c,'/auth/register.php',$probe);
         basicCheck($blocked['status']===503&&str_contains($blocked['body'],'system update')&&testAccount($db,'legacy_fixture')===[],'Missing scope schema fails safely without an account');
+        $invalidProbe=$probe;$invalidProbe['username']='invalid name';
+        curl_setopt($c,CURLOPT_HTTPHEADER,['X-Requested-With: XMLHttpRequest']);
+        $separate=request($c,'/auth/register.php',$invalidProbe);$separateBody=json_decode($separate['body'],true);
+        basicCheck($separate['status']===503 && ($separateBody['error_code']??'')==='schema_update_required' && !str_contains($separate['body'],'Username must'),'Missing schema returns only deployment failure, never mixed username validation');
+        curl_setopt($c,CURLOPT_HTTPHEADER,[]);
         require __DIR__.'/../includes/registration_schema.php';
         basicCheck(count(migrate_basic_registration_schema($db))===2,'Portable additive migration repairs both missing columns');
         basicCheck(migrate_basic_registration_schema($db)===[],'Migration can be repeated without changing existing accounts');
@@ -198,11 +203,29 @@ try {
     $valid=['csrf_token'=>$ajaxCsrf,'role'=>'student','account_type'=>'student','first_name'=>'Alex','last_name'=>'Fixture','username'=>'ajax_student','email'=>'ajax_student@example.invalid','password'=>'FixturePass!42','confirm_password'=>'FixturePass!42','certify'=>1,'student_number'=>'AJAX-ST001','course'=>'BSIT','year_level'=>'1','section'=>'A','contact_number'=>'09123456789'];
     foreach([['first_name'=>''],['email'=>'invalid'],['confirm_password'=>''],['confirm_password'=>'mismatch'],['username'=>'http_student'],['email'=>'http_student@example.invalid']]as$bad){
         $r=request($ajax,'/auth/register.php',array_replace($valid,$bad));$body=json_decode($r['body'],true);
-        basicCheck($r['status']===422&&($body['success']??true)===false,'AJAX invalid or duplicate information returns safe JSON');
+        basicCheck(in_array($r['status'],[422,409],true)&&($body['success']??true)===false,'AJAX invalid or duplicate information returns safe JSON');
     }
+    foreach([['username'=>'http_student'],['email'=>'http_student@example.invalid']] as $duplicate){
+        $conflict=request($ajax,'/auth/register.php',array_replace($valid,$duplicate));$conflictBody=json_decode($conflict['body'],true);
+        $field=array_key_first($duplicate);
+        basicCheck($conflict['status']===409 && ($conflictBody['error_code']??'')==='duplicate_account' && isset($conflictBody['field_errors'][$field]),'Duplicate account returns 409 and correct field detail');
+    }
+    foreach(['ab','invalid name','invalid-name',str_repeat('a',51)] as $invalidUsername){
+        $invalid=request($ajax,'/auth/register.php',array_replace($valid,['username'=>$invalidUsername]));$details=json_decode($invalid['body'],true);
+        basicCheck($invalid['status']===422 && isset($details['field_errors']['username']) && !str_contains($invalid['body'],'system update'),'Invalid username returns field-specific 422 without maintenance alert');
+    }
+    $normal=client();$normalToken=token(request($normal,'/auth/register.php'));
+    $inline=request($normal,'/auth/register.php',array_replace($valid,['csrf_token'=>$normalToken,'username'=>'bad name']));
+    basicCheck(str_contains($inline['body'],'id="usernameInputError"'),'Ordinary form renders username error beside username field');curl_close($normal);
     $r=request($ajax,'/auth/register.php',array_replace($valid,['csrf_token'=>'bad']));basicCheck($r['status']===403&&(json_decode($r['body'],true)['success']??true)===false,'AJAX invalid CSRF returns JSON 403');
     $r=request($ajax,'/auth/register.php',$valid);$body=json_decode($r['body'],true);$saved=testAccount($db,'ajax_student');
     basicCheck($r['status']===200&&($body['success']??false)&&($body['redirect']??'')==='verify_registration.php'&&$saved!==[],'AJAX creates an account and returns the OTP destination');
+    foreach(['Letters123','  Trimmed_123  '] as $i=>$validName){
+        $fresh=client();$freshToken=token(request($fresh,'/auth/register.php'));
+        $freshPayload=array_replace($valid,['csrf_token'=>$freshToken,'username'=>$validName,'email'=>'username'.$i.'@example.invalid','student_number'=>'USERNAME'.$i]);
+        $freshResult=request($fresh,'/auth/register.php',$freshPayload);
+        basicCheck($freshResult['status']===302 && testAccount($db,trim($validName))!==[],'Alphanumeric or whitespace-trimmed underscore username proceeds to OTP');curl_close($fresh);
+    }
     $verify=request($ajax,'/auth/verify_registration.php');basicCheck(str_contains(html_entity_decode($verify['body']),"couldn't send")&&$saved['status']==='pending','Mail failure is visible and leaves the account pending');
     $verifyToken=token($verify);$r=request($ajax,'/auth/verify_registration.php',['csrf_token'=>$verifyToken,'action'=>'resend']);basicCheck(str_contains($r['body'],'before requesting another code'),'Resend cooldown is enforced');
     $db->prepare('UPDATE users SET otp_last_sent_at=DATE_SUB(NOW(),INTERVAL 2 MINUTE) WHERE id=?')->execute([$saved['id']]);
