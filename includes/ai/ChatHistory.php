@@ -10,6 +10,20 @@ class ChatHistory
     private const MAX_HISTORY = 30;
     private const SESSION_KEY = 'ai_chat_history_v2';
 
+    private function scope(): string
+    {
+        $user = function_exists('current_user') ? current_user() : ($_SESSION['user'] ?? null);
+        if (!$user || empty($user['id'])) throw new RuntimeException('Authenticated MICA history required.');
+        $profile = function_exists('permission_profile') ? permission_profile($user) : ($user['role'] ?? 'anonymous');
+        $scope = implode(':', [(int)$user['id'], $profile, (int)($_SESSION['credential_version'] ?? 0), (int)($user['self_service_only'] ?? 0)]);
+        // Old unscoped messages cannot be safely attributed to a current profile.
+        if (($_SESSION['mica_history_scope'] ?? null) !== $scope) {
+            unset($_SESSION[self::SESSION_KEY]);
+            $_SESSION['mica_history_scope'] = $scope;
+        }
+        return $scope;
+    }
+
     /**
      * Get the full chat history from session.
      *
@@ -17,6 +31,7 @@ class ChatHistory
      */
     public function getHistory(): array
     {
+        $this->scope();
         return $_SESSION[self::SESSION_KEY] ?? [];
     }
 
@@ -74,7 +89,7 @@ class ChatHistory
      */
     public function getMessagesForPrompt(int $count = 10): array
     {
-        return $this->getRecent($count);
+        return array_values(array_filter($this->getRecent($count), fn($entry)=>($entry['intent']??'')!=='local_only'));
     }
 
     /**
@@ -82,6 +97,7 @@ class ChatHistory
      */
     public function clear(): void
     {
+        $this->scope();
         $_SESSION[self::SESSION_KEY] = [];
     }
 

@@ -59,6 +59,7 @@ try{
  $doctorHome=misRequest($invitee,'/pages/doctor/dashboard.php');
  checkMis(substr_count($doctorHome['body'],'href="nurse_verification.php"')>=2,'Doctor dashboard exposes a prominent review action alongside pending applications');
  if(in_array('--staff-verification',$argv,true))require __DIR__.'/staff_verification_checks.php';
+ if(in_array('--global-mica',$argv,true))require __DIR__.'/global_mica_checks.php';
  if(in_array('--student-ui',$argv,true))require __DIR__.'/student_ui_checks.php';
  if(in_array('--reauthentication',$argv,true))require __DIR__.'/reauthentication_checks.php';
  if(!preg_match('/name="csrf-token" content="([^"]+)"/',$settings['body'],$settingsMatch))throw new RuntimeException('Settings CSRF metadata missing');$settingsToken=html_entity_decode($settingsMatch[1]);

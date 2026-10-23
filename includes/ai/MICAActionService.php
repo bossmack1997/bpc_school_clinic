@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/MICAAuthorization.php';
 /**
  * MICAActionService.php
  * ------------------------------------------------------------------
@@ -109,7 +110,9 @@ class MICAActionService
      */
     public function getRecommendedActions(?string $role = null, int $limit = 15, bool $archived = false): array
     {
-        $role = canonical_role($role ?: ($this->user['role'] ?? ''));
+        // Caller-supplied role is never an authority override.
+        $profile = permission_profile($this->user,$this->db);
+        $role = $profile === 'doctor' ? 'nurse' : canonical_role($this->user['role'] ?? '');
         if (!in_array($role, ['admin', 'nurse'], true)) {
             return [];
         }
@@ -137,6 +140,7 @@ class MICAActionService
         $stmt->bindValue(3, $limit, PDO::PARAM_INT);
         $stmt->execute();
         $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows=array_values(array_filter($rows,fn($row)=>MICAAuthorization::alertAllowed($this->user,$row,$this->db)));
         if(!can_view_inventory($this->user,$this->db))$rows=array_values(array_filter($rows,fn($row)=>!in_array($row['target_type']??'', ['medicine','medicines','inventory'],true)&&!preg_match('/stock|reorder|expir|inventory/i',$row['action_type']??'')));
         foreach($rows as &$row)$row['issue_status']=$row['latest_event']==='invalidated'?'invalidated':($row['status']==='resolved'?'resolved':($row['status']==='in_progress'?'monitoring':'active'));
         unset($row);
@@ -149,6 +153,7 @@ class MICAActionService
      */
     public function createReorderRequest(int $medicineId, int $suggestedQty, string $reason): array
     {
+        if(!has_permission('inventory_manage',$this->user,$this->db))return ['success'=>false,'message'=>'Authorized Nurse inventory access is required.'];
         if(!can_view_inventory($this->user,$this->db))return ['success'=>false,'message'=>'Inventory access is not assigned.'];
         $mStmt = $this->db->prepare("SELECT * FROM medicines WHERE id = ? AND is_archived = 0");
         $mStmt->execute([$medicineId]);
@@ -223,6 +228,7 @@ class MICAActionService
      */
     public function approveReorderRequest(int $reorderId, int $approvedQty, ?string $notes = null): array
     {
+        if(!has_permission('inventory_manage',$this->user,$this->db))return ['success'=>false,'message'=>'Authorized Nurse inventory access is required.'];
         if(($this->user['role']??'')!=='nurse')return ['success'=>false,'message'=>'Nurse review is required.'];
         if (!in_array(canonical_role($this->user['role'] ?? ''), ['nurse', 'admin'], true)) {
             return ['success' => false, 'message' => 'Unauthorized. Only clinical staff or administrators can approve reorders.'];
@@ -261,6 +267,7 @@ class MICAActionService
      */
     public function rejectReorderRequest(int $reorderId, ?string $notes = null): array
     {
+        if(!has_permission('inventory_manage',$this->user,$this->db))return ['success'=>false,'message'=>'Authorized Nurse inventory access is required.'];
         if(($this->user['role']??'')!=='nurse')return ['success'=>false,'message'=>'Nurse review is required.'];
         if (!in_array(canonical_role($this->user['role'] ?? ''), ['nurse', 'admin'], true)) {
             return ['success' => false, 'message' => 'Unauthorized.'];
@@ -346,7 +353,9 @@ class MICAActionService
     {
         if (!in_array($status, ['reviewed','in_progress'], true)) return ['success'=>false,'message'=>'Resolution requires a successful source verification scan.'];
         $role=canonical_role($this->user['role']??'');
-        if ($role!=='nurse') return ['success'=>false,'message'=>'Access denied.'];
+        if ($role!=='nurse' || !has_permission('clinic_monitor',$this->user,$this->db)) return ['success'=>false,'message'=>'Access denied.'];
+        $alert=$this->db->prepare('SELECT * FROM ai_actions WHERE id=?');$alert->execute([$actionId]);$row=$alert->fetch(PDO::FETCH_ASSOC);
+        if(!$row || !MICAAuthorization::alertAllowed($this->user,$row,$this->db))return ['success'=>false,'message'=>'Access denied.'];
         $stmt=$this->db->prepare("UPDATE ai_actions SET status='in_progress' WHERE id=? AND target_role IN ('nurse','all') AND status IN ('new','in_progress')");
         $stmt->execute([$actionId]);
         return ['success'=>$stmt->rowCount()>0,'message'=>'Monitoring requested. Run a scan to verify resolution.'];

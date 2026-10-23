@@ -29,7 +29,8 @@ class MICAAutomationEngine
     public function runAllTasks(): array
     {
         require_once __DIR__.'/MICAHubService.php';
-        return (new MICAHubService($this->db, ['id'=>0,'role'=>'admin']))->scan();
+        if(PHP_SAPI!=='cli')throw new RuntimeException('Scheduled monitoring requires CLI execution.');
+        return (new MICAHubService($this->db, ['id'=>0,'role'=>'system']))->scan();
     }
 
     /**

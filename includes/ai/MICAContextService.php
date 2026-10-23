@@ -30,6 +30,7 @@ class MICAContextService
     public function getSystemContextString(bool $includePrivate = false): string
     {
         $profile=permission_profile($this->user,$this->db);
+        if($profile==='legacy') return 'General clinic navigation only. No technical or clinical data access has been assigned to this legacy profile.';
         if($profile==='mis'){
             require_once __DIR__.'/../system_monitoring.php';
             return 'MIS technical assistance only. No clinical records, diagnoses, consultation counts, inventory or emergency details. Verified system data: '.json_encode((new SystemMonitoringService($this->db))->summary());
@@ -328,6 +329,7 @@ class MICAContextService
 
     public function getPendingAppointments(): array
     {
+        if(!has_permission('clinic_monitor',$this->user,$this->db))return [];
         $stmt = $this->db->query("
             SELECT a.*, s.student_number, u.first_name, u.last_name, u.phone
             FROM appointments a
@@ -335,12 +337,7 @@ class MICAContextService
             JOIN users u ON u.id = s.user_id
             WHERE a.status = 'pending'
             ORDER BY a.appointment_date ASC, a.appointment_time ASC
-            SELECT q.*, s.student_number, u.first_name, u.last_name, u.phone
-            FROM queue_numbers q
-            LEFT JOIN students s ON s.id = q.student_id
-            LEFT JOIN users u ON u.id = s.user_id
-            WHERE q.status = 'waiting' AND DATE(q.created_at) = CURDATE()
-            ORDER BY q.created_at ASC
+            LIMIT 50
         ");
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -348,6 +345,7 @@ class MICAContextService
     public function getDailySummaryData(): array
     {
         if(permission_profile($this->user,$this->db)==='mis'){require_once __DIR__.'/../system_monitoring.php';return ['profile'=>'mis','system'=>(new SystemMonitoringService($this->db))->summary(),'generated_at'=>date('c')];}
+        if(!has_permission('clinic_monitor',$this->user,$this->db))throw new RuntimeException('Clinical monitoring is not authorized.');
         $today = date('Y-m-d');
         $yesterday = date('Y-m-d', strtotime('-1 day'));
 
@@ -366,8 +364,12 @@ class MICAContextService
         $activeEmergencies = (int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
         $todayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$today'")->fetchColumn();
         $yesterdayVisits = (int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE DATE(consultation_date) = '$yesterday'")->fetchColumn();
-        require_once __DIR__.'/../account_monitoring.php';
-        $pendingRegistrations = canonical_role($this->user['role']??'')==='admin' ? (new AccountMonitoringService($this->db))->counts()['verification'] : null;
+        $pendingRegistrations = null;
+        if(permission_profile($this->user,$this->db)==='doctor') {
+            require_once __DIR__.'/../nurse_verification_service.php';
+            $staff=new NurseVerificationService($this->db,$this->user);
+            if($staff->ready())$pendingRegistrations=$staff->summaryCounts()['pending'];
+        }
 
         return [
             'today_appointments'     => $todayApps,

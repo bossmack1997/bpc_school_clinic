@@ -521,6 +521,7 @@ function escapeHtml(text) {
   }
 
   function getRolePath() {
+    if (window.MICA_USER && window.MICA_USER.profile === 'doctor') return 'doctor';
     var role = (window.MICA_USER && window.MICA_USER.role) || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role')) || 'student';
     if (role === 'admin') return 'admin';
     if (role === 'nurse') return 'nurse';
@@ -705,7 +706,14 @@ function escapeHtml(text) {
     var role = (window.MICA_USER && window.MICA_USER.role) || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role')) || 'student';
     var quickActions = [];
 
-    if (role === 'nurse') {
+    if (window.MICA_USER && window.MICA_USER.profile === 'doctor') {
+      quickActions = [
+        { icon: '', label: 'Nurse Approvals', action: 'nurse_approvals' },
+        { icon: '', label: 'Clinical Follow-ups', action: 'doctor_followups' },
+        { icon: '', label: 'Medicine Oversight', action: 'mica_inventory' },
+        { icon: '', label: 'Emergency Summary', action: 'emergencies_nurse' },
+      ];
+    } else if (role === 'nurse') {
       quickActions = [
         { icon: '', label: 'Student Records', action: 'mica_student_records' },
         { icon: '', label: 'Medicine Inventory', action: 'mica_inventory' },
@@ -714,8 +722,8 @@ function escapeHtml(text) {
       ];
     } else if (role === 'teacher' || role === 'adviser') {
       quickActions = [
-        { icon: '', label: 'My Advisory', action: 'advisory_teacher' },
-        { icon: '', label: 'Clinic Referrals', action: 'referrals_teacher' },
+        { icon: '', label: 'My Health Records', action: 'records' },
+        { icon: '', label: 'Clinic Services', action: 'clinic_information' },
         { icon: '', label: 'Nearest Hospital', action: 'nearby_hospital' },
         { icon: '', label: 'Announcements', action: 'announcements' },
         { icon: '', label: 'SOS Protocol', action: 'sos_protocol' },
@@ -725,7 +733,7 @@ function escapeHtml(text) {
         { icon: '', label: 'User Overview', action: 'users_admin' },
         { icon: '', label: 'Sections', action: 'sections_admin' },
         { icon: '', label: 'Nearby Hospitals', action: 'nearby_hospital' },
-        { icon: '', label: 'Analytics', action: 'analytics_admin' },
+        { icon: '', label: 'System Health', action: 'system_health' },
         { icon: '', label: 'Announcements', action: 'announcements' },
       ];
     } else {
@@ -918,12 +926,14 @@ function escapeHtml(text) {
     var role = (window.MICA_USER && window.MICA_USER.role) || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role')) || 'student';
 
     var roleScope = '';
-    if (role === 'nurse') {
+    if (window.MICA_USER && window.MICA_USER.profile === 'doctor') {
+      roleScope = 'Welcome, Doctor. I can help with <strong>pending Nurse registrations</strong>, <strong>clinical follow-ups</strong>, <strong>medicine oversight</strong>, and <strong>emergency summaries</strong>. Credential decisions require your review and confirmation.<br><br>';
+    } else if (role === 'nurse') {
       roleScope = 'I can assist you with <strong>today\'s appointments</strong>, <strong>medicine inventory stock</strong>, <strong>emergency SOS alerts</strong>, <strong>dispensing logs</strong>, and <strong>medical certificates</strong>.<br><br>';
     } else if (role === 'teacher' || role === 'adviser') {
-      roleScope = 'I can assist you with <strong>advisory class health tracking</strong>, <strong>clinic coordination</strong>, <strong>clinic announcements</strong>, and <strong>emergency SOS guidelines</strong>.<br><br>';
+      roleScope = 'I can assist you with <strong>your personal clinic history</strong>, <strong>personal clinic services</strong>, <strong>clinic announcements</strong>, and <strong>emergency SOS guidelines</strong>.<br><br>';
     } else if (role === 'admin') {
-      roleScope = 'I can assist you with <strong>user management overviews</strong>, <strong>course & section setup</strong>, <strong>system configuration</strong>, and <strong>clinic analytics & reports</strong>.<br><br>';
+      roleScope = 'I can assist you with <strong>user management overviews</strong>, <strong>course & section setup</strong>, <strong>system configuration</strong>, and <strong>security events and technical diagnostics</strong>.<br><br>';
     } else {
       roleScope = 'Ask me about your <strong>medical records</strong>, <strong>appointments</strong>, <strong>BMI & vitals</strong>, <strong>vaccinations</strong>, <strong>medicine availability</strong>, or <strong>SOS emergency</strong> help.<br><br>';
     }
@@ -954,19 +964,22 @@ function escapeHtml(text) {
     var role = (window.MICA_USER && window.MICA_USER.role) || (document.getElementById('mica-assistant') && document.getElementById('mica-assistant').getAttribute('data-mica-role')) || 'student';
     var questions = [];
 
-    if (role === 'nurse') {
+    if (window.MICA_USER && window.MICA_USER.profile === 'doctor') {
+      questions = ['How many pending nurse registrations?', 'Show pending nurse applicants', 'Show clinical follow-ups', 'Show medicine stock'];
+    } else if (role === 'nurse') {
       questions = ['Today\'s appointments', 'Medicine inventory stock', 'Recent emergency alerts', 'Clinic announcements'];
     } else if (role === 'teacher' || role === 'adviser') {
-      questions = ['My advisory students', 'Clinic referral process', 'Clinic announcements', 'Emergency SOS guidelines'];
+      questions = ['Show my clinic health records', 'Clinic services', 'Clinic announcements', 'Emergency SOS guidelines'];
     } else if (role === 'admin') {
       questions = ['System user overview', 'Course & section list', 'Recent activity summary', 'Clinic announcements'];
     } else {
-      questions = ['Find the nearest hospital', 'Book an appointment', 'What is my BMI?', 'Medicine availability'];
+      questions = ['Find the nearest hospital', 'Clinic visit procedures', 'Show my clinic history', 'Emergency help'];
     }
 
     C.dom.micaChips.innerHTML = '';
     questions.forEach(function (q) {
-      var chip = document.createElement('span');
+      var chip = document.createElement('button');
+      chip.type = 'button';
       chip.className = 'mica-chip';
       chip.textContent = q;
       C.dom.micaChips.appendChild(chip);
@@ -2027,6 +2040,9 @@ if (hasCoords && isGranted) {
       referrals_teacher: 'How do I coordinate a student visit to the school clinic?',
       sos_protocol: 'What is the emergency SOS protocol for teachers?',
       wellness_tips: 'What student wellness support techniques can be recommended?',
+      nurse_approvals: 'Show pending nurse applicants',
+      doctor_followups: 'Show clinical follow-ups',
+      system_health: 'Show system health and security monitoring',
       users_admin: 'Provide a summary of user roles and accounts in the system',
       sections_admin: 'How are courses and sections configured in the clinic system?',
       analytics_admin: 'What clinic reports and analytics are available?',

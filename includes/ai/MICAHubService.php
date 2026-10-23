@@ -9,7 +9,8 @@ final class MICAHubService
 
     public function scan(): array
     {
-        if (!in_array(canonical_role($this->user['role']??''), ['admin','nurse'], true)) throw new RuntimeException('Access denied.');
+        $scheduled=PHP_SAPI==='cli' && ($this->user['role']??'')==='system' && ($this->user['id']??null)===0;
+        if (!$scheduled && !MICAAuthorization::forUser($this->user,'run_automation',$this->db)) throw new RuntimeException('Access denied.');
         if ((int)$this->db->query("SELECT GET_LOCK('bpc_mica_hub_scan',0)")->fetchColumn() !== 1) throw new RuntimeException('Another intelligence scan is running. Retry shortly.');
         $start=microtime(true); $scanId=null; $writerLocked=false;
         try {
@@ -33,7 +34,11 @@ final class MICAHubService
                 $this->event($id,'validated',$c['reason'].' '.$c['description']);
                 $notified=$this->db->prepare("SELECT COUNT(*) FROM mica_alert_events WHERE action_id=? AND event_type='notification_created'");$notified->execute([$id]);
                 if(!(int)$notified->fetchColumn()) {
-                    $notify=$this->db->prepare("INSERT INTO notifications (user_id,type,title,message,link) SELECT id,'mica_hub',?,?,? FROM users WHERE status='active' AND role=?");
+                    $scope=$c['target_role']==='admin'
+                        ? " AND (EXISTS(SELECT 1 FROM admin_profiles ap WHERE ap.user_id=users.id AND ap.profile='mis') OR (admin_type='primary_admin' AND NOT EXISTS(SELECT 1 FROM admin_profiles ap WHERE ap.user_id=users.id)))"
+                        : " AND self_service_only=0";
+                    if($c['target_role']==='nurse' && $this->db->query("SHOW COLUMNS FROM nurses LIKE 'clinical_authorization_status'")->fetch())$scope.=" AND EXISTS(SELECT 1 FROM nurses n WHERE n.user_id=users.id AND n.clinical_authorization_status='authorized')";
+                    $notify=$this->db->prepare("INSERT INTO notifications (user_id,type,title,message,link) SELECT id,'mica_hub',?,?,? FROM users WHERE status='active' AND role=?".$scope);
                     $notify->execute([$c['title'],mb_substr($c['description'],0,255),APP_URL.'/pages/ai_assistant.php?alert_id='.$id,$c['target_role']]);
                     if($notify->rowCount())$this->event($id,'notification_created',$notify->rowCount().' notification(s) persisted for active users in the responsible role. Delivery/read is separate.');
                 }
@@ -115,7 +120,7 @@ final class MICAHubService
         // Same role and inventory policy as the list, including archived rows.
         $q=$this->db->prepare('SELECT * FROM ai_actions WHERE id=?');$q->execute([$id]);$a=$q->fetch();
         $role=canonical_role($this->user['role']??'');
-        if(!$a||!in_array($role,['admin','nurse'],true)||!in_array($a['target_role'],[$role,'all'],true))return null;
+        if(!$a||!MICAAuthorization::alertAllowed($this->user,$a,$this->db))return null;
         if(in_array($a['target_type'],['medicine','medicines','inventory'],true)&&!can_view_inventory($this->user,$this->db))return null;
         if($markRead) {
             $this->db->prepare('INSERT IGNORE INTO mica_alert_reads (action_id,user_id) VALUES (?,?)')->execute([$id,$this->user['id']]);
@@ -125,7 +130,8 @@ final class MICAHubService
         $a['events']=$q->fetchAll();
         $last=end($a['events']);
         $a['issue_status']=$last && $last['event_type']==='invalidated'?'invalidated':($a['status']==='resolved'?'resolved':($a['status']==='in_progress'?'monitoring':'active'));
-        $a['navigation_url']=APP_URL.($a['target_type']==='medicine'?'/pages/medicine_requisition.php':($a['target_type']==='sos_emergency'?'/pages/nurse/emergencies.php':($a['target_type']==='security_exception'?'/pages/admin/account_exceptions.php':'/pages/admin/users.php'))); $a['evidence_note']='Evidence from the last successful scan; run a scan to verify current source state.';
+        $doctor=permission_profile($this->user,$this->db)==='doctor';
+        $a['navigation_url']=APP_URL.($a['target_type']==='medicine'?($doctor?'/pages/doctor/inventory.php':'/pages/medicine_requisition.php'):($a['target_type']==='sos_emergency'?($doctor?'/pages/doctor/emergencies.php':'/pages/nurse/emergencies.php'):($a['target_type']==='security_exception'?'/pages/admin/account_exceptions.php':'/pages/admin/users.php'))); $a['evidence_note']='Evidence from the last successful scan; use the responsible module for current records.';
         return $a;
     }
 }

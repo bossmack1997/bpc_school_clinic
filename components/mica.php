@@ -145,6 +145,7 @@ window.MICA_USER = {
   firstName: '<?= $micaFirstName ?>',
   fullName: '<?= $micaFullName ?>',
   role: '<?= $micaRole ?>',
+  profile: <?= json_encode(permission_profile($micaUser)) ?>,
   inventoryAllowed: <?= can_view_inventory($micaUser)?'true':'false' ?>,
 };
 

@@ -140,8 +140,8 @@ class AIService
         // 2. Direct Grounded Natural Language Database Query Check
         $groundedRes = $this->workflowService->handleNaturalLanguageQuery($message);
         if ($groundedRes && !empty($groundedRes['handled'])) {
-            $this->chatHistory->addMessage('user', $message);
-            $this->chatHistory->addMessage('assistant', $groundedRes['reply']);
+            $this->chatHistory->addMessage('user', $message, 'local_only');
+            $this->chatHistory->addMessage('assistant', $groundedRes['reply'], 'local_only');
             return [
                 'success' => true,
                 'reply'   => $groundedRes['reply'],
@@ -166,6 +166,8 @@ class AIService
 
         // 4. Build Live System & Database Context
         $systemContext = $this->contextService->getSystemContextString((bool)preg_match('/(my|own|aking|ko).*(record|consultation|visit|health|bmi)|(record|consultation|bmi).*(ko|akin)/i',$message));
+        // Grounded clinical/applicant answers stay local and must never be
+        // forwarded on the next general question through conversation memory.
         $recentHistory = $this->chatHistory->getMessagesForPrompt(10);
 
         // 5. Build Structured Multi-Turn Prompt
@@ -174,7 +176,7 @@ class AIService
             $message,
             $systemContext,
             $recentHistory,
-            $this->user,
+            array_merge($this->user, ['mica_profile'=>permission_profile($this->user,$this->db)]),
             $this->page,
             $locationContext
         );

@@ -31,6 +31,15 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
      assert(await evaluate(`document.body.textContent.includes('Clinical Command Center')&&document.querySelector('.role-badge').textContent.includes('Doctor')`),width+'px clinical identity and command center');
      assert(await evaluate(`!Array.from(document.querySelectorAll('.sidebar a')).some(a=>/MICA|ai_assistant/.test(a.textContent+' '+a.getAttribute('href')))`),width+'px no MICA sidebar item');
      assert(await evaluate(`!!document.querySelector('#mica-assistant')`),width+'px floating MICA retained');
+     assert(await evaluate(`window.MICA_USER.profile==='doctor'`),width+'px MICA uses verified Doctor profile');
+     if(width===320||width===1440){
+      await evaluate(`window.MICA.open()`);await sleep(250);
+      assert(await evaluate(`document.querySelector('#micaChips')?.textContent.includes('pending nurse') || document.body.textContent.includes('Nurse Approvals')`),width+'px MICA shows Nurse review suggestions');
+      assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth+1`),width+'px open MICA fits viewport');
+      assert(await evaluate(`(()=>{const r=document.getElementById('micaSendBtn').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})()`),width+'px MICA send button remains visible');
+      const micaShot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync('scratch/doctor-browser/mica-'+width+'.png',Buffer.from(micaShot.data,'base64'));
+      await evaluate(`window.MICA.close()`);
+     }
      if(width<1200){
       await evaluate(`document.getElementById('sidebarToggle').click()`);
       assert(await evaluate(`document.querySelector('.sidebar').classList.contains('show')&&document.getElementById('sidebarToggle').getAttribute('aria-expanded')==='true'`),width+'px sidebar opens with accessible state');

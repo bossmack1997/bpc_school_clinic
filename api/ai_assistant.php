@@ -72,7 +72,7 @@ if($user['role']==='admin'&&$action==='deactivate_graduated')require_admin_permi
 if(in_array($action,['reorder_list','create_reorder'],true))require_inventory_access();
 if(in_array($action,['approve_reorder','reject_reorder'],true))require_inventory_access(true);
 
-if (!MICAAuthorization::actionAllowed((string)($user['role'] ?? ''), (string)$action)) {
+if (!MICAAuthorization::forUser($user, (string)$action, $db)) {
     http_response_code(403);
     json_response(false, [], 'This MICA action is not available for your role.');
 }

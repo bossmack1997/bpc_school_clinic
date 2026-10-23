@@ -749,6 +749,7 @@
 
 .mica-input {
   flex: 1;
+  min-width: 0;
   border: 1.5px solid transparent;
   background: rgba(0, 0, 0, 0.05);
   border-radius: 24px;
@@ -968,6 +969,15 @@
   .mica-input {
     padding: 8px 14px;
     font-size: 0.85rem;
+  }
+
+  .mica-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .mica-chip {
+    flex-shrink: 0;
   }
 
   .mica-mic-btn, .mica-send-btn {

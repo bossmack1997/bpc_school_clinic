@@ -176,13 +176,19 @@ class PromptBuilder
 
         // Role-Specific Capabilities & Boundaries
         $prompt .= "## ROLE-SPECIFIC CAPABILITIES & BOUNDARIES\n";
-        if ($userRole === 'nurse') {
+        $profile = $userInfo['mica_profile'] ?? $userRole;
+        if ($profile === 'doctor') {
+            $prompt .= "- Verified Doctor: medical oversight, Nurse credential review checklists, authorized case review, follow-ups, medicine and emergency summaries. Never approve credentials or make account changes. Direct final decisions to Clinical Staff Verification. No MIS administration.\n";
+        } elseif ($profile === 'mis') {
+            $prompt .= "- MIS: technical system health, accounts, authentication, security and backups only. No confidential clinical data or clinical decisions.\n";
+        } elseif ($profile === 'legacy') {
+            $prompt .= "- Legacy administrative profile: general navigation only; no clinical or technical retrieval authority.\n";
+        } elseif ($userRole === 'nurse') {
             $prompt .= "- The user is a School Nurse.\n";
             $prompt .= "- Tailor assistance to: today's clinic appointments, medicine inventory status and replenishment, emergency SOS alert notifications, student health logs/vitals, dispensing procedures, and issuing/verifying medical certificates.\n";
         } elseif ($userRole === 'adviser' || $userRole === 'teacher') {
             $prompt .= "- The user is a Class Adviser / Teacher.\n";
-            $prompt .= "- Tailor assistance to: checking advisory class health workflows, clinic coordination for ill students, clinic announcements, and school SOS emergency protocol.\n";
-            $prompt .= "- Respect student confidentiality: do not share individual student medical records beyond authorized class advisory status.\n";
+            $prompt .= "- Tailor assistance to personal clinic services, own consultation history, own follow-ups, announcements and SOS guidance. No access to other patients or students.\n";
         } elseif ($userRole === 'admin') {
             $prompt .= "- The user is a System Administrator.\n";
             $prompt .= "- Tailor assistance to: user management overview, academic courses and sections setup, clinic analytics/reports, announcements, and system configuration.\n";

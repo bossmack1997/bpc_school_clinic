@@ -26,8 +26,16 @@ $pageTitle = 'MICA - Clinic Intelligence & Automation Center';
 // Each entry is [icon name, label, prompt|action, tone]. Icons resolve
 // through bpc_icon() so the page uses the same professional SVG set as
 // the rest of the application rather than emoji glyphs.
-$quickActions = match ($role) {
-    'nurse', 'doctor' => [
+$micaProfile = permission_profile($user,$db);
+$quickActions = match ($micaProfile) {
+    'doctor' => [
+        ['users', 'Nurse Registration Approvals', 'Show pending nurse applicants', 'text-primary'],
+        ['activity', 'Clinical Follow-ups', 'Show clinical follow-ups', 'text-primary'],
+        ['package', 'Medicine Oversight', 'Which medicines are low stock?', 'text-warning'],
+        ['shield-alert', 'Emergency Summary', 'Show active SOS emergencies', 'text-danger'],
+        ['chat', 'Voice Assistant', '__open__', 'text-primary'],
+    ],
+    'nurse' => [
         ['package', 'Check Low Stock', 'Which medicines are low in stock?', 'text-danger'],
         ['clock', 'Expiring Medicines', 'Which medicines expire this month?', 'text-warning'],
         ['calendar', 'Tomorrow\'s Appointments', 'Show students with appointments tomorrow', 'text-primary'],
@@ -37,17 +45,14 @@ $quickActions = match ($role) {
         ['activity', 'Run Intelligence Scan', '__scan__', 'text-primary'],
         ['chat', 'Voice Assistant', '__open__', 'text-primary'],
     ],
-    'admin' => [
+    'mis' => [
         ['users', 'Pending Registrations', 'Which accounts are pending approval?', 'text-warning'],
         ['bar-chart', 'Account Statistics', 'How many active users do we have?', 'text-primary'],
-        ['trending-up', 'Clinic Demand Trends', 'How many clinic visits happened this week?', 'text-info'],
-        ['shield-alert', 'Emergency Status Summary', 'Show active and recent SOS emergencies', 'text-danger'],
-        ['package', 'Critical Inventory Alerts', 'Which medicines are low stock or expired?', 'text-danger'],
-        ['activity', 'Run Intelligence Scan', '__scan__', 'text-primary'],
+        ['activity', 'System Health', 'Show system health and security monitoring', 'text-primary'],
         ['chat', 'Voice Assistant', '__open__', 'text-primary'],
     ],
-    'adviser' => [
-        ['users', 'My Advisory Class', 'Show my advisory class', 'text-primary'],
+    'teacher' => [
+        ['heart-pulse', 'My Clinic History', 'Show my clinic health records', 'text-primary'],
         ['megaphone', 'Clinic Announcements', 'Latest clinic announcements', 'text-warning'],
         ['hospital', 'Clinic Hours & Info', 'What are the clinic operating hours?', 'text-info'],
         ['shield-alert', 'Emergency SOS', 'How does the clinic emergency SOS work?', 'text-danger'],
@@ -93,7 +98,7 @@ $quickActions = match ($role) {
             </div>
           </div>
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            <?php if (in_array($role, ['admin', 'nurse'], true)): ?>
+            <?php if ($micaProfile === 'nurse'): ?>
               <button class="btn btn-outline-primary btn-sm" id="btnRunScan" onclick="triggerAutomationScan()">
                 <i class="bi bi-cpu-fill me-1"></i> Run Intelligence Scan
               </button>
@@ -316,6 +321,7 @@ $quickActions = match ($role) {
 <script>
 const csrfToken = $('meta[name="csrf-token"]').attr('content');
 const micaReorders = new Map();
+const micaUserProfile = <?= json_encode($micaProfile); ?>;
 const micaUserRole = <?= json_encode($role); ?>;
 
 $(document).ready(function() {
@@ -497,7 +503,7 @@ function loadDailySummary() {
         briefBox.text('Database: '+(sys.database_connected?'connected':'unavailable')+'; failed sign-ins (24h): '+sys.failed_logins_24h+'; latest registered backup: '+(sys.last_backup?.status || 'not recorded')+'. Updated '+sys.generated_at);return;
       }
       const metric = value => value === null || value === undefined ? 'Unavailable' : escapeHtml(value);
-      const metrics=[['Consultations today',m.today_visits],['Consultations yesterday',m.yesterday_visits],['Waiting in queue',m.waiting_queue],['Active SOS',m.active_emergencies],['Pending account reviews',m.pending_registrations],['Low-stock medicines',m.low_stock_medicines],['Expired medicines',m.expired_medicines],['Expiring within 30 days',m.expiring_medicines_30d]];
+      const metrics=[['Consultations today',m.today_visits],['Consultations yesterday',m.yesterday_visits],['Waiting in queue',m.waiting_queue],['Active SOS',m.active_emergencies],[micaUserProfile === 'doctor' ? 'Pending Nurse approvals' : 'Pending account reviews',m.pending_registrations],['Low-stock medicines',m.low_stock_medicines],['Expired medicines',m.expired_medicines],['Expiring within 30 days',m.expiring_medicines_30d]];
       summaryRow.html(metrics.map(([label,value])=>'<div class="col-6 col-md-3"><div class="card border-0 shadow-sm p-3"><strong class="fs-4">'+metric(value)+'</strong><span class="small text-muted">'+label+'</span></div></div>').join(''));
       const brief='<p>Verified database counts as of '+escapeHtml(m.generated_at)+' (Asia/Manila).</p><p>Unavailable values are outside your access or could not be retrieved. Consultations count recorded encounters, not unique patients. The nurse handles clinical follow-up; Administration reviews accounts.</p>';
       briefBox.html(brief);

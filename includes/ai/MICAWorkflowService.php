@@ -29,12 +29,23 @@ class MICAWorkflowService
     public function handleNaturalLanguageQuery(string $message): ?array
     {
         $profile=permission_profile($this->user,$this->db);
+        if($profile==='legacy' || (($this->user['role']??'')==='nurse' && !has_permission('clinic_monitor',$this->user,$this->db)))return ['handled'=>true,'type'=>'access_denied','reply'=>'This account does not have clinical or technical MICA access. Use your account portal for authorization.'];
         if (preg_match('/nurse.*(verif|credential|approv)|(?:pending|verif|approv).*nurse/i',$message)) {
             if($profile!=='doctor')return ['handled'=>true,'type'=>'access_denied','reply'=>'Nurse credential reviews require a verified Doctor profile.'];
             require_once __DIR__.'/../nurse_verification_service.php';
             $staff=new NurseVerificationService($this->db,$this->user);
             $reply='Clinical Staff Verification is temporarily unavailable; ask MIS to check the reviewed migration.';
-            if($staff->ready()) { $counts=$staff->summaryCounts(); $reply='Recorded Nurse applications pending review: '.$counts['pending'].'. More information required: '.$counts['needs_information'].'. Open Clinical Staff Verification: '.app_url('pages/doctor/nurse_verification.php').'. A Doctor must review supporting credentials and appointment authorization and confirm their password. MICA cannot approve credentials.'; }
+            if($staff->ready()) {
+                $counts=$staff->summaryCounts();
+                $reply='Recorded Nurse applications pending review: '.$counts['pending'].'. More information required: '.$counts['needs_information'].'. As of '.date('c').'.';
+                if(preg_match('/show|list|applicants|sino|sinu/i',$message)) {
+                    $rows=$staff->listNurses('pending','',10);
+                    $reply.="\nPending applicants (latest 10 at most):";
+                    foreach($rows as $row)$reply.="\n- ".trim($row['first_name'].' '.$row['last_name']).' | '.$row['email'].' | Registered '.$row['registered_at'].' | Pending clinical review';
+                }
+                $reply.=' Open Clinical Staff Verification: '.app_url('pages/doctor/nurse_verification.php').'. A Doctor must review supporting credentials and appointment authorization and confirm their password. MICA cannot approve credentials.';
+                $this->auditLookup('MICA staff review lookup','Read pending Nurse summary; no credential decision.');
+            }
             return ['handled'=>true,'type'=>'staff_verification_grounded','reply'=>$reply];
         }
         if(preg_match('/(?:draft|summari[sz]e|summary).*patient\s*#?\s*(\d+)/i',$message,$match)){
@@ -57,6 +68,28 @@ class MICAWorkflowService
         if($profile==='doctor' && preg_match('/(account|registration|password|backup|security polic|server|database)/i',$message))return ['handled'=>true,'type'=>'access_denied','reply'=>'Technical administration and account governance require MIS authorization.'];
         $role = canonical_role($this->user['role'] ?? 'student');
         $msg = mb_strtolower(trim($message));
+
+        if (in_array($role,['student','teacher'],true) && preg_match('/\b(my|own|akin|aking|ko)\b/i',$msg) && preg_match('/queue|record|histor|visit|consultation|follow.?up/i',$msg)) {
+            // Resolve ownership from the trusted user, never a name/ID in chat.
+            $table=$role==='teacher'?'teachers':'students';
+            $column=$role==='teacher'?'teacher_id':'student_id';
+            $q=$this->db->prepare("SELECT id FROM $table WHERE user_id=?");$q->execute([(int)$this->user['id']]);$id=$q->fetchColumn();
+            if(!$id)return ['handled'=>true,'type'=>'personal_grounded','reply'=>'Your patient profile is unavailable. Contact the clinic.'];
+            if(preg_match('/queue/i',$msg)) {
+                $q=$this->db->prepare("SELECT queue_number,status,created_at FROM queue_numbers WHERE $column=? AND created_at>=CURDATE() AND created_at<CURDATE()+INTERVAL 1 DAY ORDER BY id DESC LIMIT 10");
+            } else {
+                $q=$this->db->prepare("SELECT consultation_date,chief_complaint,diagnosis,treatment,follow_up_date FROM consultations WHERE $column=? ORDER BY consultation_date DESC,id DESC LIMIT 10");
+            }
+            $q->execute([(int)$id]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
+            $this->auditLookup('MICA personal records lookup','Own patient records only; bounded to 10.');
+            return ['handled'=>true,'type'=>'personal_grounded','reply'=>'Your recorded '.(str_contains($msg,'queue')?'queue activity today':'clinic history').' (latest 10 at most), as of '.date('c').":\n".($rows?json_encode($rows,JSON_UNESCAPED_UNICODE):'No matching records.')];
+        }
+        if($profile==='nurse' && preg_match('/queue|pila/i',$msg)) {
+            $q=$this->db->query("SELECT queue_number,status,visit_type,created_at FROM queue_numbers WHERE created_at>=CURDATE() AND created_at<CURDATE()+INTERVAL 1 DAY AND status IN ('waiting','called','serving') ORDER BY created_at,id LIMIT 20");
+            $rows=$q->fetchAll(PDO::FETCH_ASSOC);
+            $this->auditLookup('MICA queue lookup','Current queue; bounded to 20; no clinical changes.');
+            return ['handled'=>true,'type'=>'queue_grounded','reply'=>'Current active queue (first 20 at most), as of '.date('c').":\n".($rows?json_encode($rows,JSON_UNESCAPED_UNICODE):'No active queue entries.')];
+        }
 
         if (in_array($role,['admin','nurse'],true) && preg_match('/(visit|patient|consultation).*(today)|today.*(visit|patient|consultation)/i',$msg)) {
             $count=(int)$this->db->query("SELECT COUNT(*) FROM consultations WHERE consultation_date >= CURDATE() AND consultation_date < CURDATE()+INTERVAL 1 DAY")->fetchColumn();
@@ -117,6 +150,12 @@ class MICAWorkflowService
         }
         $lines[] = 'Open Medicine Inventory in MICA to review or prepare a staff-confirmed requisition. Requested quantities require human confirmation; no order has been placed.';
         return ['handled' => true, 'reply' => implode("\n", $lines), 'type' => 'inventory_grounded'];
+    }
+
+    private function auditLookup(string $action, string $details): void
+    {
+        $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,?,'mica',?)")
+            ->execute([(int)$this->user['id'],$action,$details]);
     }
 
     /**
