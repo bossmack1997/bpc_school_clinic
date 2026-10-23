@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/../../includes/clinical_diagnostics.php';
 require_once __DIR__.'/../../includes/doctor_page.php';require_once __DIR__.'/../../includes/doctor_clinical_service.php';
 $service=new DoctorClinicalService(getDB(),current_user());$pageTitle='Patient & Consultation Records';$error='';$overview=null;$patients=[];
 $text=static fn($key)=>is_string($_GET[$key]??'')?trim($_GET[$key]??''):'';
@@ -6,8 +7,8 @@ $search=$text('search');$role=$text('role');$identifier=$text('identifier');$tab
 if(!in_array($tab,['overview','medical','consultations','notes','followups'],true))$tab='overview';
 $raw=$_POST['patient_user_id']??$_GET['patient']??'0';$patient=is_scalar($raw)&&ctype_digit((string)$raw)?(int)$raw:0;
 if($raw!=='0'&&!$patient){http_response_code(400);$error='Choose a valid patient from the directory.';}
-if($_SERVER['REQUEST_METHOD']==='POST'){csrf_verify_or_die();try{$service->save($_POST);set_flash('success','Physician encounter saved with author and audit history.');redirect('patients.php?patient='.$patient.'&tab=consultations');}catch(InvalidArgumentException|RuntimeException $e){$error=$e instanceof PDOException?'Clinical data could not be saved. Please retry.':$e->getMessage();http_response_code(422);}}
-try{$patients=$service->patients($search,$role,$identifier);if($patient)$overview=$service->overview($patient);}catch(InvalidArgumentException $e){http_response_code(404);$error=$e->getMessage();}catch(PDOException $e){http_response_code(503);error_log('Doctor patient source unavailable SQLSTATE='.$e->getCode());$error='Patient information is temporarily unavailable. Please reload; missing data is not an empty history.';}
+if($_SERVER['REQUEST_METHOD']==='POST'){csrf_verify_or_die();try{$service->save($_POST);set_flash('success','Physician encounter saved with author and audit history.');redirect('patients.php?patient='.$patient.'&tab=consultations');}catch(InvalidArgumentException|RuntimeException $e){$error=$e instanceof PDOException?'Clinical data could not be saved. Please retry.':$e->getMessage();if($e instanceof PDOException)clinical_database_failure('doctor.patient.save',$e);http_response_code($e instanceof PDOException?503:422);}}
+$sourceOperation='directory';try{$patients=$service->patients($search,$role,$identifier);if($patient){$sourceOperation='overview';$overview=$service->overview($patient);}}catch(InvalidArgumentException $e){http_response_code(404);$error=$e->getMessage();}catch(PDOException $e){http_response_code(503);clinical_database_failure('doctor.patient.'.$sourceOperation,$e);$error='Patient information is temporarily unavailable. Please reload; missing data is not an empty history.';}
 $records=$overview['consultations']??[];
 ?>
 <!doctype html><html lang="en"><head><?php include __DIR__.'/../../includes/head.php'; ?></head><body><div class="app-wrapper"><?php include __DIR__.'/../../components/sidebar.php'; ?><div class="main-content"><?php include __DIR__.'/../../components/navbar.php'; ?>

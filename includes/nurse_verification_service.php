@@ -10,11 +10,13 @@
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/permission_profiles.php';
+require_once __DIR__ . '/clinical_diagnostics.php';
 
 final class NurseVerificationService
 {
     private bool $hasColumns = false;
     private bool $hasReviewTable = false;
+    private array $missingSchema = [];
 
     public function __construct(private PDO $db, private ?array $actor = null)
     {
@@ -24,19 +26,23 @@ final class NurseVerificationService
 
     private function detectSchema(): void
     {
-        try {
-            $cols = $this->db->query("SHOW COLUMNS FROM `nurses` LIKE 'clinical_authorization_status'")->fetch();
-            $this->hasColumns = !empty($cols);
-        } catch (Throwable) {
-            $this->hasColumns = false;
+        $this->missingSchema=[];
+        foreach([
+            'nurses'=>['clinical_authorization_status','clinical_reviewed_by','clinical_reviewed_at','clinical_review_notes'],
+            'users'=>['credential_version'],
+            'nurse_clinical_reviews'=>['id','nurse_user_id','doctor_user_id','action','previous_status','new_status','notes','created_at']
+        ] as $table=>$required) {
+            try {
+                $columns=$this->db->query('SHOW COLUMNS FROM `'.$table.'`')->fetchAll(PDO::FETCH_COLUMN);
+                foreach(array_diff($required,$columns) as $column)$this->missingSchema[]=$table.'.'.$column;
+            } catch(PDOException $e) {
+                clinical_database_failure('nurse_verification.schema.'.$table,$e);
+                $this->missingSchema[]=$table;
+            }
         }
-
-        try {
-            $tbl = $this->db->query("SHOW TABLES LIKE 'nurse_clinical_reviews'")->fetch();
-            $this->hasReviewTable = !empty($tbl);
-        } catch (Throwable) {
-            $this->hasReviewTable = false;
-        }
+        $this->hasColumns=!array_filter($this->missingSchema,static fn($name)=>str_starts_with($name,'nurses'));
+        $this->hasReviewTable=!array_filter($this->missingSchema,static fn($name)=>str_starts_with($name,'nurse_clinical_reviews'));
+        if($this->missingSchema)error_log('Clinical review schema incomplete missing='.implode(',',$this->missingSchema));
     }
 
     private function requireDoctorActor(): array
@@ -285,7 +291,10 @@ final class NurseVerificationService
         if (!$actor || ($actor['role'] !== 'nurse' || (int)$actor['id'] !== $id) && permission_profile($actor,$this->db) !== 'doctor') throw new RuntimeException('Credential review access denied.');
     }
 
-    public function ready(): bool { return $this->hasColumns && $this->hasReviewTable; }
+    public function ready(): bool { return !$this->missingSchema; }
+
+    /** Schema names only; no applicant or credential contents. */
+    public function missingSchema(): array { return $this->missingSchema; }
 
     /** A restricted Nurse may update and resubmit their own professional details. */
     public function submitCredentials(string $license, string $position, ?string $document): void {
