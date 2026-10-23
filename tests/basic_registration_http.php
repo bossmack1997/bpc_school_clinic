@@ -37,6 +37,7 @@ try {
     if(!is_dir(dirname($fixtureFile)))mkdir(dirname($fixtureFile),0755,true);
     file_put_contents($fixtureFile,'SYNTHETIC_PRIVATE_ATTACHMENT');
     $db->prepare('UPDATE medical_records SET file_path=? WHERE id=?')->execute(['uploads/medical_records/'.$fixtureName,$otherRecord]);
+    if(in_array('--legacy', $argv, true))$db->exec('ALTER TABLE users DROP COLUMN email_verified_at, DROP COLUMN self_service_only');
     $socket=stream_socket_server('tcp://127.0.0.1:0',$error,$description);$port=(int)substr(strrchr(stream_socket_get_name($socket,false),':'),1);fclose($socket);$base='http://127.0.0.1:'.$port;
     // Child server uses synthetic records only and a closed loopback SMTP port: no real mail is sent.
     foreach(['DB_NAME'=>$database,'APP_URL'=>$base,'APP_ENV'=>'local','MAIL_HOST'=>'127.0.0.1','MAIL_PORT'=>'1','MAIL_USERNAME'=>'','MAIL_PASSWORD'=>'','MAIL_FROM_ADDRESS'=>'fixture@example.invalid','APP_ENV_FILE'=>__DIR__.'/nonexistent-test.env'] as $key=>$value)putenv($key.'='.$value);
@@ -45,6 +46,16 @@ try {
     if(!is_resource($server))throw new RuntimeException('Local server failed to start.');
     fclose($pipes[0]);
     for($i=0;$i<30;$i++){ $ready=@fsockopen('127.0.0.1',$port,$error,$description,0.1);if($ready){fclose($ready);break;}usleep(100000); }
+    if(in_array('--legacy',$argv,true)){
+        $c=client();$csrf=token(request($c,'/auth/register.php'));
+        $probe=['csrf_token'=>$csrf,'role'=>'student','first_name'=>'Alex','last_name'=>'Fixture','username'=>'legacy_fixture','email'=>'legacy@example.invalid','password'=>'FixturePass!42','confirm_password'=>'FixturePass!42','certify'=>1,'student_number'=>'LEGACY001','course'=>'BSIT','year_level'=>'1','section'=>'A','contact_number'=>'09123456789'];
+        $blocked=request($c,'/auth/register.php',$probe);
+        basicCheck($blocked['status']===503&&str_contains($blocked['body'],'system update')&&testAccount($db,'legacy_fixture')===[],'Missing scope schema fails safely without an account');
+        require __DIR__.'/../includes/registration_schema.php';
+        basicCheck(count(migrate_basic_registration_schema($db))===2,'Portable additive migration repairs both missing columns');
+        basicCheck(migrate_basic_registration_schema($db)===[],'Migration can be repeated without changing existing accounts');
+        curl_close($c);
+    }
     foreach(['student','teacher','nurse'] as $role){
         $c=client();$username='http_'.$role;
         $registration=request($c,'/auth/register.php');$csrf=token($registration);
@@ -52,6 +63,9 @@ try {
         $registered=request($c,'/auth/register.php',$payload);$account=testAccount($db,$username);
         basicCheck($registered['status']===302 && ($registered['headers']['location']??'')==='verify_registration.php' && $account!==[],"$role actual registration creates an account");
         basicCheck($account['status']==='pending' && !$account['email_verified'] && $account['self_service_only']==1,"$role registration ignores client status and permission escalation");
+        basicCheck(password_verify('FixturePass!42',$account['password_hash'])&&strlen($account['otp_hash'])===64&&!empty($account['otp_expires_at']),"$role saves a password hash and expiring hashed OTP");
+        $retry=request($c,'/auth/register.php',$payload);
+        basicCheck($retry['status']===302&&testAccount($db,$username)['id']===$account['id'],"$role retry resumes the existing unverified account");
         // Known test challenge simulates a received email. Only this disposable fixture is changed.
         $db->prepare("UPDATE users SET otp_hash=SHA2('123456',256),otp_expires_at=DATE_ADD(NOW(),INTERVAL 10 MINUTE) WHERE id=?")->execute([$account['id']]);
         $verify=request($c,'/auth/verify_registration.php');$verifyToken=token($verify);
@@ -131,6 +145,22 @@ try {
         }
         curl_close($login);curl_close($c);
     }
+    $ajax=client();curl_setopt($ajax,CURLOPT_HTTPHEADER,['X-Requested-With: XMLHttpRequest','Accept: application/json']);
+    $ajaxCsrf=token(request($ajax,'/auth/register.php'));
+    $valid=['csrf_token'=>$ajaxCsrf,'role'=>'student','account_type'=>'student','first_name'=>'Alex','last_name'=>'Fixture','username'=>'ajax_student','email'=>'ajax_student@example.invalid','password'=>'FixturePass!42','confirm_password'=>'FixturePass!42','certify'=>1,'student_number'=>'AJAX-ST001','course'=>'BSIT','year_level'=>'1','section'=>'A','contact_number'=>'09123456789'];
+    foreach([['first_name'=>''],['email'=>'invalid'],['confirm_password'=>''],['confirm_password'=>'mismatch'],['username'=>'http_student'],['email'=>'http_student@example.invalid']]as$bad){
+        $r=request($ajax,'/auth/register.php',array_replace($valid,$bad));$body=json_decode($r['body'],true);
+        basicCheck($r['status']===422&&($body['success']??true)===false,'AJAX invalid or duplicate information returns safe JSON');
+    }
+    $r=request($ajax,'/auth/register.php',array_replace($valid,['csrf_token'=>'bad']));basicCheck($r['status']===403&&(json_decode($r['body'],true)['success']??true)===false,'AJAX invalid CSRF returns JSON 403');
+    $r=request($ajax,'/auth/register.php',$valid);$body=json_decode($r['body'],true);$saved=testAccount($db,'ajax_student');
+    basicCheck($r['status']===200&&($body['success']??false)&&($body['redirect']??'')==='verify_registration.php'&&$saved!==[],'AJAX creates an account and returns the OTP destination');
+    $verify=request($ajax,'/auth/verify_registration.php');basicCheck(str_contains(html_entity_decode($verify['body']),"couldn't send")&&$saved['status']==='pending','Mail failure is visible and leaves the account pending');
+    $verifyToken=token($verify);$r=request($ajax,'/auth/verify_registration.php',['csrf_token'=>$verifyToken,'action'=>'resend']);basicCheck(str_contains($r['body'],'before requesting another code'),'Resend cooldown is enforced');
+    $db->prepare('UPDATE users SET otp_last_sent_at=DATE_SUB(NOW(),INTERVAL 2 MINUTE) WHERE id=?')->execute([$saved['id']]);
+    $r=request($ajax,'/auth/verify_registration.php',['csrf_token'=>$verifyToken,'action'=>'resend']);basicCheck(str_contains($r['body'],'delivery failed')&&testAccount($db,'ajax_student')['otp_hash']!==$saved['otp_hash'],'Resend replaces the challenge and reports transport failure accurately');
+    $r=request($ajax,'/auth/register.php',$valid);basicCheck((json_decode($r['body'],true)['success']??false)&&(int)$db->query("SELECT COUNT(*) FROM users WHERE username='ajax_student'")->fetchColumn()===1,'AJAX retry resumes without a duplicate account');curl_close($ajax);
+    if(in_array('--browser',$argv,true)){putenv('REG_TEST_BASE='.$base);passthru('node '.escapeshellarg(__DIR__.'/registration_browser.cjs'),$browserExit);basicCheck($browserExit===0,'Actual Chrome password control and scrolling checks');}
     foreach(['admin','doctor','co_admin'] as $role){
         $c=client();$csrf=token(request($c,'/auth/register.php'));$payload['csrf_token']=$csrf;$payload['account_type']=$role;$payload['role']=$role;$payload['username']='forbidden_'.$role;$payload['email']='forbidden_'.$role.'@example.invalid';
         request($c,'/auth/register.php',$payload);

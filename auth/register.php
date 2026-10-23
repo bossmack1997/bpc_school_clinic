@@ -27,9 +27,22 @@ if (is_logged_in()) {
 $db = getDB();
 $errors = [];
 $old = $_POST ?? [];
+$registrationAjax=strtolower($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='xmlhttprequest';
+$registrationStatus=422;
+function registration_next(bool $ajax): never {
+    if($ajax)json_response(true,['redirect'=>'verify_registration.php'],'Continue to email verification.');
+    redirect('verify_registration.php');
+}
+// Reject malformed scalar fields before trim(), rendering, or validation.
+foreach($_POST as $key=>$value)if($key!=='teacher_sections'&&!is_scalar($value)){
+    http_response_code(400);
+    if($registrationAjax)json_response(false,[],'Invalid registration information.');
+    exit('Invalid registration information.');
+}
 
 // Determine default role selection from GET/POST
-$rawRoleReq = strtolower(trim($_REQUEST['role'] ?? $_REQUEST['type'] ?? $_REQUEST['account_type'] ?? 'student'));
+$roleRequest=$_POST['role']??$_POST['account_type']??$_GET['role']??$_GET['type']??'student';
+$rawRoleReq = is_scalar($roleRequest)?strtolower(trim((string)$roleRequest)):'student';
 // Admin accounts are NOT available via public registration.
 // Admin accounts are created exclusively from the Admin Dashboard.
 $roleNormMap = [
@@ -54,7 +67,7 @@ if (!function_exists('upload_registration_file')) {
             return null;
         }
 
-        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $ext = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','application/pdf'=>'pdf'][$mimeType];
         $filename = $prefix . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
         $destRel = $destFolder . '/' . $filename;
         $destAbs = BASE_PATH . '/' . $destRel;
@@ -79,7 +92,11 @@ foreach ($allSections as $s) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    csrf_verify_or_die();
+    if(!is_string($_POST['csrf_token']??null)||!csrf_verify($_POST['csrf_token'])){
+        http_response_code(403);
+        if($registrationAjax)json_response(false,[],'Your registration form expired. Refresh the page and try again.');
+        exit('Your registration form expired. Refresh the page and try again.');
+    }
 
     $rawRole = strtolower(trim($_POST['account_type'] ?? $_POST['role'] ?? 'student'));
 
@@ -106,17 +123,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $gender      = trim($_POST['gender'] ?? '');
     $dob         = trim($_POST['date_of_birth'] ?? '');
 
+    // Resume only with both matching identity fields and the saved password.
+    // This never verifies email, changes role, or activates the account.
+    if(!$errors&&$username&&$email&&$password){
+        $resume=$db->prepare("SELECT id,password_hash FROM users WHERE username=? AND email=? AND role=? AND status='pending' AND email_verified=0 LIMIT 1");
+        $resume->execute([$username,$email,$role]);$pending=$resume->fetch(PDO::FETCH_ASSOC);
+        if($pending&&password_verify($password,$pending['password_hash'])){
+            session_regenerate_id(true);$_SESSION['pending_verification_user_id']=(int)$pending['id'];
+            set_flash('info','Your account already exists and is awaiting email verification. Use Resend Code if you need another OTP.');
+            registration_next($registrationAjax);
+        }
+    }
+    $columns=$db->query('SHOW COLUMNS FROM users')->fetchAll(PDO::FETCH_COLUMN);
+    if(array_diff(['email_verified_at','self_service_only'],$columns)){
+        error_log('Registration schema incomplete; apply database/migration_basic_otp_activation.php via authorized deployment.');
+        $errors[]='Registration is temporarily unavailable while a system update is completed. Please try again later.';
+        $registrationStatus=503;
+    }
+
     // Process file uploads first so validator can evaluate uploaded ID
     $profilePicRel = upload_registration_file('profile_picture', 'assets/images/profiles', 'user', ['image/jpeg','image/png','image/webp'])
                      ?: 'assets/images/default-avatar.png';
-    $validIdRel = upload_registration_file('valid_id', 'assets/images/student_ids', 'valid_id', ['image/jpeg','image/png','image/webp','application/pdf']);
+    $validIdRel = upload_registration_file('valid_id', 'storage/registration_documents', 'valid_id', ['image/jpeg','image/png','image/webp','application/pdf']);
 
     // MICA Intelligent Registration Validation
     $validator = new MICARegistrationValidator($db);
     $validation = $validator->validateRegistration($_POST, !empty($validIdRel));
 
     if (!empty($validation['errors'])) {
-        $errors = $validation['errors'];
+        $errors = array_merge($errors,$validation['errors']);
     } elseif ($validation['decision'] === 'rejected') {
         $errors[] = $validation['reason'] ?: 'Registration rejected based on automated credential validation.';
     }
@@ -293,20 +328,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fullName = trim($firstName . ' ' . $lastName);
             // Email is dispatched only after the account transaction commits.
 
-            // Store session verification reference
-            $_SESSION['pending_verification_user_id'] = $userId;
-
             $db->commit();
-            if(!send_registration_otp_email($email,$otpCode,$fullName,$role))set_flash('warning','Your account was saved, but the verification email could not be delivered. Retry using Resend Code or contact clinic support.');
-            redirect('verify_registration.php');
+            $_SESSION['pending_verification_user_id'] = $userId;
+            try{$delivered=send_registration_otp_email($email,$otpCode,$fullName,$role);}
+            catch(Throwable $e){$delivered=false;error_log('Registration email transport failed after account commit.');}
+            if(!$delivered)set_flash('warning',"We couldn't send your verification email. Your account was saved; please try resending the OTP.");
+            registration_next($registrationAjax);
 
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             if ($db->inTransaction()) $db->rollBack();
-            error_log('Registration error: ' . $e->getMessage());
-            $errors[] = 'Something went wrong while initiating your registration. Please try again.';
+            error_log('Registration transaction failed; code='.(string)$e->getCode().'; driver='.(string)($e instanceof PDOException?($e->errorInfo[1]??'unknown'):'none'));
+            $registrationStatus=$e instanceof PDOException&&(int)($e->errorInfo[1]??0)===1062?409:503;
+            $errors[]=$registrationStatus===409?'An account with these details already exists. Sign in or choose another username and email.':'Registration could not be completed. Please try again later.';
         }
     }
 }
+if($errors){http_response_code($registrationStatus);if($registrationAjax)json_response(false,[],implode(' ',$errors));}
 
 $pageTitle = 'Create an Account';
 ?>
@@ -920,7 +957,8 @@ $pageTitle = 'Create an Account';
       iconEl.classList.toggle('bi-eye', !isPw);
       iconEl.classList.toggle('bi-eye-slash', isPw);
       toggleBtn.setAttribute('aria-pressed', isPw ? 'true' : 'false');
-      toggleBtn.setAttribute('aria-label', isPw ? 'Hide password' : 'Show password');
+      const label=inputEl.name==='confirm_password'?'confirm password':'password';
+      toggleBtn.setAttribute('aria-label', (isPw?'Hide ':'Show ')+label);
       inputEl.focus();
     });
   }

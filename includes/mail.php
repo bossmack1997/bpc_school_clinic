@@ -231,13 +231,13 @@ function send_registration_otp_email($toEmail, $otpCode, $recipientName = '', $r
         $mailer->AltBody = "BPC Clinic Verification Code: $otpCode\n\nExpires in 10 minutes. Do not share this code.";
 
         $mailer->send();
-        error_log('[MAIL] Registration OTP email sent successfully to ' . $toEmail);
+        error_log('[MAIL] Registration OTP accepted by transport.');
         return true;
     } catch (MailException $e) {
-        error_log('[MAIL] Registration OTP email failed to ' . $toEmail . ': ' . $mailer->ErrorInfo);
+        error_log('[MAIL] Registration OTP transport failed.');
         return false;
     } catch (Throwable $e) {
-        error_log('[MAIL] Registration OTP email error for ' . $toEmail . ': ' . $e->getMessage());
+        error_log('[MAIL] Registration OTP transport error.');
         return false;
     }
 }

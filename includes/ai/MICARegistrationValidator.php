@@ -128,7 +128,7 @@ class MICARegistrationValidator
             $errors[] = 'Password must be at least 8 characters long.';
         }
 
-        if ($confirmPw !== '' && $password !== $confirmPw) {
+        if ($confirmPw === '' || $password !== $confirmPw) {
             $errors[] = 'Password confirmation does not match.';
         }
 
@@ -176,11 +176,11 @@ class MICARegistrationValidator
             $stmt->execute([$username, $email]);
             $existing = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($existing) {
-                if ($existing['username'] === $username) {
-                    $errors[] = 'Username is already registered.';
+                if (strcasecmp($existing['username'],$username)===0) {
+                    $errors[] = 'This username is already registered. Please choose another.';
                 }
-                if ($existing['email'] === $email) {
-                    $errors[] = 'An account is already associated with this email address.';
+                if (strcasecmp($existing['email'],$email)===0) {
+                    $errors[] = 'An account with this email already exists.';
                 }
                 $riskLevel = 'high';
             }
@@ -498,7 +498,8 @@ class MICARegistrationValidator
         try{$draft=$this->prepareResendOtp($userId);$this->db->commit();}
         catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
         if(($draft['status']??'')!=='ready')return $draft;
-        $sent=($this->sendOtp)($draft['email'],$draft['otp'],$draft['name'],$draft['role']);
+        try{$sent=($this->sendOtp)($draft['email'],$draft['otp'],$draft['name'],$draft['role']);}
+        catch(Throwable $e){$sent=false;error_log('Registration OTP resend transport failed.');}
         return $sent?['status'=>'sent','message'=>'A new verification code has been dispatched.']:['status'=>'delivery_failed','message'=>'Verification email delivery failed. The account remains unverified; retry after the resend cooldown.'];
     }
     private function prepareResendOtp(int $userId): array

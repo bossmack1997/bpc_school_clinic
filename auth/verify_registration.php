@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {  
             try {$verifyResult = $validator->verifyOtp($userId, $otp);}
             catch(Throwable $e) {
-                error_log('Registration verification failed: '.$e->getMessage());
+                error_log('Registration verification failed; code='.(string)$e->getCode());
                 $verifyResult=['status'=>'error','message'=>'Verification could not be completed. Please try again; no account activation was committed.'];
             }
 
@@ -122,6 +122,7 @@ $pageTitle = 'Verify Email Ownership';
         <p class="fw-bold text-dark mt-1 mb-0"><i class="bi bi-envelope-check text-success me-1"></i><?= e($maskedEmail) ?></p>
       </div>
 
+      <?php if($flash=get_flash()): ?><div class="alert alert-<?=e($flash['type'])?>" role="status"><?=e($flash['message'])?></div><?php endif; ?>
       <?php if ($errors): ?>
         <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3">
           <i class="bi bi-exclamation-triangle-fill fs-5"></i>
