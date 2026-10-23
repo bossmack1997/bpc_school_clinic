@@ -6,7 +6,7 @@
  * Public registration creates basic accounts or restricted staff requests:
  *   1. Student
  *   2. Teacher
- *   3. Nurse (restricted staff request)
+ *   3. Nurse (basic account; clinical access restricted)
  *   Administrator accounts use restricted provisioning, not public registration.
  * ------------------------------------------------------------------
  */
@@ -170,12 +170,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $otpHash      = hash('sha256', $otpCode);
             $otpExpiresAt = date('Y-m-d H:i:s', time() + 600); // 10 minutes
 
-            // Administrator self-registrations are always queued as co_admin for administrative review
-            $adminType = ($role === 'admin') ? 'co_admin' : null;
-            $decision = ($role === 'admin') ? 'review' : $validation['decision'];
+            $adminType = null;
+            $decision = $validation['decision'];
             $accountStatus = 'pending';
             $regStatus     = ($decision === 'approved') ? 'approved' : 'review';
-            $valReason     = ($role === 'admin') ? 'Administrator self-registration awaiting institutional approval' : $validation['reason'];
+            $valReason     = $validation['reason'];
             $valConfidence = $validation['confidence'];
             $riskLevel     = $validation['risk_level'] ?? 'low';
 
@@ -436,7 +435,7 @@ $pageTitle = 'Create an Account';
             </button>
             <button type="button" class="reg-role-btn <?= $selectedRole === 'nurse' ? 'is-active' : '' ?>" data-role="nurse" role="radio" aria-checked="<?= $selectedRole === 'nurse' ? 'true' : 'false' ?>">
               <span class="reg-role-btn__icon"><i class="bi bi-person-badge-fill"></i></span>
-              <span class="reg-role-btn__text"><strong>Nurse / Staff Request</strong><small>Requires authorized clinical provisioning</small></span>
+              <span class="reg-role-btn__text"><strong>Nurse</strong><small>Email OTP activates basic account</small></span>
             </button>
           </div>
           <input type="hidden" name="account_type" id="accountTypeInput" value="<?= e($selectedRole) ?>">
@@ -836,7 +835,7 @@ $pageTitle = 'Create an Account';
     nurse: {
       title: 'Nurse Registration',
       sideTitle: 'Clinic Nurse Station',
-      sideDesc: 'Submit a clinical staff access request. Email verification does not grant nurse permissions; authorized provisioning is required.',
+      sideDesc: 'Create your Nurse account with email OTP. Confidential clinical functions require separate trusted staff authorization.',
       btnText: 'Register Nurse Account',
       genderReq: true,
       dobReq: true,

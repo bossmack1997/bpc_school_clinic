@@ -9,6 +9,7 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
+require_login();
 header('Content-Type: application/json');
 
 if (!is_logged_in()) {

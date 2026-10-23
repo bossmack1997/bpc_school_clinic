@@ -309,7 +309,7 @@ class MICARegistrationValidator
 
         $trustedIdentity = false;
         // 8. Institutional Roster Verification & Identity-to-Email Ownership Check
-        if ($this->db && $identifier && !in_array($role,['student','teacher'],true)) {
+        if ($this->db && $identifier && !in_array($role,['student','teacher','nurse'],true)) {
             $rosterCheck = $this->checkInstitutionalRoster($identifier, $role, $email, $firstName, $lastName, trim($data['license_number']??''));
             if ($rosterCheck['matched']) {
                 $trustedIdentity = true;
@@ -352,7 +352,7 @@ class MICARegistrationValidator
         if ($errors) {
             $decision='rejected';$finalReason=implode(' ',$errors);
         } else {
-            $decision=in_array($role,['student','teacher'],true)?'approved':'review';
+            $decision=in_array($role,['student','teacher','nurse'],true)?'approved':'review';
             $finalReason=implode('; ',array_unique($reasons));
             $finalReason.=$decision==='approved'?'; Basic account: email OTP verification is required; no staff permissions granted.':'; Clinical or administrator access requires authorized provisioning.';
         }

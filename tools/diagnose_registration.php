@@ -24,7 +24,7 @@ $reasons=[];
 try {
     $q=$db->query("SELECT id,role,first_name,last_name,email,status,email_verified,registration_status,risk_level FROM users WHERE status='pending' AND email_verified=1");
     foreach($q->fetchAll() as $user) {
-        $code=$user['registration_status']==='rejected'?'rejected':(in_array($user['role'],['student','teacher'],true)?'basic_activation_ready':'staff_provisioning_required');
+        $code=$user['registration_status']==='rejected'?'rejected':(in_array($user['role'],['student','teacher','nurse'],true)?'basic_activation_ready':'staff_provisioning_required');
         $key=$user['role'].':'.$code;$reasons[$key]=($reasons[$key]??0)+1;
     }
     $report['verified_pending_counts']=$reasons;

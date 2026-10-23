@@ -21,7 +21,6 @@ function current_user() {
         }
         if($dbUser['role']!=='admin' && empty($dbUser['email_verified']))return null;
         if(($dbUser['registration_status']??'')==='rejected')return null;
-        if($dbUser['role']==='nurse' && !empty($dbUser['self_service_only']))return null;
 
         $_SESSION['user'] = [
             'id' => (int)$dbUser['id'],
@@ -85,6 +84,21 @@ function require_login() {
             exit;
         }
         redirect(APP_URL . '/auth/login.php?timeout=1');
+    }
+    // Public nurses can sign in, but every protected clinical page/API stays closed.
+    $scopeUser = current_user();
+    if (($scopeUser['role'] ?? '') === 'nurse' && !empty($scopeUser['self_service_only'])) {
+        $script = str_replace('\\', '/', $_SERVER['SCRIPT_FILENAME'] ?? '');
+        $basicPages = [realpath(BASE_PATH . '/pages/nurse/account.php'), realpath(BASE_PATH . '/auth/logout.php')];
+        if (!in_array(realpath($script), array_filter($basicPages), true)) {
+            if (is_api_request()) {
+                http_response_code(403);
+                header('Content-Type: application/json');
+                echo json_encode(['success'=>false,'message'=>'Clinical access requires authorized staff permissions. Your email verification is complete.']);
+                exit;
+            }
+            redirect(APP_URL . '/pages/nurse/account.php');
+        }
     }
     // Prevent caching of protected pages
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -205,11 +219,11 @@ function require_primary_admin(): void {
 }
 function admin_can_view_emergencies(?array $user = null): bool {
     $user=$user??current_user();
-    return $user && ($user['role']==='nurse'||($user['role']==='admin'&&has_admin_permission('view_emergencies',$user)));
+    return $user && (($user['role']==='nurse' && empty($user['self_service_only']))||($user['role']==='admin'&&has_admin_permission('view_emergencies',$user)));
 }
 function admin_can_respond_sos(?array $user = null): bool {
     $user=$user??current_user();
-    return $user && ($user['role']==='nurse');
+    return $user && ($user['role']==='nurse' && empty($user['self_service_only']));
 }
 
 /** Inventory delegation is deliberately independent of Primary Admin's general bypass. */
@@ -227,7 +241,6 @@ function login_user(array $userRow) {
     if(($userRow['status']??'')!=='active' || ($userRow['registration_status']??'')==='rejected' || !is_supported_role($userRow['role']??'') || (($userRow['role']??'')!=='admin' && empty($userRow['email_verified']))) {
         throw new RuntimeException('Only active, verified accounts can sign in.');
     }
-    if(($userRow['role']??'')==='nurse' && !empty($userRow['self_service_only']))throw new RuntimeException('Authorized clinical provisioning is required.');
     $_SESSION['credential_version'] = (int)($userRow['credential_version'] ?? 0);
     $_SESSION['user'] = [
         'id'         => (int)$userRow['id'],
@@ -304,7 +317,6 @@ function attempt_remember_me_login() {
 
     if (!$user || empty($user['remember_token'])) return false;
     if(($user['registration_status']??'')==='rejected')return false;
-    if($user['role']==='nurse' && !empty($user['self_service_only']))return false;
     if($user['role']!=='admin' && empty($user['email_verified']))return false;
     if (!is_supported_role($user['role'] ?? '')) return false;
 
@@ -362,6 +374,7 @@ function dashboard_url_for($role) {
             }
         }
     }
+    if ($role === 'nurse' && !empty($_SESSION['user']['self_service_only'])) return APP_URL . '/pages/nurse/account.php';
     return match ($role) {
         'admin'   => APP_URL . '/pages/admin/dashboard.php',
         'nurse'   => APP_URL . '/pages/nurse/dashboard.php',

@@ -72,7 +72,7 @@ try {
         );
     }
 
-    check_session_timeout();
+    require_login();
 
 } catch (Throwable $e) {
 

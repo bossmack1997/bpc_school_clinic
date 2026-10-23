@@ -35,7 +35,7 @@ $validator=new MICARegistrationValidator($db,function($email,$otp)use(&$delivere
     checkActivation(!$db->inTransaction(),'Email transport runs after commit');
     $delivered[$email]=$otp;return true;
 });
-foreach(['student','teacher'] as $i=>$role){
+foreach(['student','teacher','nurse'] as $i=>$role){
     $id=100+$i;fixture($id,$role,false);
     checkActivation(!account($id)['email_verified']&&account($id)['status']==='pending',"$role begins unverified");
     checkActivation($validator->resendOtp($id)['status']==='sent',"$role OTP delivery accepted by isolated transport");
@@ -49,10 +49,11 @@ foreach(['student','teacher'] as $i=>$role){
 }
 foreach(['student','teacher','nurse','admin'] as $i=>$role){
     $id=200+$i;fixture($id,$role,false);
-    $expected=in_array($role,['student','teacher'],true)?'active':'pending';
+    $expected=in_array($role,['student','teacher','nurse'],true)?'active':'pending';
     checkActivation($validator->verifyOtp($id,'123456')['account_status']===$expected,"$role OTP preserves basic versus privileged activation boundary");
     checkActivation($validator->resendOtp($id)['status']==='blocked','Verified email does not receive another OTP');
 }
+checkActivation(!admin_can_view_emergencies(account(202)) && !admin_can_respond_sos(account(202)) && !has_permission('clinical_records_read',account(202)),'Basic nurse has no clinical, emergency monitoring or response permissions');
 fixture(300);checkActivation($validator->verifyOtp(300,'999999')['status']==='invalid'&&!account(300)['email_verified'],'Incorrect OTP cannot verify or activate');
 for($i=0;$i<4;$i++)$validator->verifyOtp(300,'999999');
 checkActivation(account(300)['status']==='rejected'&&$validator->verifyOtp(300,'123456')['status']==='blocked','Retry limit blocks even a subsequently correct OTP');
@@ -72,9 +73,9 @@ checkActivation((int)$db->query('SELECT COUNT(*) FROM account_security_events WH
 fixture(501,'teacher',false,'pending',1);$monitor->reconcileForLogin(501);$monitor->reconcileForLogin(501);
 checkActivation((int)$db->query('SELECT COUNT(*) FROM account_security_events WHERE user_id=501')->fetchColumn()===1,'Untrusted review is not logged repeatedly on login');
 fixture(502,'nurse');$db->exec("UPDATE institutional_roster SET role='teacher' WHERE identifier='ACT-502'");
-checkActivation($validator->verifyOtp(502,'123456')['account_status']==='pending','Roster role mismatch cannot grant clinical permissions');
+checkActivation($validator->verifyOtp(502,'123456')['account_status']==='active' && account(502)['self_service_only']==1,'Roster role mismatch cannot grant clinical permissions');
 fixture(503,'nurse');$db->exec("UPDATE institutional_roster SET license_number='different' WHERE identifier='ACT-503'");
-checkActivation($validator->verifyOtp(503,'123456')['account_status']==='pending','License mismatch cannot grant clinical permissions');
+checkActivation($validator->verifyOtp(503,'123456')['account_status']==='active' && account(503)['self_service_only']==1,'License mismatch cannot grant clinical permissions');
 fixture(504);$db->exec("UPDATE institutional_roster SET status='revoked' WHERE identifier='ACT-504'");
 checkActivation($validator->verifyOtp(504,'123456')['account_status']==='active' && account(504)['self_service_only']==1,'Institutional matching is not a prerequisite for basic student services');
 fixture(505,'student',true,'pending',1);$db->exec("UPDATE users SET registration_status='rejected' WHERE id=505");

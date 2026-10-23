@@ -9,7 +9,7 @@ final class AccountMonitoringService
     }
     public static function statusLabel(array $user): string {
         return match($user['status']) {
-            'pending' => !empty($user['email_verified']) ? (in_array($user['role']??'', ['student','teacher'],true)?'Activation Pending':'Staff Provisioning Required') : 'Email Verification Pending',
+            'pending' => !empty($user['email_verified']) ? (in_array($user['role']??'', ['student','teacher','nurse'],true)?'Activation Pending':'Staff Provisioning Required') : 'Email Verification Pending',
             'active' => 'Active',
             'inactive', 'suspended' => 'Suspended',
             'rejected' => 'Rejected',
@@ -63,7 +63,7 @@ final class AccountMonitoringService
         return (int)$q->fetchColumn()===0?$identity:InstitutionalEligibility::result('identifier_claimed');
     }
     public static function pendingMessage(array $u): string {
-        return in_array($u['role']??'', ['student','teacher'],true)
+        return in_array($u['role']??'', ['student','teacher','nurse'],true)
             ? 'Your email is verified. Please sign in to complete basic account activation.'
             : 'Your email is verified. Clinical staff access requires authorized provisioning; email verification does not grant clinical permissions.';
     }
@@ -76,7 +76,7 @@ final class AccountMonitoringService
             // Never reactivate an existing suspended/rejected account through OTP.
             if($u['status']!=='pending'){if($ownsTransaction)$this->db->commit();return $u['status'];}
             // Basic sign-in uses email ownership, never institutional roster matching.
-            $eligible=in_array($u['role'],['student','teacher'],true) && $u['registration_status']!=='rejected';
+            $eligible=in_array($u['role'],['student','teacher','nurse'],true) && $u['registration_status']!=='rejected';
             $status=$eligible?'active':'pending';
             $reason=$eligible?'Email OTP verified; basic self-service account activated.':'Email verified; authorized staff provisioning is required.';
             // Repeated login checks must not duplicate review events or erase a rejection.
@@ -99,8 +99,8 @@ final class AccountMonitoringService
         $status=$filters['tab']??'all';
         if($status==='pending')$where[]="u.status='pending'";
         if($status==='email_pending')$where[]="u.status='pending' AND u.email_verified=0";
-        if(in_array($status,['eligibility_pending','activation_pending'],true))$where[]="u.status='pending' AND u.email_verified=1 AND u.role IN ('student','teacher')";
-        if($status==='staff_pending')$where[]="u.status='pending' AND u.email_verified=1 AND u.role NOT IN ('student','teacher')";
+        if(in_array($status,['eligibility_pending','activation_pending'],true))$where[]="u.status='pending' AND u.email_verified=1 AND u.role IN ('student','teacher','nurse')";
+        if($status==='staff_pending')$where[]="u.status='active' AND u.email_verified=1 AND u.role='nurse' AND u.self_service_only=1";
         if($status==='suspended')$where[]="u.status IN ('inactive','suspended')";
         if($status==='rejected')$where[]="u.status='rejected'";
         if($status==='active')$where[]="u.status='active'";

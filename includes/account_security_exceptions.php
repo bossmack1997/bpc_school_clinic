@@ -39,14 +39,14 @@ final class AccountSecurityExceptionService
             if(in_array($decision,['verify','reject'],true)){
                 if($u['role']==='admin')throw new RuntimeException('Administration accounts require restricted provisioning, not registration approval.');
                 if(!is_primary_admin($a)&&!has_admin_permission('approve_users',$a,$this->db))throw new RuntimeException('Identity review authorization is required.');
-                if($next!=='pending')throw new RuntimeException('Only pending identity reviews can be decided.');
+                if($next!=='pending' && !($decision==='verify' && $next==='active' && $u['role']==='nurse' && !empty($u['self_service_only'])))throw new RuntimeException('Only pending identity reviews can be decided.');
                 if($decision==='verify'&&!$u['email_verified'])throw new RuntimeException('OTP email verification is mandatory.');
                 $next=$decision==='verify'?'active':'rejected';$registration=$decision==='verify'?'approved':'rejected';
                 if($decision==='verify' && in_array($u['role'],['teacher','nurse'],true)) {
                     $this->db->prepare('UPDATE users SET self_service_only=0 WHERE id=?')->execute([$u['id']]);
                 }
             }
-            if($next!==$u['status']){
+            if($next!==$u['status'] || ($decision==='verify' && !empty($u['self_service_only']))){
                 $this->db->prepare('UPDATE users SET status=?,registration_status=?,reviewed_by=?,reviewed_at=NOW(),validation_reason=?,credential_version=COALESCE(credential_version,0)+1 WHERE id=?')->execute([$next,$registration,$actor,trim($notes),$u['id']]);
                 if($next==='active'&&$u['role']==='student'){$q=$this->db->prepare('SELECT id FROM students WHERE user_id=?');$q->execute([$u['id']]);if($student=$q->fetchColumn())ensure_student_qr($this->db,(int)$student,(int)$u['id']);}
             }

@@ -50,7 +50,7 @@ if (!is_logged_in()) {
     echo json_encode(['success' => false, 'message' => 'Your session has expired. Please log in again.']);
     exit;
 }
-check_session_timeout();
+require_login();
 
 header('Content-Type: application/json');
 

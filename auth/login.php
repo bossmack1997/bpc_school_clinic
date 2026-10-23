@@ -75,8 +75,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 };
             } elseif (!$user['email_verified'] && $user['role']!=='admin') {
                 $errors[] = 'Email verification is required before this account can sign in. Contact clinic support to restore verification.';
-            } elseif ($user['role']==='nurse' && !empty($user['self_service_only'])) {
-                $errors[] = 'Clinical staff access requires authorized provisioning.';
             } elseif (!is_supported_role($user['role'])) {
                 // Never permit retired or un-migrated roles to receive a session.
                 $errors[] = 'This account role is not available. Please contact the system administrator.';

@@ -6,7 +6,7 @@ register_shutdown_function(function()use(&$suiteCompleted){if(!$suiteCompleted){
 ini_set('session.save_path',sys_get_temp_dir());
 require __DIR__.'/../config/config.php';
 if(APP_ENV!=='local' || !in_array(DB_HOST,['localhost','127.0.0.1','::1'],true))throw new RuntimeException('This test requires a local loopback database.');
-$admin=getDB();$database='bpc_basic_otp_test_'.bin2hex(random_bytes(5));$server=null;$checks=0;$fixtureFile=null;$uploadedFixtures=[];$uploadSource=null;
+$admin=getDB();$database='bpc_basic_otp_test_'.bin2hex(random_bytes(5));$server=null;$checks=0;$fixtureFile=null;$uploadedFixtures=[];$uploadSource=null;$registrationUpload=null;
 function basicCheck(bool $ok,string $label): void {global $checks;if(!$ok)throw new RuntimeException($label);$checks++;echo "PASS $label\n";}
 function client(){ $c=curl_init();curl_setopt_array($c,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_COOKIEFILE=>'',CURLOPT_FOLLOWLOCATION=>false,CURLOPT_TIMEOUT=>15]);return $c; }
 function request($client,string $path,?array $post=null): array {
@@ -56,12 +56,24 @@ try {
         basicCheck(migrate_basic_registration_schema($db)===[],'Migration can be repeated without changing existing accounts');
         curl_close($c);
     }
+    $registrationUpload=tempnam(sys_get_temp_dir(),'bpc-reg');
+    file_put_contents($registrationUpload,base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aE1sAAAAASUVORK5CYII='));
     foreach(['student','teacher','nurse'] as $role){
         $c=client();$username='http_'.$role;
         $registration=request($c,'/auth/register.php');$csrf=token($registration);
         $payload=['csrf_token'=>$csrf,'account_type'=>$role,'role'=>$role,'first_name'=>'Alex','last_name'=>'Fixture','username'=>$username,'email'=>$username.'@example.invalid','password'=>'FixturePass!42','confirm_password'=>'FixturePass!42','certify'=>1,'contact_number'=>'09123456789','student_number'=>'HTTP-ST001','course'=>'BSIT','year_level'=>'1','section'=>'A','employee_id'=>'HTTP-'.$role,'license_number'=>'7654321','self_service_only'=>0,'email_verified'=>1,'status'=>'active'];
+        $payload['profile_picture']=new CURLFile($registrationUpload,'image/png','fixture.png');
+        if($role!=='teacher')$payload['valid_id']=new CURLFile($registrationUpload,'image/png','fixture-id.png');
         $registered=request($c,'/auth/register.php',$payload);$account=testAccount($db,$username);
         basicCheck($registered['status']===302 && ($registered['headers']['location']??'')==='verify_registration.php' && $account!==[],"$role actual registration creates an account");
+        if(!empty($account['profile_picture']) && $account['profile_picture']!=='assets/images/default-avatar.png')$uploadedFixtures[]=BASE_PATH.'/'.$account['profile_picture'];
+        basicCheck(is_file(BASE_PATH.'/'.$account['profile_picture']) && $account['profile_picture']!=='assets/images/default-avatar.png',"$role profile upload remains mapped to account");
+        if($role!=='teacher'){
+            $profileTable=$role==='student'?'students':'nurses';
+            $document=$db->prepare("SELECT valid_id_path FROM $profileTable WHERE user_id=?");$document->execute([$account['id']]);$documentPath=$document->fetchColumn();
+            if($documentPath)$uploadedFixtures[]=BASE_PATH.'/'.$documentPath;
+            basicCheck($documentPath && is_file(BASE_PATH.'/'.$documentPath),"$role identity document upload remains stored and mapped");
+        }
         basicCheck($account['status']==='pending' && !$account['email_verified'] && $account['self_service_only']==1,"$role registration ignores client status and permission escalation");
         basicCheck(password_verify('FixturePass!42',$account['password_hash'])&&strlen($account['otp_hash'])===64&&!empty($account['otp_expires_at']),"$role saves a password hash and expiring hashed OTP");
         $retry=request($c,'/auth/register.php',$payload);
@@ -80,13 +92,23 @@ try {
         $after=testAccount($db,$username);
         basicCheck($after['email_verified'] && $after['email_verified_at'] && !$after['otp_hash'] && !$after['otp_expires_at'],"$role OTP records ownership time and consumes challenge");
         if($role==='nurse') {
-            basicCheck($after['status']==='pending' && $after['self_service_only']==1,'Nurse OTP cannot grant clinical access');
+            basicCheck($after['status']==='active' && $after['self_service_only']==1,'Nurse OTP cannot grant clinical access');
             basicCheck(request($c,'/pages/nurse/dashboard.php')['status']===302,'Unprovisioned nurse cannot enter clinical dashboard');
+            basicCheck(($verified['headers']['location']??'')===$base.'/pages/nurse/account.php','Nurse OTP routes to basic account');
+            basicCheck(str_contains(request($c,'/pages/nurse/account.php')['body'],'basic account is active'),'Basic nurse can open account page');
+            basicCheck(request($c,'/api/medical_records.php?action=file&id='.$otherRecord)['status']===403,'Basic nurse cannot download clinical documents');
+            basicCheck(request($c,'/api/patients.php?action=lookup&student_id='.$otherPatient)['status']===403,'Basic nurse cannot open patient workspace');
+            basicCheck(request($c,'/api/ai_assistant.php?action=daily_summary')['status']===403,'Basic nurse cannot obtain clinical AI summaries');
+            $basicLogin=client();$basicToken=token(request($basicLogin,'/auth/login.php'));
+            $basicSigned=request($basicLogin,'/auth/login.php',['csrf_token'=>$basicToken,'identifier'=>$username,'password'=>'FixturePass!42']);
+            basicCheck(($basicSigned['headers']['location']??'')===$base.'/pages/nurse/account.php','Basic nurse can sign in with saved credentials');
+            curl_close($basicLogin);
             require_once __DIR__.'/../includes/account_security_exceptions.php';
             $actor=(int)$db->query("SELECT id FROM users WHERE username='http_fixture_admin'")->fetchColumn();
             $security=new AccountSecurityExceptionService($db);
             $exception=$security->open($actor,(int)$after['id'],'Synthetic authorized clinical staff provisioning','HTTP-TEST-EVIDENCE');
             $security->resolve($actor,$exception,'verify','Authorized test officer confirmed staff credentials and clinical access');
+            request($c,'/auth/logout.php');
             $loginToken=token(request($c,'/auth/login.php'));
             $login=request($c,'/auth/login.php',['csrf_token'=>$loginToken,'identifier'=>$username,'password'=>'FixturePass!42']);
             basicCheck($login['status']===302 && testAccount($db,$username)['self_service_only']==0,'Nurse signs in only after audited authorized provisioning');
@@ -145,6 +167,32 @@ try {
         }
         curl_close($login);curl_close($c);
     }
+    // Exercise existing recovery endpoints without sending real mail.
+    $recovery=client();$recoveryToken=token(request($recovery,'/auth/forgot_password.php'));
+    request($recovery,'/auth/forgot_password.php',['csrf_token'=>$recoveryToken,'email'=>'http_student@example.invalid']);
+    $beforeReset=testAccount($db,'http_student');
+    basicCheck(strlen($beforeReset['reset_token']??'')===64 && !empty($beforeReset['reset_token_expires']),'Forgot Password stores an expiring hashed challenge');
+    $resetChallenge=bin2hex(random_bytes(32));
+    $db->prepare('UPDATE users SET reset_token=?,reset_token_expires=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 10 MINUTE) WHERE id=?')->execute([hash('sha256',$resetChallenge),$beforeReset['id']]);
+    $resetToken=token(request($recovery,'/auth/reset_password.php?token='.$resetChallenge));
+    request($recovery,'/auth/reset_password.php',['csrf_token'=>$resetToken,'token'=>$resetChallenge,'password'=>'NewFixturePass!42','confirm_password'=>'NewFixturePass!42']);
+    $afterReset=testAccount($db,'http_student');
+    basicCheck(password_verify('NewFixturePass!42',$afterReset['password_hash']) && !$afterReset['reset_token'],'Password reset saves hash and consumes challenge');
+    basicCheck($afterReset['role']===$beforeReset['role'] && $afterReset['status']===$beforeReset['status'] && $afterReset['self_service_only']===$beforeReset['self_service_only'],'Password reset preserves role, suspended/rejected status and permissions');
+    curl_close($recovery);
+    require_once __DIR__.'/../includes/doctor_invitation_service.php';
+    $inviteChallenge=null;
+    $invitations=new DoctorInvitationService($db,function($email,$name,$url)use(&$inviteChallenge){parse_str(parse_url($url,PHP_URL_QUERY),$query);$inviteChallenge=$query['token'];return true;});
+    $actor=(int)$db->query("SELECT id FROM users WHERE username='http_fixture_admin'")->fetchColumn();
+    $invitations->create($actor,['first_name'=>'Doctor','last_name'=>'Fixture','username'=>'http_doctor','email'=>'http_doctor@example.invalid','official_designation'=>'School Physician','appointment_reference'=>'HTTP-SYNTHETIC','verification_status'=>'verified']);
+    $doctor=client();$setup=token(request($doctor,'/auth/setup_account.php?token='.$inviteChallenge));
+    request($doctor,'/auth/setup_account.php',['csrf_token'=>$setup,'token'=>$inviteChallenge,'password'=>'FixturePass!42','confirm_password'=>'FixturePass!42']);
+    basicCheck(testAccount($db,'http_doctor')['status']==='active','Invited Doctor sets password and activates through real endpoint');
+    $doctorToken=token(request($doctor,'/auth/login.php'));
+    $doctorLogin=request($doctor,'/auth/login.php',['csrf_token'=>$doctorToken,'identifier'=>'http_doctor','password'=>'FixturePass!42']);
+    basicCheck(($doctorLogin['headers']['location']??'')===$base.'/pages/doctor/dashboard.php','Invited Doctor signs in to clinical Co-Admin dashboard');
+    basicCheck(request($doctor,'/pages/doctor/dashboard.php')['status']===200,'Invited Doctor protected dashboard renders');
+    curl_close($doctor);
     $ajax=client();curl_setopt($ajax,CURLOPT_HTTPHEADER,['X-Requested-With: XMLHttpRequest','Accept: application/json']);
     $ajaxCsrf=token(request($ajax,'/auth/register.php'));
     $valid=['csrf_token'=>$ajaxCsrf,'role'=>'student','account_type'=>'student','first_name'=>'Alex','last_name'=>'Fixture','username'=>'ajax_student','email'=>'ajax_student@example.invalid','password'=>'FixturePass!42','confirm_password'=>'FixturePass!42','certify'=>1,'student_number'=>'AJAX-ST001','course'=>'BSIT','year_level'=>'1','section'=>'A','contact_number'=>'09123456789'];
@@ -161,6 +209,7 @@ try {
     $r=request($ajax,'/auth/verify_registration.php',['csrf_token'=>$verifyToken,'action'=>'resend']);basicCheck(str_contains($r['body'],'delivery failed')&&testAccount($db,'ajax_student')['otp_hash']!==$saved['otp_hash'],'Resend replaces the challenge and reports transport failure accurately');
     $r=request($ajax,'/auth/register.php',$valid);basicCheck((json_decode($r['body'],true)['success']??false)&&(int)$db->query("SELECT COUNT(*) FROM users WHERE username='ajax_student'")->fetchColumn()===1,'AJAX retry resumes without a duplicate account');curl_close($ajax);
     if(in_array('--browser',$argv,true)){putenv('REG_TEST_BASE='.$base);passthru('node '.escapeshellarg(__DIR__.'/registration_browser.cjs'),$browserExit);basicCheck($browserExit===0,'Actual Chrome password control and scrolling checks');}
+    unset($payload['profile_picture'],$payload['valid_id']);
     foreach(['admin','doctor','co_admin'] as $role){
         $c=client();$csrf=token(request($c,'/auth/register.php'));$payload['csrf_token']=$csrf;$payload['account_type']=$role;$payload['role']=$role;$payload['username']='forbidden_'.$role;$payload['email']='forbidden_'.$role.'@example.invalid';
         request($c,'/auth/register.php',$payload);
@@ -176,6 +225,7 @@ finally {
     if(is_resource($server)){proc_terminate($server);proc_close($server);}
     if($fixtureFile && is_file($fixtureFile))unlink($fixtureFile);
     if($uploadSource && is_file($uploadSource))unlink($uploadSource);
+    if($registrationUpload && is_file($registrationUpload))unlink($registrationUpload);
     foreach($uploadedFixtures as $uploadedFixture)if(is_file($uploadedFixture))unlink($uploadedFixture);
     if(preg_match('/^bpc_basic_otp_test_[a-f0-9]{10}$/',$database))$admin->exec("DROP DATABASE IF EXISTS `$database`");
 }
