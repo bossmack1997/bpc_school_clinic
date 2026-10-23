@@ -530,25 +530,68 @@ body.registration-page { color: var(--clinic-text); }
   display: flex;
   align-items: flex-start;
   margin: 0;
-  padding: 10px 14px 10px 42px;
-  border: 1px solid rgba(148, 163, 184, 0.4);
+  padding: 12px 14px 12px 46px;
+  border: 1.5px solid rgba(148, 163, 184, 0.45);
   border-radius: 10px;
-  background: rgba(240, 247, 244, 0.85);
+  background: #f8faf9;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.reg-certify-box:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+.reg-certify-box.is-checked {
+  background: #f0fdf4;
+  border-color: #22c55e;
+  box-shadow: 0 1px 3px rgba(34, 197, 94, 0.1);
 }
 .reg-certify-box .form-check-input {
   position: absolute;
   left: 14px;
-  top: 12px;
-  width: 17px;
-  height: 17px;
+  top: 13px;
+  width: 20px !important;
+  min-width: 20px !important;
+  height: 20px !important;
   margin: 0;
+  padding: 0;
   cursor: pointer;
+  border-radius: 4px !important;
+  border: 1.5px solid #94a3b8 !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.reg-certify-box .form-check-input:hover {
+  border-color: #16a34a !important;
+}
+.reg-certify-box .form-check-input:focus {
+  border-color: #16a34a !important;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.22) !important;
+  outline: none;
+}
+.reg-certify-box .form-check-input:checked {
+  background-color: #ffffff !important;
+  border-color: #16a34a !important;
+  border-width: 2px !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: 14px 14px !important;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%2316a34a' stroke-linecap='round' stroke-linejoin='round' stroke-width='3.2' d='M4 10.5l4 4L16 6'/%3e%3c/svg%3e") !important;
 }
 .reg-certify-box .form-check-label {
-  font-size: 0.72rem;
-  line-height: 1.4;
-  color: #475569;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: #334155;
   cursor: pointer;
+  margin: 0;
+  font-weight: 500;
 }
 
 #submitBtn {

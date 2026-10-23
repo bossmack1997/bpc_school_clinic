@@ -89,7 +89,13 @@ function require_login() {
     $scopeUser = current_user();
     if (($scopeUser['role'] ?? '') === 'nurse' && !empty($scopeUser['self_service_only'])) {
         $script = str_replace('\\', '/', $_SERVER['SCRIPT_FILENAME'] ?? '');
-        $basicPages = [realpath(BASE_PATH . '/pages/nurse/account.php'), realpath(BASE_PATH . '/auth/logout.php')];
+        $basicPages = [
+            realpath(BASE_PATH . '/pages/nurse/account.php'),
+            realpath(BASE_PATH . '/pages/nurse/profile.php'),
+            realpath(BASE_PATH . '/pages/nurse/settings.php'),
+            realpath(BASE_PATH . '/api/nurse_documents.php'),
+            realpath(BASE_PATH . '/auth/logout.php')
+        ];
         if (!in_array(realpath($script), array_filter($basicPages), true)) {
             if (is_api_request()) {
                 http_response_code(403);

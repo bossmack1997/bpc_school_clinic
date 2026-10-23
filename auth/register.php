@@ -805,7 +805,7 @@ $pageTitle = 'Create an Account';
         <div class="reg-actions">
         <!-- Section 5: Certification -->
         <div class="reg-certify-box">
-          <input class="form-check-input" type="checkbox" name="certify" id="certify" required>
+          <input class="form-check-input" type="checkbox" name="certify" id="certify" required aria-required="true">
           <label class="form-check-label" for="certify">
             I hereby certify that all information provided in this registration form is true, correct, and complete to the best of my knowledge, and I consent to the collection and processing of my health records by the Bulacan Polytechnic College School Clinic.
           </label>
@@ -1070,6 +1070,22 @@ $pageTitle = 'Create an Account';
   const initialRole = accountTypeInput ? (accountTypeInput.value || 'student') : 'student';
   switchRole(initialRole);
   updateSecBadge();
+
+  // Registration Consent Certification Setup
+  const certifyBox = document.querySelector('.reg-certify-box');
+  const certifyInput = document.getElementById('certify');
+  if (certifyBox && certifyInput) {
+    if (certifyInput.checked) certifyBox.classList.add('is-checked');
+    certifyBox.addEventListener('click', function (e) {
+      if (e.target === certifyInput || e.target.closest('label[for="certify"]')) return;
+      certifyInput.checked = !certifyInput.checked;
+      certifyInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    certifyInput.addEventListener('change', function () {
+      certifyBox.classList.toggle('is-checked', this.checked);
+      if (this.checked) clearFieldError(this);
+    });
+  }
 
   // Helper alert dialog
   function showWarning(title, msg, focusTarget) {

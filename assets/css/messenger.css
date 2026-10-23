@@ -97,18 +97,240 @@ body:has(.messenger-container) .messenger-container {
   body.clinic-messages-page .messenger-container { grid-template-columns:270px minmax(0,1fr)!important; }
   body.clinic-messages-page #convSidebar.is-mobile-hidden,body.clinic-messages-page #chatMain.is-mobile-hidden { display:flex!important; }
 }
-@media (max-width:767px) {
-  body.clinic-messages-page .unified-messages-page .messenger-container { height:var(--messenger-available-height,calc(100dvh - var(--header-height,64px) - 24px))!important; }
-  .clinic-messages-page .messenger-header { flex-wrap:wrap; }
-  .clinic-messages-page .messenger-header-info { flex:1 1 140px; }
-  .clinic-messages-page .messenger-header > .d-flex:last-child { flex-wrap:wrap; gap:6px; }
-  .clinic-messages-page .messenger-container #messageInput { font-size:16px; }
-  .clinic-messages-page .message-bubble-line { flex-wrap:wrap; }
-  .clinic-messages-page .message-actions { flex-wrap:wrap; }
-  body.clinic-messages-page .messenger-container #chatMain { height:100% !important; min-height:0; }
-  .clinic-messages-page .messenger-header-info { gap:6px; }
-  .clinic-messages-page .messenger-header .messenger-avatar { width:34px!important; height:34px!important; }
-  .clinic-messages-page .messenger-header .btn { padding:6px; font-size:11px; }
-  .clinic-messages-page .chat-emergency-banner { margin:6px 10px 0; padding:6px 9px; }
-  .clinic-messages-page #patientWorkspaceBtn { display:none; }
+/* Mobile Clinic Messages Layout & Header Redesign */
+@media (max-width: 991px) {
+  body.clinic-messages-page .topbar {
+    min-height: 50px !important;
+    height: 50px !important;
+    padding: 0 10px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    flex-wrap: nowrap !important;
+  }
+  body.clinic-messages-page .topbar-left {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+  }
+  body.clinic-messages-page #sidebarToggle {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+    flex-shrink: 0 !important;
+    margin: 0 !important;
+  }
+  body.clinic-messages-page .topbar-headings {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+  body.clinic-messages-page .topbar-headings .page-title {
+    font-size: 0.95rem !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    margin: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    color: var(--text-primary, #1e293b) !important;
+  }
+  body.clinic-messages-page .topbar-headings .welcome-text {
+    display: none !important;
+  }
+  body.clinic-messages-page .topbar-right {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex-shrink: 0 !important;
+  }
+  body.clinic-messages-page .topbar-right :is(.topbar-clock, .mica-status-indicator, .dark-toggle, #emergencyShieldBtn, button[data-action="open-sos"]) {
+    display: none !important;
+  }
+  body.clinic-messages-page .topbar-btn {
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 50% !important;
+    padding: 0 !important;
+  }
+  body.clinic-messages-page .profile-trigger {
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+  body.clinic-messages-page .profile-trigger .avatar {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 50% !important;
+  }
+  body.clinic-messages-page .profile-trigger :is(.name, .role-badge) {
+    display: none !important;
+  }
+  body.clinic-messages-page .content-area {
+    padding: 4px 6px !important;
+    margin: 0 !important;
+    min-height: 0 !important;
+  }
+  body.clinic-messages-page .unified-messages-page .messenger-container {
+    height: calc(100dvh - 50px - 8px) !important;
+    border-radius: 12px !important;
+    margin: 0 !important;
+  }
+}
+
+@media (max-width: 767px) {
+  body.clinic-messages-page .messenger-header {
+    min-height: 48px !important;
+    height: 48px !important;
+    padding: 6px 10px !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    background: #ffffff !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+  body.clinic-messages-page .messenger-header-info {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+  }
+  body.clinic-messages-page .messenger-header-info .btn-outline-secondary {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 50% !important;
+    margin: 0 !important;
+  }
+  body.clinic-messages-page #activeAvatarWrap {
+    flex-shrink: 0 !important;
+  }
+  body.clinic-messages-page .messenger-header .messenger-avatar {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 50% !important;
+  }
+  body.clinic-messages-page #activeHeaderName {
+    font-size: 0.85rem !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    margin: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 140px !important;
+  }
+  body.clinic-messages-page #activeHeaderRole {
+    display: none !important;
+  }
+  body.clinic-messages-page #activeHeaderPresence {
+    font-size: 0.65rem !important;
+    padding: 1px 4px !important;
+  }
+  body.clinic-messages-page .messenger-header > .d-flex:last-child {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    flex-wrap: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+  body.clinic-messages-page .messenger-header .btn-outline-danger {
+    height: 28px !important;
+    padding: 2px 8px !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    border-radius: 14px !important;
+  }
+  body.clinic-messages-page .messenger-header .btn-light {
+    width: 28px !important;
+    height: 28px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 50% !important;
+  }
+  body.clinic-messages-page .chat-emergency-banner {
+    margin: 4px 8px 0 !important;
+    padding: 5px 8px !important;
+    font-size: 0.68rem !important;
+    line-height: 1.3 !important;
+    border-radius: 8px !important;
+  }
+  body.clinic-messages-page .chat-emergency-banner .fs-5 {
+    font-size: 13px !important;
+  }
+  body.clinic-messages-page .messenger-messages-area {
+    padding: 8px !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  body.clinic-messages-page .message-bubble-line {
+    max-width: 85% !important;
+  }
+  body.clinic-messages-page .message-bubble-content {
+    font-size: 0.85rem !important;
+    padding: 7px 11px !important;
+    border-radius: 14px !important;
+  }
+  body.clinic-messages-page .messenger-composer-area {
+    padding: 6px 8px !important;
+    background: #ffffff !important;
+    border-top: 1px solid #e2e8f0 !important;
+    flex-shrink: 0 !important;
+  }
+  body.clinic-messages-page .messenger-compose-row {
+    display: flex !important;
+    align-items: flex-end !important;
+    gap: 6px !important;
+  }
+  body.clinic-messages-page .messenger-compose-row #messageInput {
+    font-size: 16px !important;
+    min-height: 38px !important;
+    max-height: 90px !important;
+    padding: 8px 12px !important;
+    border-radius: 19px !important;
+  }
+  body.clinic-messages-page .messenger-compose-row :is(.messenger-attach-btn, .messenger-send-btn) {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    flex: 0 0 36px !important;
+    border-radius: 50% !important;
+    padding: 0 !important;
+  }
+  body.clinic-messages-page .messenger-list-header {
+    padding: 10px 12px !important;
+  }
+  body.clinic-messages-page .messenger-list-header h1 {
+    font-size: 1.15rem !important;
+  }
+  body.clinic-messages-page #patientWorkspaceBtn {
+    display: none !important;
+  }
 }

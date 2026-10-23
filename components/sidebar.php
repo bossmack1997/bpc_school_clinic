@@ -136,6 +136,7 @@ if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Adminis
      ['file-medical','Consultations','consultations.php'],
  ],
  'Clinical Supervision'=>[
+     ['user-check','Nurse Verification','nurse_verification.php'],
      ['pill','Medicine Oversight','inventory.php'],
      ['alert-triangle','Emergency Oversight','emergencies.php'],
      ['file-medical','Clinical Reports','reports.php']
@@ -151,7 +152,17 @@ if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Adminis
  ]
 ]];
 $sbMenus = $sbNav[$sbRole] ?? $sbNav['student'];
-if($sbRole==='nurse')$sbMenus['sections']['Clinic Operations'][]=['pill','Medicine Inventory','inventory.php'];
+if($sbRole==='nurse' && !empty($sbUser['self_service_only'])){
+    $sbMenus = [
+        'sections' => [
+            'Overview' => [['dashboard', 'Account Overview', 'account.php']],
+            'Account' => [['user', 'My Profile', 'profile.php'], ['settings', 'Settings', 'settings.php'], ['logout', 'Logout', null, 'logout']],
+        ],
+        'brand' => 'Clinic Nurse',
+    ];
+} elseif($sbRole==='nurse'){
+    $sbMenus['sections']['Clinic Operations'][]=['pill','Medicine Inventory','inventory.php'];
+}
 if ($sbRole === 'admin' && $sbProfile!=='doctor') {
     $settingsVisible=is_primary_admin($sbUser)||has_admin_permission('manage_settings',$sbUser)||has_admin_permission('manage_security',$sbUser)||has_admin_permission('view_audit_logs',$sbUser);
     $rules=[
