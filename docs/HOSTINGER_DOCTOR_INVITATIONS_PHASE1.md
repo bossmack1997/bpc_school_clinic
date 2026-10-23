@@ -2,6 +2,8 @@
 
 Readiness addendum: [Hostinger deployment readiness and rollback plan](HOSTINGER_PHASE1_DEPLOYMENT_READINESS.md).
 
+Current follow-up: [2026-10-23 browser URL collision repair and current test evidence](DOCTOR_INVITATION_REPAIR_2026-10-23.md). The implementation/history below predates that follow-up; use the refreshed deployment manifest including the response guard.
+
 Review date: 2026-10-23, Asia/Manila. **Production recommendation: NO-GO until the live schema/configuration and approved external-email smoke test pass and deployment is explicitly approved.** Phase 1 is implemented and locally tested. No production SQL, production account changes, GitHub push or Hostinger deployment was performed. Phase 2 remains unavailable.
 
 ## Existing implementation and role model

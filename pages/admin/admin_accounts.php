@@ -8,6 +8,7 @@
  * Public registration never exposes the Admin role.
  * =====================================================================
  */
+require_once __DIR__ . '/../../includes/doctor_invitation_response.php';
 require_once __DIR__ . '/../../config/config.php';
 require_primary_admin();
 require_login();
@@ -30,7 +31,7 @@ function doctor_old(string $key): string {return isset($_POST[$key])&&is_scalar(
 
 require_once __DIR__.'/../../includes/doctor_invitation_service.php';
 $loadMisAdminStyles=true;
-$isInvitationAjax=strtolower($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='xmlhttprequest';
+$isInvitationAjax=is_api_request();
 $_SESSION['doctor_invite_nonce']=$_SESSION['doctor_invite_nonce']??bin2hex(random_bytes(32));
 if($_SERVER['REQUEST_METHOD']==='POST') {
     $statusCode=422;

@@ -1,5 +1,7 @@
 # Phase 1 Hostinger deployment readiness
 
+Current follow-up: [2026-10-23 invitation repair and fresh local tests](DOCTOR_INVITATION_REPAIR_2026-10-23.md). This readiness review is historical; the refreshed manifest now includes **14 runtime files**, including `includes/doctor_invitation_response.php`. Follow the repair report for current local evidence and GitHub status; production restrictions below remain in effect.
+
 Review date: 2026-10-23 (Asia/Manila). **Current decision: NO-GO for production execution or deployment.** This is a static source/SQL review and an operator plan. No SQL was executed, including local SQL tests, during this readiness request. No production account, server, mailbox or credential store was accessed. No push or deployment occurred. No application or migration SQL files were changed by this readiness review.
 
 The recorded production target is **u962995739_bpc_clinic** for **https://bpcschoolclinic.org**, from the owner-confirmed registration-schema document. Its current live binding is **not verified**. The earlier Phase 1 local results remain historical evidence: 40 signed-ID checks, 40 unsigned-ID checks, 47 HTTP checks, 63 browser assertions and 107 broader HTTP regression checks, plus loopback SMTP capture/failure. They were not rerun here because this request prohibits SQL execution before approval.

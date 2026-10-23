@@ -13,8 +13,8 @@
     },
     {
       "path": "assets/js/mis-admin.js",
-      "bytes": 4081,
-      "sha256": "5f6cff8f611098a5ea816900cae30f28010516397823857f310ceebb9ea49e13"
+      "bytes": 4820,
+      "sha256": "a513357ff990e931d622092c5fc5aee7a29f8d4c1f173479bbba0379222b3fd2"
     },
     {
       "path": "auth/setup_account.php",
@@ -53,8 +53,8 @@
     },
     {
       "path": "pages/admin/admin_accounts.php",
-      "bytes": 19720,
-      "sha256": "7d91d82c3d5841f0dc068aaf0da484839c785a27801ab29e67fdec9153555420"
+      "bytes": 19742,
+      "sha256": "7727bafce0dcd83e1fba4e279fe45426fdbe5ee42bf14c7055c1c504ff716386"
     },
     {
       "path": "pages/admin/profile.php",
@@ -70,6 +70,11 @@
       "path": "pages/doctor/profile.php",
       "bytes": 118,
       "sha256": "a62440a41c930d62f1b80e780c9ca27568a1c0c6d25eb71534fdb4df5dc3e709"
+    },
+    {
+      "path": "includes/doctor_invitation_response.php",
+      "bytes": 1597,
+      "sha256": "f71bc0355dc4a40f762040b4a3320d0d8b1102bd0f72aac264b4a730367c23e1"
     }
   ],
   "required_existing_dependencies_match_or_review_before_replacement": [
