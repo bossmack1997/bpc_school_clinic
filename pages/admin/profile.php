@@ -34,7 +34,7 @@ $pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
       <div class="card p-3 mb-3">
         <div class="row g-3 align-items-center">
           <div class="col-auto text-center position-relative">
-            <img src="<?= !empty($userRecord['profile_picture']) ? APP_URL . '/' . e($userRecord['profile_picture']) : asset_url('images/default-avatar.png') ?>" id="profileAvatar" onerror="this.src='<?= asset_url('images/default-avatar.png') ?>'" class="rounded-circle border" width="100" height="100" style="object-fit:cover" alt="Profile picture of <?= e($userRecord['first_name'] . ' ' . $userRecord['last_name']) ?>">
+            <img src="<?= e(avatar_url($userRecord['profile_picture'] ?? null)) ?>" id="profileAvatar" onerror="this.onerror=null;this.src='<?= asset_url('images/default-avatar.svg') ?>'" class="rounded-circle border" width="100" height="100" style="object-fit:cover" alt="Profile picture of <?= e($userRecord['first_name'] . ' ' . $userRecord['last_name']) ?>">
             <label for="pictureInput" class="btn btn-sm btn-primary rounded-circle position-absolute bottom-0 end-0" style="padding: 4px 8px;" title="Upload Profile Picture">
               <i class="bi bi-camera-fill"></i>
             </label>
@@ -145,6 +145,7 @@ $pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
         if (res.success) {
           toastSuccess(res.message);
           $('#profileAvatar').attr('src', res.path);
+          window.BPC_AVATARS?.updated(<?= (int)$u['id'] ?>,res.path);
           setTimeout(function () { location.reload(); }, 1000);
         } else {
           toastError(res.message);

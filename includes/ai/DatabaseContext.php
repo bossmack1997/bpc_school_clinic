@@ -327,30 +327,8 @@ class DatabaseContext
      */
     public function getAnnouncements(): array
     {
-        $role = $this->getRole();
-
-        if (in_array($role, ['student', 'nurse'])) {
-            $stmt = $this->db->prepare("
-                SELECT a.title, a.content, a.is_pinned, a.created_at,
-                       u.first_name, u.last_name
-                FROM announcements a
-                LEFT JOIN users u ON u.id = a.posted_by
-                WHERE a.audience IN ('all', ?)
-                ORDER BY a.is_pinned DESC, a.created_at DESC
-                LIMIT 20
-            ");
-            $stmt->execute([$role]);
-            return $stmt->fetchAll();
-        }
-
-        // Admin sees all announcements
-        $stmt = $this->db->query("
-            SELECT a.*, u.first_name, u.last_name
-            FROM announcements a
-            LEFT JOIN users u ON u.id = a.posted_by
-            ORDER BY a.is_pinned DESC, a.created_at DESC
-        ");
-        return $stmt->fetchAll();
+        require_once __DIR__.'/../announcement_service.php';
+        return array_slice((new AnnouncementService($this->db,$this->user))->listing(),0,20);
     }
 
     // ================================================================

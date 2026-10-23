@@ -93,3 +93,7 @@ window.FIREBASE_CONFIG = {
 <link rel="stylesheet" href="<?= asset_url('css/shared-ui.css', true) ?>">
 <?php if(permission_profile()==='doctor'): ?><link rel="stylesheet" href="<?= asset_url('css/doctor-clinical.css',true) ?>"><?php endif; ?>
 <script defer src="<?= asset_url('js/password-visibility.js', true) ?>"></script>
+
+<link rel="stylesheet" href="<?= e(asset_url('css/patient-mobile.css',true)) ?>">
+<script>window.BPC_AVATAR_FALLBACK=<?=json_encode(asset_url('images/default-avatar.svg'),JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;</script>
+<script src="<?=e(asset_url('js/avatars.js',true))?>" defer></script>

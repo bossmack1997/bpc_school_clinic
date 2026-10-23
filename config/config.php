@@ -123,6 +123,7 @@ require_once __DIR__ . '/ai_config.php';
 
 require_once BASE_PATH . '/config/database.php';
 require_once BASE_PATH . '/includes/functions.php';
+require_once BASE_PATH . '/includes/avatar.php';
 require_once BASE_PATH . '/includes/csrf.php';
 require_once BASE_PATH . '/includes/security.php';
 require_once BASE_PATH . '/includes/auth.php';

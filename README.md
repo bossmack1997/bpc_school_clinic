@@ -34,6 +34,8 @@ See [AUDIT.md](AUDIT.md) for the latest inventory, verified repairs, and test re
 
 See [Clinical verification completion](docs/CLINICAL_VERIFICATION_COMPLETION_20261024.md) for the latest Doctor-led Nurse review workflow, messaging boundaries, regression results and migration prerequisites. Nurse clinical access requires explicit physician authorization when that schema is installed; MIS identity verification cannot grant it.
 
+See [Student dashboard, profile and avatar repairs](docs/STUDENT_DASHBOARD_PROFILE_AVATAR_REPAIR_20261024.md) for scheduled Nurse announcements, responsive health passes, shared avatar resolution and executed browser checks. The announcement publication migration is applied to local XAMPP only; hosting requires a separately reviewed migration. Existing announcements and uploaded photos are preserved.
+
 ## Hostinger production configuration
 
 Keep the XAMPP `.env` unchanged. On Hostinger, create a separate private environment configuration (preferably outside `public_html`, selected with `APP_ENV_FILE`, or through server environment variables):

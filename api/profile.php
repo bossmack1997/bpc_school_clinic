@@ -337,12 +337,8 @@ if ($action === 'upload_picture') {
         $db->commit();
         $_SESSION['user']['profile_picture'] = $destRel;
 
-        $defaults = ['assets/images/default-avatar.png', 'assets/images/default-avatar.svg'];
-        if ($oldPic && !in_array($oldPic, $defaults, true) && str_starts_with($oldPic, 'assets/images/profiles/')) {
-            $oldPath = BASE_PATH . '/' . $oldPic;
-            if (is_file($oldPath) && realpath(dirname($oldPath)) === realpath($dir)) @unlink($oldPath);
-        }
-        json_response(true, ['path' => APP_URL . '/' . $destRel], 'Profile picture updated successfully.');
+        // Keep previous uploads intact; existing messages/pages may still reference them.
+        json_response(true, ['path' => avatar_url($destRel)], 'Profile picture updated successfully.');
     } catch (Throwable $e) {
         if ($db->inTransaction()) $db->rollBack();
         if (is_file($destAbs)) @unlink($destAbs);

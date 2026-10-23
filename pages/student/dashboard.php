@@ -51,20 +51,6 @@ $studentName=trim(($u['first_name']??'').' '.($u['last_name']??''));
     </div>
   </div>
 
-  <!-- Section C — Clinic Availability -->
-  <h3 class="h5 mb-3">Clinic Availability</h3>
-  <div class="card border shadow-sm rounded-4 mb-4">
-    <div class="card-body d-flex align-items-center gap-3 flex-wrap">
-      <span class="clinic-dot <?= $clinic['is_open']?'open':'closed' ?>"></span>
-      <div class="d-flex flex-column">
-        <div class="small text-muted">Clinic Status</div>
-        <span class="fw-semibold dbg-wb-status-text"><?= e($clinic['is_open']?'Open':'Closed') ?></span>
-      </div>
-      <div class="d-flex flex-column text-end ms-auto">
-        <div class="small text-muted">Operating Hours</div>
-        <span class="fw-semibold"><?= e($clinic['hours']) ?></span>
-      </div>
-    </div>
-  </div>
+  <?php include __DIR__.'/../../components/announcement_carousel.php'; ?>
 
 </div></main></div><?php include __DIR__.'/../../components/footer.php'; ?></body></html>

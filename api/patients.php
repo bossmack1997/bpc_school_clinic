@@ -134,7 +134,7 @@ if ($action === 'get_workspace' || $action === 'lookup') {
     $patientCode = !empty($st['student_number']) ? $st['student_number'] : ('BPC-' . date('Y') . '-' . str_pad((string)$st['id'], 5, '0', STR_PAD_LEFT));
 
     // Profile photo fallback
-    $profilePic = !empty($st['profile_picture']) ? app_url($st['profile_picture']) : asset_url('images/default-avatar.svg');
+    $profilePic = avatar_url($st['profile_picture'] ?? null);
 
     // 2. Fetch Active Clinic Status Today (Queue Ticket & Emergency)
     $stmtQ = $db->prepare("

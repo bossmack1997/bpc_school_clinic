@@ -279,15 +279,8 @@ class MICAContextService
         $lines[] = "Location: BPC Main Campus Clinic, Ground Floor Health Services Center";
 
         try {
-            // Recent Announcements
-            $annStmt = $this->db->query("
-                SELECT title, content, created_at 
-                FROM announcements 
-                WHERE audience IN ('all', '{$this->user['role']}')
-                ORDER BY is_pinned DESC, created_at DESC 
-                LIMIT 2
-            ");
-            $anns = $annStmt->fetchAll(PDO::FETCH_ASSOC);
+            require_once __DIR__.'/../announcement_service.php';
+            $anns=array_slice((new AnnouncementService($this->db,$this->user))->listing(),0,2);
             if ($anns) {
                 $lines[] = "Latest Clinic Announcements:";
                 foreach ($anns as $a) {

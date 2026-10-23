@@ -55,6 +55,7 @@ try{
  checkMis(misRequest($invitee,'/pages/doctor/dashboard.php')['status']===200,'Activated Doctor dashboard renders without Nurse schema migration');
  checkMis(misRequest($invitee,'/pages/doctor/nurse_verification.php')['status']===503,'Nurse review requires its schema migration');
  if(in_array('--staff-verification',$argv,true))require __DIR__.'/staff_verification_checks.php';
+ if(in_array('--student-ui',$argv,true))require __DIR__.'/student_ui_checks.php';
  if(!preg_match('/name="csrf-token" content="([^"]+)"/',$settings['body'],$settingsMatch))throw new RuntimeException('Settings CSRF metadata missing');$settingsToken=html_entity_decode($settingsMatch[1]);
  $saved=misRequest($invitee,'/api/profile.php',['action'=>'update_info','csrf_token'=>$settingsToken,'first_name'=>'Doctor','middle_name'=>'','last_name'=>'Updated','email'=>'accept@example.invalid','phone'=>'09123456789'],true);
  checkMis(json_decode($saved['body'],true)['success']??false,'Doctor saves allowed personal settings');
