@@ -64,8 +64,8 @@ if (!$fullPath || !is_file($fullPath)) {
 }
 
 // Security: Must reside within storage/registration_documents or assets/images
-$inStorage = ($storageRoot && str_starts_with($fullPath, $storageRoot));
-$inAssets  = ($assetsRoot && str_starts_with($fullPath, $assetsRoot));
+$inStorage = ($storageRoot && str_starts_with($fullPath, $storageRoot . DIRECTORY_SEPARATOR));
+$inAssets  = ($assetsRoot && str_starts_with($fullPath, $assetsRoot . DIRECTORY_SEPARATOR));
 
 if (!$inStorage && !$inAssets) {
     http_response_code(403);

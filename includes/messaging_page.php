@@ -26,6 +26,7 @@ if ($isNurse) {
     <?php include __DIR__ . '/../components/navbar.php'; ?>
     <div class="content-area page-enter py-3 student-messages-page unified-messages-page">
 
+      <?php if($isNurse): ?><nav class="d-flex gap-2 mb-2" aria-label="Messaging categories"><a class="btn btn-success btn-sm" href="<?=e(app_url('pages/nurse/messages.php'))?>" aria-current="page">Patients</a><a class="btn btn-outline-success btn-sm" href="<?=e(app_url('pages/doctor_messages.php'))?>">Physicians</a></nav><?php endif; ?>
       <!-- Messenger Container -->
       <div class="messenger-container shadow-sm border">
         

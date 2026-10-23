@@ -17,6 +17,15 @@ inside a transaction; do not assume every test is isolated.
 bound to loopback, where the project is its document root. Apache intentionally
 blocks it. Browser `.cjs` suites are preferred for automated regression.
 
+Clinical release regressions use `php tests/mis_admin_http.php --doctor-clinical
+--staff-verification`. Add `--doctor-browser` with a separate headless Chrome
+debugging instance on loopback port 9337 for eight-width Doctor and staff-modal
+checks. `staff_verification_checks.php` is an included fixture, not a standalone
+script. `doctor_nurse_verification_suite.php` now invokes the disposable suite;
+it no longer writes transactional fixtures into the configured school database.
+`nurse_authorization_safety_audit.php` now asserts restrictive authorization,
+rather than reproducing the previously documented unsafe grants.
+
 Cleanup audits:
 
 - `python tools/audit_cleanup_sources.py`: offline inventory, candidate references,

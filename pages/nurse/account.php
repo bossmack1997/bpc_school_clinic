@@ -26,6 +26,30 @@ if (empty($user['self_service_only'])) {
 require_once __DIR__ . '/../../includes/nurse_verification_service.php';
 $db = getDB();
 $service = new NurseVerificationService($db, $user);
+$submissionError='';
+if($_SERVER['REQUEST_METHOD']==='POST') {
+    csrf_verify_or_die(); $uploaded=null;
+    try {
+        if(!$service->ready())throw new RuntimeException('Credential submission requires the reviewed database migration.');
+        $file=$_FILES['credential_document']??null;
+        if($file && $file['error']!==UPLOAD_ERR_NO_FILE) {
+            if($file['error']!==UPLOAD_ERR_OK || $file['size']>5*1024*1024 || !is_uploaded_file($file['tmp_name']))throw new InvalidArgumentException('Upload a PDF or image up to 5 MB.');
+            $mime=(new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+            $extensions=['application/pdf'=>'pdf','image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp'];
+            if(!isset($extensions[$mime]))throw new InvalidArgumentException('Use a PDF, JPEG, PNG or WebP credential.');
+            $uploaded='storage/registration_documents/credential_'.bin2hex(random_bytes(16)).'.'.$extensions[$mime];
+            if(!move_uploaded_file($file['tmp_name'],BASE_PATH.'/'.$uploaded))throw new RuntimeException('Unable to store credential. Please retry.');
+        }
+        $license=is_string($_POST['license_number']??null)?$_POST['license_number']:'';
+        $position=is_string($_POST['position']??null)?$_POST['position']:'';
+        $service->submitCredentials($license,$position,$uploaded);
+        set_flash('success','Credentials submitted. Sign in again to review your pending application.');
+        redirect(APP_URL.'/auth/login.php');
+    } catch(Throwable $e) {
+        if($uploaded && is_file(BASE_PATH.'/'.$uploaded))unlink(BASE_PATH.'/'.$uploaded);
+        $submissionError=$e instanceof PDOException ? 'Unable to submit credentials. Please retry.' : $e->getMessage();
+    }
+}
 $nurseDetail = $service->getNurse((int)$user['id']);
 
 $effectiveStatus = $nurseDetail['effective_status'] ?? 'pending';
@@ -233,6 +257,18 @@ $pageTitle = 'Nurse Account Dashboard';
               <?php endif; ?>
             </div>
 
+            <?php if($service->ready() && $effectiveStatus!=='revoked'): ?>
+            <form method="post" enctype="multipart/form-data" class="border rounded p-3 mb-3">
+              <h3 class="h6">Submit credentials for Doctor review</h3>
+              <?php if($submissionError): ?><p class="text-danger" role="alert"><?=e($submissionError)?></p><?php endif; ?>
+              <?=csrf_field()?>
+              <label class="form-label d-block">Professional registration number<input class="form-control" name="license_number" required maxlength="100" value="<?=e($nurseDetail['license_number']??'')?>"></label>
+              <label class="form-label d-block">School appointment position<input class="form-control" name="position" required maxlength="120" value="<?=e($nurseDetail['position']??'')?>"></label>
+              <label class="form-label d-block">Supporting professional credential (PDF or image, up to 5 MB)<input class="form-control" type="file" name="credential_document" accept="application/pdf,image/jpeg,image/png,image/webp" <?=empty($nurseDetail['valid_id_path'])?'required':''?>></label>
+              <p class="small text-muted">The Doctor verifies professional credentials and institutional appointment authorization. Submission does not grant clinical access.</p>
+              <button class="btn btn-success" type="submit">Submit for review</button>
+            </form>
+            <?php endif; ?>
             <div class="border rounded p-3 bg-light">
               <div class="d-flex align-items-center justify-content-between mb-1">
                 <strong>Account Security Status</strong>

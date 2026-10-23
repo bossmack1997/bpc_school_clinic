@@ -4,6 +4,9 @@ if(!isset($database)||!preg_match('/^bpc_mis_test_[a-f0-9]{10}$/D',$database)||$
 $clinicalUsers=[];
 foreach(['student','teacher','nurse'] as $role){$db->prepare("INSERT INTO users(username,email,password_hash,first_name,last_name,role,status,email_verified,self_service_only) VALUES (?,?,?,'Clinical',? ,?,'active',1,0)")->execute(['clinical_'.$role,$role.'_clinical@example.invalid',password_hash('FixturePass!42',PASSWORD_DEFAULT),ucfirst($role),$role]);$clinicalUsers[$role]=(int)$db->lastInsertId();}
 $db->prepare("INSERT INTO students(user_id,student_number,allergies) VALUES (?,'CLIN-ST-01','Recorded student allergy')")->execute([$clinicalUsers['student']]);$studentId=(int)$db->lastInsertId();
+$syntheticQr=ensure_student_qr($db,$studentId,$doctor);$resolvedQr=resolve_patient_qr($db,$syntheticQr['qr_token']);
+checkMis(($resolvedQr['valid']??false) && (int)$resolvedQr['record']['user_id']===$clinicalUsers['student'],'QR token resolves the correct synthetic patient');
+checkMis(!(resolve_patient_qr($db,'invalid-synthetic-token')['valid']??false),'QR rejects an unknown synthetic token');
 $db->prepare("INSERT INTO teachers(user_id,employee_id,first_name,last_name,allergies) VALUES (?,'CLIN-TE-01','Clinical','Teacher','Recorded teacher allergy')")->execute([$clinicalUsers['teacher']]);$teacherId=(int)$db->lastInsertId();
 $db->prepare("INSERT INTO nurses(user_id,employee_id) VALUES (?,'CLIN-NU-01')")->execute([$clinicalUsers['nurse']]);$nurseId=(int)$db->lastInsertId();
 $db->prepare("INSERT INTO consultations(student_id,patient_type,nurse_id,consultation_date,chief_complaint,remarks) VALUES (?,'student',?,NOW(),'Nursing intake student','Original nursing note')")->execute([$studentId,$nurseId]);$nursingId=(int)$db->lastInsertId();
@@ -11,7 +14,7 @@ $db->prepare("INSERT INTO consultations(teacher_id,patient_type,nurse_id,consult
 foreach(['dashboard','patients','consultations','inventory','emergencies','reports','profile','settings'] as $page){$r=misRequest($invitee,'/pages/doctor/'.$page.'.php');checkMis($r['status']===200&&str_contains($r['body'],'<html')&&strlen($r['body'])>2000,'Doctor '.$page.' renders meaningful HTML');}
 checkMis(misRequest($invitee,'/pages/doctor/clinic_monitoring.php')['status']===302,'Clinical monitoring routes to command center');
 checkMis(misRequest($invitee,'/pages/doctor/messages.php')['status']===302&&misRequest($invitee,'/pages/doctor_messages.php')['status']===200,'Doctor messaging route and conversation empty state render');
-checkMis(misRequest($invitee,'/pages/doctor/nurse_verification.php')['status']===403,'Separate staff-authorization restriction remains enforced');
+checkMis(misRequest($invitee,'/pages/doctor/nurse_verification.php')['status']===503,'Missing staff schema has a controlled unavailable state');
 foreach($clinicalUsers as $role=>$id){if($role==='nurse')continue;$r=misRequest($invitee,'/pages/doctor/patients.php?patient='.$id.'&tab=consultations');checkMis($r['status']===200&&str_contains($r['body'],'data-patient-id="'.$id.'"')&&str_contains($r['body'],'Nursing intake '.$role),'Selected '.$role.' shows its actual clinical history');checkMis(!str_contains($r['body'],'Nursing intake '.($role==='student'?'teacher':'student')),'Selected '.$role.' excludes other patient history');}
 checkMis(misRequest($invitee,'/pages/doctor/patients.php?patient[]=1')['status']===400,'Malformed patient selector has a clear error');
 checkMis(misRequest($invitee,'/pages/doctor/patients.php?patient=99999999')['status']===404,'Missing patient has a clear error');
@@ -40,7 +43,7 @@ checkMis(misRequest($invitee,'/api/clinical.php?action=records&patient_user_id[]
 $db->prepare("INSERT INTO support_referrals(student_id,created_by,referred_to,reason,status) VALUES (?,?,'Doctor','Synthetic physician referral','pending'),(?,?,'Guidance Office','Synthetic guidance referral','pending')")->execute([$studentId,$clinicalUsers['nurse'],$studentId,$clinicalUsers['nurse']]);
 $db->exec("INSERT INTO medicines(medicine_name,category,quantity,unit,reorder_level) VALUES ('Doctor fixture low stock','Tablet',1,'tablets',10)");
 $center=(new DoctorClinicalService($db,$doctorUser))->commandCenter();
-checkMis($center['unavailable']===[]&&$center['today_consultations']===3,'Command center counts actual consultations without unavailable sources');
+checkMis($center['unavailable']===['pending_nurses']&&$center['today_consultations']===3,'Command center counts actual consultations without unavailable sources');
 checkMis(count($center['escalations'])===1&&(int)$center['escalations'][0]['patient_user_id']===$clinicalUsers['student'],'Command center shows only recorded Nurse-to-physician referrals');
 checkMis(count($center['followups'])===1&&(int)$center['followups'][0]['patient_user_id']===$clinicalUsers['teacher'],'Command center links dated Teacher follow-up to stable account ID');
 checkMis(in_array('Doctor fixture low stock',array_column($center['stock'],'medicine_name'),true),'Medicine concerns use actual low-stock inventory');

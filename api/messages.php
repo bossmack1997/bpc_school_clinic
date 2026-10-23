@@ -55,7 +55,7 @@ function is_authorized_in_conversation(PDO $db, int $convId, int $userId, string
         return (int)$stmt->fetchColumn() > 0;
     }
     // Students & Teachers must be recorded participants
-    $stmt = $db->prepare("SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = ? AND user_id = ?");
+    $stmt = $db->prepare("SELECT COUNT(*) FROM conversation_participants p JOIN conversations c ON c.id=p.conversation_id WHERE p.conversation_id = ? AND p.user_id = ? AND c.conversation_type IN ('student_nurse','teacher_nurse')");
     $stmt->execute([$convId, $userId]);
     return ((int)$stmt->fetchColumn()) > 0;
 }
@@ -80,15 +80,16 @@ if ($action === 'available_contacts') {
 }
 if ($action === 'available_staff') {
     $stmt = $db->query("
-        SELECT u.id, u.first_name, u.last_name, u.role, u.profile_picture, u.last_activity, u.clinic_status
+        SELECT u.id, u.first_name, u.last_name, u.role, u.self_service_only, u.profile_picture, u.last_activity, u.clinic_status
         FROM users u
-        WHERE u.role = 'nurse' AND u.status = 'active'
+        WHERE u.role = 'nurse' AND u.status = 'active' AND u.self_service_only=0
         ORDER BY u.last_activity DESC, u.first_name ASC
     ");
     $nurses = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $staffList = [];
     foreach ($nurses as $n) {
+        if(!has_permission('clinical_messages',$n,$db))continue;
         $presence = compute_presence_status($n['last_activity'] ?? null);
         $clinicStatus = $n['clinic_status'] ?? 'available';
 
@@ -153,7 +154,7 @@ if ($action === 'get_or_create_conversation') {
     }
 
     // Role boundary validation
-    $rStmt = $db->prepare("SELECT id, role, first_name, last_name, profile_picture, status FROM users WHERE id = ? LIMIT 1");
+    $rStmt = $db->prepare("SELECT id, role, self_service_only, first_name, last_name, profile_picture, status FROM users WHERE id = ? LIMIT 1");
     $rStmt->execute([$recipientId]);
     $recip = $rStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -162,6 +163,7 @@ if ($action === 'get_or_create_conversation') {
     }
 
     $recipRole = canonical_role($recip['role']);
+    if($recipRole==='nurse' && !has_permission('clinical_messages',$recip,$db))json_response(false,[],'This Nurse is not authorized for clinical messaging.');
 
     // Students and Teachers can only message Nurses
     if (($userRole === 'student' || $userRole === 'teacher') && $recipRole !== 'nurse') {
@@ -319,7 +321,7 @@ if ($action === 'list_conversations') {
                    ) AS unread_count
             FROM conversations c
             JOIN conversation_participants cp ON cp.conversation_id = c.id
-            WHERE cp.user_id = ? AND c.status = 'active'
+            WHERE cp.user_id = ? AND c.status = 'active' AND c.conversation_type IN ('student_nurse','teacher_nurse')
             ORDER BY COALESCE(last_message_time, c.updated_at) DESC
         ");
         $stmt->execute([$userId, $userId]);
@@ -331,7 +333,7 @@ if ($action === 'list_conversations') {
         $convId = (int)$conv['id'];
         // Find other participant (or if nurse, find student/teacher)
         $pStmt = $db->prepare("
-            SELECT u.id, u.first_name, u.last_name, u.role, u.profile_picture, u.last_activity, u.clinic_status,
+            SELECT u.id, u.first_name, u.last_name, u.role, u.self_service_only, u.profile_picture, u.last_activity, u.clinic_status,
                    s.id AS student_record_id, s.student_number, s.course, s.year_level, s.section
             FROM conversation_participants cp
             JOIN users u ON u.id = cp.user_id
@@ -346,7 +348,7 @@ if ($action === 'list_conversations') {
         if (!$other) {
             // Fallback if no other participant (e.g. nurse viewing thread where creator is user)
             $pStmt2 = $db->prepare("
-                SELECT u.id, u.first_name, u.last_name, u.role, u.profile_picture, u.last_activity, u.clinic_status,
+                SELECT u.id, u.first_name, u.last_name, u.role, u.self_service_only, u.profile_picture, u.last_activity, u.clinic_status,
                        s.id AS student_record_id, s.student_number, s.course, s.year_level, s.section
                 FROM conversation_participants cp
                 JOIN users u ON u.id = cp.user_id
@@ -459,7 +461,7 @@ if ($action === 'get_messages') {
 
     // Find counterpart info for header
     $pStmt = $db->prepare("
-        SELECT u.id, u.first_name, u.last_name, u.role, u.profile_picture, u.last_activity, u.clinic_status,
+        SELECT u.id, u.first_name, u.last_name, u.role, u.self_service_only, u.profile_picture, u.last_activity, u.clinic_status,
                s.student_number, s.course, s.year_level, s.section, s.blood_type, s.allergies
         FROM conversation_participants cp
         JOIN users u ON u.id = cp.user_id
@@ -610,7 +612,7 @@ if ($action === 'send_message') {
 
     // If nurse is replying but not yet listed as participant, add nurse to participants
     if ($userRole === 'nurse') {
-        $checkP = $db->prepare("SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = ? AND user_id = ?");
+        $checkP = $db->prepare("SELECT COUNT(*) FROM conversation_participants p JOIN conversations c ON c.id=p.conversation_id WHERE p.conversation_id = ? AND p.user_id = ? AND c.conversation_type IN ('student_nurse','teacher_nurse')");
         $checkP->execute([$convId, $userId]);
         if (((int)$checkP->fetchColumn()) === 0) {
             $db->prepare("INSERT INTO conversation_participants (conversation_id, user_id, last_read_at) VALUES (?, ?, NOW())")
@@ -739,7 +741,7 @@ if ($action === 'unread_count') {
             JOIN conversations c ON c.id = m.conversation_id
             JOIN conversation_participants cp ON cp.conversation_id = c.id
             WHERE cp.user_id = ?
-              AND c.status = 'active'
+              AND c.status = 'active' AND c.conversation_type IN ('student_nurse','teacher_nurse')
               AND m.sender_id != ? 
               AND m.read_at IS NULL
         ");

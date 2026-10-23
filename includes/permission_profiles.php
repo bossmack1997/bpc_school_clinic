@@ -9,6 +9,15 @@ function permission_profile(?array $user=null,?PDO $db=null): string {
 function has_permission(string $permission,?array $user=null,?PDO $db=null): bool {
     $user=$user??current_user();$p=permission_profile($user,$db);
     if(($user['role']??'')==='nurse' && !empty($user['self_service_only']))return false;
+    if(($user['role']??'')==='nurse') {
+        try {
+            $scopeDb=$db??getDB();
+            if($scopeDb->query("SHOW COLUMNS FROM nurses LIKE 'clinical_authorization_status'")->fetch()) {
+                $scope=$scopeDb->prepare('SELECT clinical_authorization_status FROM nurses WHERE user_id=?');$scope->execute([$user['id']]);
+                if($scope->fetchColumn()!=='authorized')return false;
+            }
+        } catch(PDOException $e) { return false; }
+    }
     $technical=['system_manage','manage_users','roles_assign','manage_security','view_audit_logs','backups_manage','manage_settings','manage_sections','approve_users'];
     $clinical=['clinic_monitor','clinical_records_read','consultations_manage','inventory_oversight','view_emergencies','view_reports','clinical_messages'];
     if($p==='mis')return in_array($permission,$technical,true);
@@ -44,7 +53,6 @@ function enforce_profile_route(): void {
     if($p==='mis' && str_contains($path,'/pages/doctor/'))admin_access_denied('Clinical authorization required.');
     $ownSosHistory=$file==='emergencies.php' && ($_SERVER['REQUEST_METHOD']??'GET')==='GET' && ($_POST['action']??$_GET['action']??'')==='list' && ($_GET['mine']??'')==='1';
     if($p==='mis' && !$ownSosHistory && str_contains($path,'/api/') && in_array($file,['emergencies.php','global_sos.php','queue.php','qr_codes.php'],true))admin_access_denied('Clinical monitoring is restricted to authorized clinic personnel.');
-    if($p==='doctor' && $file==='nurse_verification.php')admin_access_denied('Nurse clinical authorization is not available in Phase 1.');
     if($p==='doctor'){
         $technicalPages=['users.php','account_exceptions.php','admin_accounts.php','security.php','activity_logs.php','sections.php','qr_management.php','qr_scanner.php','pwa_debug.php','system_monitoring.php','backups.php','role_profiles.php'];
         $technicalApis=['users.php','settings.php','sections.php','activity_logs.php','admin_profiles.php','system_backups.php'];
