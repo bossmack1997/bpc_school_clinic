@@ -73,7 +73,7 @@ final class NurseVerificationService
         $license = trim((string)($n['license_number'] ?? ''));
         if ($license === '') {
             $add('prc', 'PRC registration', false, 'No PRC registration number on file (nurses.license_number is empty)', 'PRC registration number is missing');
-        } elseif (!preg_match('/^(?=.*\d)[A-Za-z0-9][A-Za-z0-9\-\/ ]{3,29}$/', $license)) {
+        } elseif (!preg_match('/^(?=.*\d)[A-Za-z0-9][A-Za-z0-9\-\/ ]{0,29}$/', $license)) {
             $add('prc', 'PRC registration', false, 'Recorded value is not a valid registration number format', 'PRC registration number format is invalid');
         } else {
             $add('prc', 'PRC registration', true, 'Number recorded: ' . $license . ' (authenticity is verified by the Doctor)', null);
@@ -289,6 +289,8 @@ final class NurseVerificationService
             ");
             $stmt->execute([$userId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $rows = array_merge($rows, $this->submissionHistory($userId));
+            usort($rows, static fn($x, $y) => strcmp((string)$y['created_at'], (string)$x['created_at']));
             if (!empty($rows)) return $rows;
         }
 
@@ -352,6 +354,27 @@ final class NurseVerificationService
         ];
     }
 
+    /** Nurse resubmissions as audit-timeline entries (empty if the optional table is not yet migrated). */
+    private function submissionHistory(int $userId): array
+    {
+        try {
+            $q = $this->db->prepare("SELECT id, IF(previous_status='authorized','resubmitted_reverification_required','credentials_submitted') AS action, previous_status, resulting_status AS new_status, CONCAT('PRC: ', license_number, '; Employee ID: ', employee_id, '; Position: ', position, IF(material_change=1,'; material change','')) AS notes, created_at, nurse_user_id AS doctor_user_id FROM nurse_credential_submissions WHERE nurse_user_id=?");
+            $q->execute([$userId]);
+            return $q->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) { return []; }
+    }
+
+    /** Latest Nurse submission, for the Doctor review panel. */
+    public function lastSubmission(int $userId): ?array
+    {
+        $this->requireReader($userId);
+        try {
+            $q = $this->db->prepare('SELECT created_at, previous_status, material_change FROM nurse_credential_submissions WHERE nurse_user_id=? ORDER BY id DESC LIMIT 1');
+            $q->execute([$userId]);
+            return $q->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (PDOException $e) { return null; }
+    }
+
     private function requireReader(int $id): void {
         $actor = $this->actor ?? current_user();
         if (!$actor || ($actor['role'] !== 'nurse' || (int)$actor['id'] !== $id) && permission_profile($actor,$this->db) !== 'doctor') throw new RuntimeException('Credential review access denied.');
@@ -361,28 +384,6 @@ final class NurseVerificationService
 
     /** Schema names only; no applicant or credential contents. */
     public function missingSchema(): array { return $this->missingSchema; }
-
-    /** A restricted Nurse may update and resubmit their own professional details. */
-    public function submitCredentials(string $license, string $position, ?string $document): void {
-        $actor=$this->actor ?? current_user();
-        if(!$this->ready() || !$actor || $actor['role']!=='nurse')throw new RuntimeException('Nurse credential submission unavailable.');
-        $license=trim($license); $position=trim($position);
-        if($license==='' || mb_strlen($license)>100 || $position==='' || mb_strlen($position)>120)throw new InvalidArgumentException('Provide professional registration and school appointment position.');
-        $this->db->beginTransaction();
-        try {
-            $q=$this->db->prepare("SELECT u.status,u.email_verified,u.self_service_only,n.* FROM users u JOIN nurses n ON n.user_id=u.id WHERE u.id=? AND u.role='nurse' FOR UPDATE");$q->execute([$actor['id']]);$nurse=$q->fetch(PDO::FETCH_ASSOC);
-            if($nurse && ($nurse['status']!=='active' || !$nurse['email_verified']))throw new RuntimeException($nurse['status']!=='active' ? 'Your account is '.$nurse['status'].'. Credentials can be submitted only on an active account; contact the Clinic Head.' : 'Verify your email address with your one-time code before submitting credentials.');
-            if(!$nurse || $nurse['status']!=='active' || !$nurse['email_verified'] || !$nurse['self_service_only'] || $nurse['clinical_authorization_status']==='authorized' || $nurse['clinical_authorization_status']==='revoked')throw new RuntimeException('This account is not eligible for credential resubmission. Contact the Clinic Head.');
-            $document=$document ?: $nurse['valid_id_path'];
-            if(!$document)throw new InvalidArgumentException('Upload a supporting professional credential.');
-            $this->db->prepare("UPDATE nurses SET license_number=?,position=?,valid_id_path=?,clinical_authorization_status='pending' WHERE user_id=?")->execute([$license,$position,$document,$actor['id']]);
-            // Invalidates any review form opened before the new submission.
-            $this->db->prepare('UPDATE users SET credential_version=COALESCE(credential_version,0)+1 WHERE id=?')->execute([$actor['id']]);
-            $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Nurse credentials submitted','nurse_clinical_authorization',?)")->execute([$actor['id'],'Account #'.$actor['id'].' submitted credentials for physician review.']);
-            $this->db->prepare("INSERT INTO notifications(user_id,type,title,message,link) SELECT u.id,'clinical_review','Nurse credentials awaiting review','A Nurse submitted professional credentials for your review.',? FROM users u JOIN admin_profiles p ON p.user_id=u.id WHERE u.status='active' AND p.profile='doctor'")->execute([app_url('pages/doctor/nurse_verification.php')]);
-            $this->db->commit();
-        } catch(Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
-    }
 
     public function authorize(int $id, string $notes = '', string $password = '', int $version = -1, bool $institutionalVerified = false): void { $this->decide($id, 'authorize', $notes, $password, $version, $institutionalVerified); }
     public function requestInformation(int $id, string $notes, string $password = '', int $version = -1): void { $this->decide($id, 'request_info', $notes, $password, $version); }
