@@ -24,6 +24,11 @@ function has_permission(string $permission,?array $user=null,?PDO $db=null): boo
 function require_permission(string $permission): void {require_login();if(!has_permission($permission))admin_access_denied('This operation requires '.$permission.' authorization.');}
 function require_doctor(): void {require_login();if(permission_profile()!=='doctor')admin_access_denied('Verified Doctor profile required.');}
 function enforce_profile_route(): void {
+    // A bearer invitation verifies its recipient independently of any existing
+    // login cookie. Match the executed file, never a query parameter or basename.
+    // This grants no session or MIS permissions; setup validates/consumes its token.
+    $executed = realpath($_SERVER['SCRIPT_FILENAME'] ?? '');
+    if ($executed !== false && $executed === realpath(__DIR__.'/../auth/setup_account.php')) return;
     if(empty($_SESSION['user']['id']))return;
     $u=current_user();if(!$u)return;
     if(($u['role']??'')==='teacher' && !empty($u['self_service_only'])) {

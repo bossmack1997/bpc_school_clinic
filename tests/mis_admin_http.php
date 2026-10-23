@@ -66,6 +66,23 @@ try{
  $stale=misClient();$staleLogin=misRequest($stale,'/auth/login.php');misRequest($stale,'/auth/login.php',['csrf_token'=>misField($staleLogin,'csrf_token'),'identifier'=>'mis_fixture','password'=>'FixturePass!42']);
  foreach(curl_getinfo($stale,CURLINFO_COOKIELIST) as $cookie){$parts=explode("\t",$cookie);if(($parts[5]??'')==='PHPSESSID'&&preg_match('/^[A-Za-z0-9,-]+$/',$parts[6]??'')){$sessionFile=__DIR__.'/../scratch/sess_'.$parts[6];$data=file_get_contents($sessionFile);$data=preg_replace('/last_activity\|i:[0-9]+;/','last_activity|i:'.(time()-7200).';',$data,1,$modified);if($modified!==1)throw new RuntimeException('Synthetic session timestamp missing');file_put_contents($sessionFile,$data);}}
  checkMis(misRequest($stale,$path,$payload,true)['status']===401,'Actually expired MIS session returns HTTP 401 JSON');
+ $recipientPage=misRequest($stale,'/auth/setup_account.php');
+ checkMis($recipientPage['status']===200&&str_contains($recipientPage['body'],'<html')&&!str_contains($recipientPage['body'],'Reauthentication required.'),'Recipient invitation page is independent of an expired administrator session');
+ $actorBefore=$db->query("SELECT * FROM users WHERE id=$actor")->fetch();
+ $grantsBefore=$db->query('SELECT * FROM admin_permissions ORDER BY id')->fetchAll();
+ $pending=$service->create($actor,array_replace($payload,['username'=>'stale_recipient','email'=>'stale_recipient@example.invalid']));$recipientToken=$captured;
+ $recipientPage=misRequest($stale,'/auth/setup_account.php');
+ $loaded=misRequest($stale,'/auth/setup_account.php',['action'=>'load_invitation','token'=>$recipientToken,'csrf_token'=>misField($recipientPage,'csrf_token')]);
+ checkMis($loaded['status']===200&&str_contains($loaded['body'],'id="setupAccountForm"'),'Expired-session recipient can verify fragment token through CSRF-protected POST');
+ checkMis($db->query('SELECT status FROM users WHERE id='.(int)$pending['user_id'])->fetchColumn()==='pending','Opening an invitation never activates the account');
+ $accepted=misRequest($stale,'/auth/setup_account.php',['action'=>'activate','token'=>$recipientToken,'csrf_token'=>misField($loaded,'csrf_token'),'password'=>'RecipientPass!42','confirm_password'=>'RecipientPass!42','user_id'=>$actor,'role'=>'admin','admin_type'=>'primary_admin','profile'=>'mis']);
+ checkMis(str_contains($accepted['body'],'Your account is active.'),'Expired-session recipient activates only the token-bound account');
+ $activated=$db->query('SELECT * FROM users WHERE id='.(int)$pending['user_id'])->fetch();
+ checkMis(password_verify('RecipientPass!42',$activated['password_hash'])&&$activated['admin_type']==='co_admin'&&permission_profile($activated,$db)==='doctor','Activation hashes password and ignores requested privilege escalation');
+ checkMis($actorBefore===$db->query("SELECT * FROM users WHERE id=$actor")->fetch()&&$grantsBefore===$db->query('SELECT * FROM admin_permissions ORDER BY id')->fetchAll(),'Recipient setup preserves existing MIS identity and assigned permissions');
+ checkMis(misRequest($stale,$path,$payload,true)['status']===401,'Opening and activating an invitation does not reauthenticate MIS');
+ $signedInSetup=misRequest($c,'/auth/setup_account.php');
+ checkMis($signedInSetup['status']===200&&str_contains($signedInSetup['body'],'<html'),'Signed-in browser can open recipient setup without dashboard redirect');
  $page=misRequest($c,$path);$fresh=array_replace($payload,['request_nonce'=>misField($page,'request_nonce')]);
  $missingCsrf=$fresh;unset($missingCsrf['csrf_token']);checkMis(misRequest($c,$path,$missingCsrf,true)['status']===403,'Missing CSRF rejected as HTTP 403');
  checkMis(misRequest($c,$path,array_replace($fresh,['first_name'=>'']),true)['status']===422,'Missing required identity rejected as HTTP 422');
@@ -87,5 +104,13 @@ try{
  if(in_array('--browser',$argv,true)){$service->create($actor,array_replace($payload,['username'=>'browser_accept','email'=>'browser_accept@example.invalid']));putenv('MIS_DOCTOR_TOKEN='.$captured);putenv('MIS_TEST_BASE='.$base);passthru('node '.escapeshellarg(__DIR__.'/mis_admin_browser.cjs'),$exit);checkMis($exit===0,'Actual Chrome viewport and modal checks');}
  if(in_array('--sos-browser',$argv,true)){putenv('MIS_TEST_BASE='.$base);passthru('node '.escapeshellarg(__DIR__.'/sos_mobile_browser.cjs'),$sosExit);checkMis($sosExit===0,'Actual Chrome SOS confirmation and location handling');}
  if(in_array('--shared-ui-browser',$argv,true)){$db->exec("INSERT INTO students(user_id,student_number) SELECT id,'UI-ST001' FROM users WHERE username='deny_student'");putenv('MIS_TEST_BASE='.$base);passthru('node '.escapeshellarg(__DIR__.'/shared_ui_browser.cjs'),$uiExit);checkMis($uiExit===0,'Shared cross-role UI browser checks');}
+ if(in_array('--invitation-browser',$argv,true)){
+   $browserTokens=[];
+   foreach(['mobile','desktop'] as $device){$service->create($actor,array_replace($payload,['username'=>'invite_'.$device,'email'=>'invite_'.$device.'@example.invalid']));$browserTokens[$device]=$captured;}
+   $service->create($actor,array_replace($payload,['username'=>'invite_expired','email'=>'invite_expired@example.invalid']));$browserTokens['expired']=$captured;
+   $db->prepare('UPDATE admin_invitations SET expires_at=DATE_SUB(NOW(),INTERVAL 1 DAY) WHERE token_hash=?')->execute([hash('sha256',$captured)]);
+   putenv('MIS_INVITATION_TOKENS='.json_encode($browserTokens));putenv('MIS_TEST_BASE='.$base);
+   passthru('node '.escapeshellarg(__DIR__.'/invitation_browser.cjs'),$browserExit);checkMis($browserExit===0,'Fresh mobile and desktop browser invitation workflows');
+ }
  echo "$checks MIS HTTP checks passed.\n";
 }finally{if(is_resource($server)){proc_terminate($server);proc_close($server);}$admin->exec("DROP DATABASE IF EXISTS `$database`");}
