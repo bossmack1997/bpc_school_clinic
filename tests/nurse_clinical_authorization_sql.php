@@ -11,6 +11,8 @@ $name = 'bpc_nurse_sql_test_' . bin2hex(random_bytes(5));
 $count = 0;
 $migration = file_get_contents(__DIR__.'/../database/migration_nurse_clinical_authorization_hostinger.sql');
 $preflight = file_get_contents(__DIR__.'/../database/preflight_nurse_clinical_authorization_hostinger.sql');
+// Rebind the fixed production target only inside disposable test SQL.
+$preflight = str_replace('u962995739_bpc_clinic', $name, $preflight);
 $post = file_get_contents(__DIR__.'/../database/verify_nurse_clinical_authorization_hostinger.sql');
 function check(bool $ok, string $label): void {
     global $count;
@@ -70,7 +72,49 @@ try {
     }
     foreach (statements($migration) as $statement) check(!preg_match('/^(UPDATE|DELETE|INSERT|REPLACE|TRUNCATE)\b/i', $statement), 'Migration statement has no account/patient DML');
     check(!preg_match('/[\x27\x22](?:UPDATE|DELETE|INSERT|REPLACE|TRUNCATE)\s/i', $migration), 'Dynamic SQL contains no data mutation');
-    if (in_array('--metadata-smoke', $argv, true)) {
+    if (in_array('--context-preflight', $argv, true)) {
+        fixture($db,$name);
+        $before=schemaSnapshot($db);
+        [$selectedResults]=runSql($db,$preflight);
+        $db->exec('USE information_schema');
+        [$wrongContextResults]=runSql($db,$preflight);
+        check($db->query('SELECT DATABASE()')->fetchColumn()==='information_schema','Preflight preserves selected information_schema context');
+        check($wrongContextResults[0][0]['target_result']==='TARGET_VERIFIED','Explicit target verified from information_schema');
+        check($wrongContextResults[0][0]['intended_database']===$name,'Diagnostic names the intended fixture schema');
+        $summary=static function($sets){foreach($sets as $rows)if(isset($rows[0]['preflight_result']))return $rows[0]['preflight_result'];throw new RuntimeException('Preflight summary missing');};
+        check($summary($wrongContextResults)===$summary($selectedResults)&&str_starts_with($summary($wrongContextResults),'METADATA_READY_ONLY'),'Metadata decision is independent of selected database');
+        $noContext=new PDO('mysql:host='.DB_HOST.';port='.DB_PORT.';charset=utf8mb4',DB_USER,DB_PASS,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+        [$noContextResults]=runSql($noContext,$preflight);
+        check($noContext->query('SELECT DATABASE()')->fetchColumn()===null&&$summary($noContextResults)===$summary($selectedResults),'No selected database is required and context remains unset');
+        foreach($wrongContextResults as $rows)foreach($rows as $row)foreach(['nurse_orphan_check_sql','nurse_duplicate_check_sql'] as $key)if(isset($row[$key])){
+            check(str_contains($row[$key],'`'.$name.'`.'),'Generated patient-free data check is fully schema-qualified');
+            $db->query($row[$key])->closeCursor();
+        }
+        check($db->query('SELECT DATABASE()')->fetchColumn()==='information_schema','Generated data checks preserve selected database');
+        [$missingResults]=runSql($db,str_replace($name,$name.'_missing',$preflight));
+        check($missingResults[0][0]['target_result']==='BLOCK_TARGET_NOT_VERIFIED'&&$summary($missingResults)==='BLOCK','Missing or invisible target fails closed');
+        foreach($missingResults as $rows)foreach($rows as $row)foreach(['nurse_orphan_check_sql','nurse_duplicate_check_sql'] as $key)if(isset($row[$key]))check(str_starts_with($row[$key],'BLOCK_TARGET_NOT_VERIFIED'),'Unverified target suppresses runnable generated data checks');
+        [$wrongCaseResults]=runSql($db,str_replace($name,strtoupper($name),$preflight));
+        check($wrongCaseResults[0][0]['target_result']==='BLOCK_TARGET_NOT_VERIFIED'&&$summary($wrongCaseResults)==='BLOCK','Schema case mismatch fails exact-name verification');
+        $db->exec("USE `$name`");
+        check(schemaSnapshot($db)===$before,'Context preflight preserves schema and records');
+        $db->exec('CREATE TABLE nurse_clinical_reviews(nurse_user_id INT,doctor_user_id INT) ENGINE=InnoDB');
+        $db->exec('INSERT INTO nurse_clinical_reviews VALUES (1,2),(999,2)');
+        $db->exec('USE information_schema');
+        [$auditResults]=runSql($db,$preflight);
+        foreach($auditResults as $rows)if(isset($rows[0]['audit_data_check_sql'])){
+            $auditSql=$rows[0]['audit_data_check_sql'];
+            check(str_contains($auditSql,'`'.$name.'`.`nurse_clinical_reviews`')&&(int)$db->query($auditSql)->fetchColumn()===1,'Qualified generated audit check detects an orphan from information_schema');
+        }
+        check($summary($auditResults)==='BLOCK','Malformed audit schema remains blocked regardless of selected database');
+        check((int)$db->query("SELECT COUNT(*) FROM `$name`.nurse_clinical_reviews")->fetchColumn()===2,'Read-only preflight preserves synthetic audit history including orphan');
+        $db->exec("USE `$name`");
+        $db->exec('DROP TABLE nurses');
+        $db->exec('USE information_schema');
+        [$missingTableResults]=runSql($db,$preflight);
+        check($missingTableResults[0][0]['target_result']==='BLOCK_TARGET_NOT_VERIFIED'&&$summary($missingTableResults)==='BLOCK','Missing lowercase base table fails closed');
+        $db->exec("USE `$name`");
+    } elseif (in_array('--metadata-smoke', $argv, true)) {
         fixture($db,$name);runSql($db,$preflight);
         check(true,'Final preflight including existing-FK inventory executes without audit table');
         migrated($db,$migration);runSql($db,$post);

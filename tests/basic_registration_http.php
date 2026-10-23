@@ -120,7 +120,7 @@ try {
             $db->prepare("UPDATE nurses SET position='School Nurse',valid_id_path=COALESCE(valid_id_path,'storage/registration_documents/fixture.pdf') WHERE user_id=?")->execute([$after['id']]);
             $reviewerUser=$db->query('SELECT * FROM users WHERE id='.$reviewer)->fetch();
             $authorization=new NurseVerificationService($db,$reviewerUser);
-            $authorization->authorize((int)$after['id'],'Synthetic PRC and appointment verification reference','FixturePass!42',(int)testAccount($db,$username)['credential_version']);
+            $authorization->authorize((int)$after['id'],'Synthetic PRC and appointment verification reference','FixturePass!42',(int)testAccount($db,$username)['credential_version'],true);
             request($c,'/auth/logout.php');
             $loginToken=token(request($c,'/auth/login.php'));
             $login=request($c,'/auth/login.php',['csrf_token'=>$loginToken,'identifier'=>$username,'password'=>'FixturePass!42']);

@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         switch ($action) {
             case 'authorize':
                 if(($_POST['institutional_verified']??'')!=='1')throw new InvalidArgumentException('Confirm verification of institutional appointment authorization.');
-                $service->authorize($nurseId, $notes, $password, $version);
+                $service->authorize($nurseId, $notes, $password, $version, true);
                 set_flash('success', 'Nurse clinical access successfully authorized. Clinical permissions granted.');
                 break;
 
@@ -184,6 +184,8 @@ $pageTitle = 'Nurse Clinical Verification';
         </div>
       </div>
 
+      <?php if (!empty($counts['unclassified'])): ?><div class="alert alert-warning small py-2" role="alert"><?= (int)$counts['unclassified'] ?> Nurse account(s) have no recognised clinical authorization status and appear only under "All". They cannot be approved until their Nurse profile record is repaired.</div><?php endif; ?>
+
       <!-- Detail View If Nurse Selected -->
       <?php if ($selectedNurse): ?>
         <section class="card border-0 shadow-sm mb-4" id="nurseDetailView">
@@ -230,7 +232,7 @@ $pageTitle = 'Nurse Clinical Verification';
                   <div class="col-sm-6">
                     <div class="border rounded p-2 bg-light">
                       <div class="small text-muted">Clinical Position</div>
-                      <div class="fw-semibold"><?= e($selectedNurse['position'] ?: 'School Clinic Nurse') ?></div>
+                      <div class="fw-semibold"><?= e($selectedNurse['position'] ?: 'Not provided') ?></div>
                     </div>
                   </div>
                   <div class="col-sm-6">
@@ -241,13 +243,25 @@ $pageTitle = 'Nurse Clinical Verification';
                   </div>
                 </div>
 
+                <h3 class="h6 text-success fw-bold mb-2"><i class="bi bi-clipboard-check me-2"></i>Eligibility Checklist</h3>
+                <ul class="list-group mb-3 small" aria-label="Clinical approval eligibility checklist">
+                  <?php foreach ($selectedNurse['eligibility']['checks'] as $chk): ?>
+                    <li class="list-group-item d-flex justify-content-between align-items-start gap-2">
+                      <div><strong><?= e($chk['label']) ?></strong><div class="text-muted"><?= e($chk['detail']) ?></div></div>
+                      <?php if ($chk['ok'] === true): ?><span class="badge bg-success-subtle text-success">Met</span>
+                      <?php elseif ($chk['ok'] === false): ?><span class="badge bg-danger-subtle text-danger">Not met</span>
+                      <?php else: ?><span class="badge bg-warning-subtle text-warning">Doctor decision</span><?php endif; ?>
+                    </li>
+                  <?php endforeach; ?>
+                </ul>
+
                 <h3 class="h6 text-success fw-bold mb-3"><i class="bi bi-person-lines-fill me-2"></i>Personal & Contact Information</h3>
                 <div class="row g-2 mb-3">
                   <div class="col-sm-6">
                     <div class="border rounded p-2">
                       <div class="small text-muted">Email Address</div>
                       <div class="fw-semibold"><?= e($selectedNurse['email']) ?></div>
-                      <span class="badge bg-success-subtle text-success mt-1"><i class="bi bi-check-circle me-1"></i>Email Verified</span>
+                      <?php if (!empty($selectedNurse['email_verified'])): ?><span class="badge bg-success-subtle text-success mt-1"><i class="bi bi-check-circle me-1"></i>Email Verified</span><?php else: ?><span class="badge bg-danger-subtle text-danger mt-1"><i class="bi bi-x-circle me-1"></i>Email Not Verified</span><?php endif; ?>
                     </div>
                   </div>
                   <div class="col-sm-6">
@@ -289,9 +303,11 @@ $pageTitle = 'Nurse Clinical Verification';
                   <div class="d-flex flex-wrap gap-2">
                     <?php if ($selectedNurse['effective_status'] !== 'authorized'): ?>
                       <!-- Authorize Action -->
-                      <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#authorizeModal">
+                      <?php $approvalBlockers = array_values(array_filter($selectedNurse['eligibility']['blockers'], static fn($b) => !str_starts_with($b, 'Institutional'))); ?>
+                      <span <?= $approvalBlockers ? 'tabindex="0" title="' . e(implode('; ', $approvalBlockers)) . '"' : '' ?>>
+                      <button type="button" class="btn btn-sm btn-success" <?= $approvalBlockers ? 'disabled aria-describedby="approvalBlockedReasons"' : 'data-bs-toggle="modal" data-bs-target="#authorizeModal"' ?>>
                         <i class="bi bi-check-circle-fill me-1"></i>Authorize Clinical Access
-                      </button>
+                      </button></span>
                       
                       <!-- Request Info Action -->
                       <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#requestInfoModal">
@@ -309,6 +325,9 @@ $pageTitle = 'Nurse Clinical Verification';
                       </button>
                     <?php endif; ?>
                   </div>
+                  <?php if (!empty($approvalBlockers)): ?>
+                  <div id="approvalBlockedReasons" class="alert alert-danger small mt-3 mb-0" role="alert"><strong>Authorization is disabled:</strong><ul class="mb-0 ps-3"><?php foreach ($approvalBlockers as $b): ?><li><?= e($b) ?></li><?php endforeach; ?></ul>The Nurse must correct these items under Account &rarr; Submit credentials, or you may request information or reject the application.</div>
+                  <?php endif; ?>
                 </div>
               </div>
 
@@ -494,17 +513,17 @@ $pageTitle = 'Nurse Clinical Verification';
             </li>
             <li class="nav-item">
               <a class="nav-link <?= $tab === 'rejected' ? 'active bg-danger text-white' : 'text-muted' ?>" href="?tab=rejected">
-                Rejected
+                Rejected <span class="badge bg-light text-dark ms-1"><?= (int)$counts['rejected'] ?></span>
               </a>
             </li>
             <li class="nav-item">
               <a class="nav-link <?= $tab === 'revoked' ? 'active bg-secondary text-white' : 'text-muted' ?>" href="?tab=revoked">
-                Revoked
+                Revoked <span class="badge bg-light text-dark ms-1"><?= (int)$counts['revoked'] ?></span>
               </a>
             </li>
             <li class="nav-item">
               <a class="nav-link <?= $tab === 'all' ? 'active bg-dark text-white' : 'text-muted' ?>" href="?tab=all">
-                All
+                All <span class="badge bg-light text-dark ms-1"><?= (int)$counts['total'] ?></span>
               </a>
             </li>
           </ul>
@@ -532,6 +551,7 @@ $pageTitle = 'Nurse Clinical Verification';
                 <th scope="col">PRC License</th>
                 <th scope="col">Employee ID</th>
                 <th scope="col">Email Status</th>
+                <th scope="col">Eligibility</th>
                 <th scope="col">Clinical Authorization</th>
                 <th scope="col">Registered</th>
                 <th scope="col" class="text-end">Action</th>
@@ -540,7 +560,7 @@ $pageTitle = 'Nurse Clinical Verification';
             <tbody>
               <?php if (empty($nurses)): ?>
                 <tr>
-                  <td colspan="7" class="text-center text-muted py-4">
+                  <td colspan="8" class="text-center text-muted py-4">
                     <i class="bi bi-inbox fs-3 d-block mb-1"></i>
                     No nurse applications found under this status.
                   </td>
@@ -569,6 +589,11 @@ $pageTitle = 'Nurse Clinical Verification';
                       <?php else: ?>
                         <span class="badge bg-warning-subtle text-warning"><i class="bi bi-clock me-1"></i>Pending OTP</span>
                       <?php endif; ?>
+                    </td>
+                    <td>
+                      <?php $unmet = array_filter($nurse['eligibility']['checks'], static fn($c) => $c['ok'] === false); ?>
+                      <?php if ($unmet): ?><span class="small text-danger"><?= e(implode(', ', array_map(static fn($c) => $c['label'], $unmet))) ?> not met</span>
+                      <?php else: ?><span class="small text-success">Evidence complete; Doctor review pending</span><?php endif; ?>
                     </td>
                     <td>
                       <?php
@@ -604,4 +629,3 @@ $pageTitle = 'Nurse Clinical Verification';
 <?php include __DIR__ . '/../../components/footer.php'; ?>
 </body>
 </html>
-
