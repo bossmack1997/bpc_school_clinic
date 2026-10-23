@@ -1,3 +1,5 @@
+-- MariaDB syntax. For portable Hostinger/phpMyAdmin import use
+-- database/migration_basic_otp_activation_hostinger.sql instead.
 -- Additive only: no existing account activation or permission updates.
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS email_verified_at DATETIME NULL,
