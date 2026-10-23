@@ -7,8 +7,11 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
 
-if (is_logged_in()) {
-    redirect(dashboard_url_for(current_user()['role']));
+$showSessionNotice=($_GET['timeout']??'')==='1';
+if (!empty($_SESSION['user']['id'])) {
+    if(is_logged_in()&&validate_session())redirect(dashboard_url_for(current_user()['role']));
+    reset_authentication_session();$showSessionNotice=true;
+    if($_SERVER['REQUEST_METHOD']==='POST'){header('Location: '.app_url('auth/login.php?timeout=1'),true,303);exit;}
 }
 
 $db = getDB();
@@ -80,6 +83,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'This account role is not available. Please contact the system administrator.';
             } else {
                 login_user($user);
+                $_SESSION['password_confirmed_at']=time();
+                $_SESSION['password_confirmed_user_id']=(int)$user['id'];
                 login_rate_limit_clear($clientIp, $identifier);
                 login_rate_limit_reset_user($user['id']);
                 $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
@@ -113,6 +118,7 @@ $pageTitle = 'Login';
     </div>
     <div class="auth-form-side">
       <h4 class="mb-1">Welcome back</h4>
+      <?php if($showSessionNotice): ?><p class="alert alert-info" role="status">Your session expired. Sign in again to continue and review your pending action.</p><?php endif; ?>
       <p class="text-muted mb-4">Sign in to your clinic account</p>
 
       <?php if ($errors): ?>

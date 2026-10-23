@@ -16,7 +16,27 @@ $db = getDB();
 $doctor = current_user();
 $service = new NurseVerificationService($db, $doctor);
 
-if (!$service->ready()) { http_response_code(503); $pageTitle='Clinical Staff Verification'; include __DIR__.'/../../includes/head.php'; echo '<main class="container py-5"><h1>Clinical Staff Verification</h1><p role="alert">The clinical authorization schema is unavailable. MIS must apply the reviewed nurse clinical authorization migration before reviews can proceed.</p><a href="dashboard.php">Clinical Command Center</a></main>'; exit; }
+if (!$service->ready()) {
+    http_response_code(503);
+    $pageTitle='Clinical Staff Verification';
+    ?>
+    <!doctype html><html lang="en"><head><?php include __DIR__.'/../../includes/head.php'; ?></head><body>
+    <div class="app-wrapper">
+      <?php include __DIR__.'/../../components/sidebar.php'; ?>
+      <div class="main-content">
+        <?php include __DIR__.'/../../components/navbar.php'; ?>
+        <main id="mainContent" class="content-area">
+          <h1 class="h4">Clinical Staff Verification</h1>
+          <div class="alert alert-warning" role="alert">Clinical verification setup is incomplete. Reviews are temporarily unavailable. Ask the system administrator to apply and verify the reviewed clinical authorization schema. No approval or access change has been made.</div>
+          <p>Doctors review professional credentials and authorize clinical access. Routine clinical approval does not require MIS approval. Email-verified Nurses retain basic account access while their application is pending.</p>
+          <a class="btn btn-outline-success" href="dashboard.php">Clinical Command Center</a>
+        </main>
+      </div>
+    </div>
+    <?php include __DIR__.'/../../components/footer.php'; ?>
+    </body></html>
+    <?php exit;
+}
 
 $error = '';
 $success = '';

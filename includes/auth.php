@@ -79,28 +79,48 @@ function is_api_request(): bool {
     return false;
 }
 
+/** Document navigation receives HTML/login; background API calls retain JSON. */
+function auth_expects_json(): bool {
+    if(strtolower($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='xmlhttprequest')return true;
+    $accept=strtolower($_SERVER['HTTP_ACCEPT']??'');
+    if(($_SERVER['HTTP_SEC_FETCH_MODE']??'')==='navigate'||($_SERVER['HTTP_SEC_FETCH_DEST']??'')==='document'||str_contains($accept,'text/html'))return false;
+    return is_api_request();
+}
+
+/** Invalidate authentication and replace its CSRF/session ID with an anonymous session. */
+function reset_authentication_session(): void {
+    logout_user();
+    session_id('');
+    configure_secure_session();
+    csrf_regenerate();
+}
+
+function authentication_required(string $message='Your session expired. Sign in again.'): never {
+    if(!empty($_SESSION['user']['id']))reset_authentication_session();
+    header('Cache-Control: no-store, private');
+    $login=app_url('auth/login.php?timeout=1');
+    if(auth_expects_json()) {
+        http_response_code(401);header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success'=>false,'error_code'=>'AUTHENTICATION_REQUIRED','reauthentication_required'=>true,'message'=>$message,'login_url'=>$login]);exit;
+    }
+    header('Location: '.$login,true,303);exit;
+}
+
+function password_confirmation_recent(): bool {
+    $user=current_user();$when=(int)($_SESSION['password_confirmed_at']??0);
+    return $user && (int)($_SESSION['password_confirmed_user_id']??0)===(int)$user['id'] && $when>0 && time()>=$when && time()-$when<=300;
+}
+
 function require_login() {
+    if(!empty($_SESSION['user']['id'])&&!is_logged_in())authentication_required();
     if (!is_logged_in()) {
         attempt_remember_me_login();
     }
     if (!is_logged_in()) {
-        if (is_api_request()) {
-            http_response_code(401);
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'message' => 'Session expired or not authenticated. Please log in again.']);
-            exit;
-        }
-        redirect(APP_URL . '/auth/login.php');
+        authentication_required('Sign in to continue.');
     }
     if (!validate_session()) {
-        logout_user();
-        if (is_api_request()) {
-            http_response_code(401);
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'message' => 'Session timed out. Please log in again.']);
-            exit;
-        }
-        redirect(APP_URL . '/auth/login.php?timeout=1');
+        authentication_required();
     }
     // Public nurses can sign in, but every protected clinical page/API stays closed.
     $scopeUser = current_user();
@@ -114,7 +134,7 @@ function require_login() {
             realpath(BASE_PATH . '/auth/logout.php')
         ];
         if (!in_array(realpath($script), array_filter($basicPages), true)) {
-            if (is_api_request()) {
+            if (auth_expects_json()) {
                 http_response_code(403);
                 header('Content-Type: application/json');
                 echo json_encode(['success'=>false,'message'=>'Clinical access requires authorized staff permissions. Your email verification is complete.']);
@@ -131,14 +151,7 @@ function require_login() {
 
 function check_session_timeout() {
     if (!validate_session()) {
-        logout_user();
-        if (is_api_request()) {
-            http_response_code(401);
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'message' => 'Session timed out. Please log in again.']);
-            exit;
-        }
-        redirect(APP_URL . '/auth/login.php?timeout=1');
+        authentication_required();
     }
 }
 
@@ -147,15 +160,7 @@ function require_role($roles) {
 
     $currentUser = current_user();
     if (!$currentUser) {
-        logout_user();
-        if (is_api_request()) {
-            http_response_code(401);
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'message' => 'Session expired. Please log in again.']);
-            exit;
-        }
-        redirect(APP_URL . '/auth/login.php?timeout=1');
-        exit;
+        authentication_required();
     }
 
     $roles = is_array($roles) ? $roles : [$roles];
@@ -164,7 +169,7 @@ function require_role($roles) {
     $roles = array_map('canonical_role', $roles);
     $userRole = canonical_role($currentUser['role'] ?? '');
     if (!in_array($userRole, $roles, true)) {
-        if (is_api_request()) {
+        if (auth_expects_json()) {
             http_response_code(403);
             header('Content-Type: application/json');
             echo json_encode(['success' => false, 'message' => 'Access denied.']);
@@ -227,9 +232,9 @@ function has_admin_permission(string $permission, ?array $user = null, ?PDO $db 
  */
 function admin_access_denied(string $message = 'Access denied: this module is not assigned to your account.'): never {
     http_response_code(403);
-    if (is_api_request()) json_response(false, ['error_code'=>'ADMIN_PERMISSION_DENIED'], $message);
+    if (auth_expects_json()) json_response(false, ['error_code'=>'ADMIN_PERMISSION_DENIED'], $message);
     header('Content-Type: text/html; charset=utf-8');
-    echo '<!doctype html><html lang="en"><meta charset="utf-8"><title>Access denied</title><h1>Access denied</h1><p>'.htmlspecialchars($message,ENT_QUOTES,'UTF-8').'</p><p><a href="'.htmlspecialchars(APP_URL.'/pages/admin/dashboard.php',ENT_QUOTES,'UTF-8').'">Return to dashboard</a></p></html>';
+    echo '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Access denied</title><h1>Access denied</h1><p>'.htmlspecialchars($message,ENT_QUOTES,'UTF-8').'</p><p><a href="'.htmlspecialchars(dashboard_url_for(current_user()['role']??'student'),ENT_QUOTES,'UTF-8').'">Return to dashboard</a></p></html>';
     exit;
 }
 function require_admin_permission(string $permission): void {
@@ -264,6 +269,7 @@ function login_user(array $userRow) {
     if(($userRow['status']??'')!=='active' || ($userRow['registration_status']??'')==='rejected' || !is_supported_role($userRow['role']??'') || (($userRow['role']??'')!=='admin' && empty($userRow['email_verified']))) {
         throw new RuntimeException('Only active, verified accounts can sign in.');
     }
+    unset($_SESSION['password_confirmed_at'],$_SESSION['password_confirmed_user_id']);
     $_SESSION['credential_version'] = (int)($userRow['credential_version'] ?? 0);
     $_SESSION['user'] = [
         'id'         => (int)$userRow['id'],

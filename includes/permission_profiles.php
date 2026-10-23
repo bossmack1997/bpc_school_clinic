@@ -37,16 +37,16 @@ function enforce_profile_route(): void {
     // login cookie. Match the executed file, never a query parameter or basename.
     // This grants no session or MIS permissions; setup validates/consumes its token.
     $executed = realpath($_SERVER['SCRIPT_FILENAME'] ?? '');
-    if ($executed !== false && $executed === realpath(__DIR__.'/../auth/setup_account.php')) return;
+    foreach(['setup_account.php','login.php','logout.php','register.php','register_hub.php','verify_registration.php','forgot_password.php','reset_password.php'] as $publicAuthFile) {
+        if($executed!==false&&$executed===realpath(__DIR__.'/../auth/'.$publicAuthFile))return;
+    }
     if(empty($_SESSION['user']['id']))return;
-    $u=current_user();if(!$u)return;
+    $u=current_user();if(!$u||!validate_session())authentication_required();
     if(($u['role']??'')==='teacher' && !empty($u['self_service_only'])) {
         $path=str_replace('\\','/',$_SERVER['SCRIPT_NAME']??'');$file=basename($path);
         if((str_contains($path,'/api/') && in_array($file,['my_advisory.php','sections.php'],true)) || (str_contains($path,'/pages/adviser/') && in_array($file,['my_advisory.php','students.php'],true)))admin_access_denied('This basic account provides personal clinic services. Advisory access requires separate staff authorization.');
     }
     if(($u['role']??'')!=='admin')return;
-    // APIs that use only is_logged_in must also reject revoked/expired sessions.
-    if(!validate_session()){http_response_code(401);header('Content-Type: application/json');echo json_encode(['success'=>false,'message'=>'Reauthentication required.']);exit;}
     $p=permission_profile($u);$path=str_replace('\\','/',$_SERVER['SCRIPT_NAME']??'');$file=basename($path);
     $clinicalApis=['patients.php','medical_records.php','health_monitoring.php','walkin.php','dispensing.php','vaccinations.php','certificates.php','nurse_dashboard.php','students_api.php','my_advisory.php','reports.php','clinical.php'];
     if($p==='mis' && str_contains($path,'/api/') && in_array($file,$clinicalApis,true))admin_access_denied('MIS access excludes clinical records and operations.');
