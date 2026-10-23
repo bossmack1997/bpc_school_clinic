@@ -58,6 +58,7 @@ $sbNav = [
             ],
             'Account' => [
                 ['user', 'Profile', 'profile.php'],
+                ['shield-check', 'Professional Credentials', 'credentials.php'],
                 ['logout', 'Logout', null, 'logout'],
             ],
         ],
@@ -154,7 +155,7 @@ if($sbRole==='nurse' && !empty($sbUser['self_service_only'])){
     $sbMenus = [
         'sections' => [
             'Overview' => [['dashboard', 'Account Overview', 'account.php']],
-            'Account' => [['user', 'My Profile', 'profile.php'], ['settings', 'Settings', 'settings.php'], ['logout', 'Logout', null, 'logout']],
+            'Account' => [['user', 'My Profile', 'profile.php'], ['shield-check', 'Professional Credentials', 'credentials.php'], ['settings', 'Settings', 'settings.php'], ['logout', 'Logout', null, 'logout']],
         ],
         'brand' => 'Clinic Nurse',
     ];

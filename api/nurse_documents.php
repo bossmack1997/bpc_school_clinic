@@ -38,7 +38,13 @@ if (!$isDoctor && !$isSelf) {
 }
 
 $db = getDB();
-$stmt = $db->prepare("SELECT valid_id_path FROM nurses WHERE user_id = ? LIMIT 1");
+if (!empty($_GET['draft'])) {
+    // Unsubmitted draft documents are visible only to the owning Nurse.
+    if (!$isSelf) { http_response_code(403); exit('Draft documents are private to the Nurse who uploaded them.'); }
+    $stmt = $db->prepare("SELECT pending_document_path FROM nurse_credential_drafts WHERE nurse_user_id = ? LIMIT 1");
+} else {
+    $stmt = $db->prepare("SELECT valid_id_path FROM nurses WHERE user_id = ? LIMIT 1");
+}
 $stmt->execute([$nurseUserId]);
 $relPath = $stmt->fetchColumn();
 

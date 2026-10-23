@@ -108,6 +108,7 @@ $nurses = $service->listNurses($tab, $search, 100);
 $selectedNurse = null;
 if ($viewId > 0) {
     $selectedNurse = $service->getNurse($viewId);
+    $lastSubmission = $selectedNurse ? $service->lastSubmission($viewId) : null;
 }
 
 $pageTitle = 'Nurse Clinical Verification';
@@ -285,6 +286,12 @@ $pageTitle = 'Nurse Clinical Verification';
                 </div>
 
                 <!-- Review Notes If Any -->
+                <div class="border rounded p-2 mb-3 small" aria-label="Submission and review status">
+                  <div><strong>Submission:</strong> <?= $lastSubmission ? e(date('M d, Y g:i A', strtotime($lastSubmission['created_at']))) . (!empty($lastSubmission['material_change']) ? ' (material change)' : '') : 'No Nurse resubmission recorded (original registration data)' ?></div>
+                  <div><strong>Review status:</strong> <?= e(ucwords(str_replace('_', ' ', $selectedNurse['effective_status']))) ?><?= !empty($selectedNurse['clinical_reviewed_at']) ? ' &middot; last decision ' . e($selectedNurse['clinical_reviewed_at']) . (!empty($selectedNurse['reviewer_last_name']) ? ' by Dr. ' . e($selectedNurse['reviewer_first_name'] . ' ' . $selectedNurse['reviewer_last_name']) : '') : ' &middot; no Doctor decision recorded yet' ?></div>
+                  <?php if ($lastSubmission && $lastSubmission['previous_status'] === 'authorized'): ?><div class="text-danger mt-1"><i class="bi bi-arrow-repeat me-1"></i>Previously authorized Nurse changed credentials: re-verification required. Clinical access is paused until you decide.</div><?php endif; ?>
+                  <?php if (!empty($selectedNurse['eligibility']['blockers'])): ?><div class="mt-1"><strong>Missing requirements:</strong> <?= e(implode('; ', array_filter($selectedNurse['eligibility']['blockers'], static fn($b) => !str_starts_with($b, 'Institutional')))) ?: 'None' ?></div><?php endif; ?>
+                </div>
                 <?php if (!empty($selectedNurse['clinical_review_notes'])): ?>
                   <div class="alert alert-info py-2 px-3 small mb-3">
                     <strong>Current Review Notes:</strong> <?= e($selectedNurse['clinical_review_notes']) ?>
