@@ -230,46 +230,48 @@ unset($_SESSION['manual_doctor_invitation']);
           <p class="text-muted small mb-3">Provision a clinical-only account. The Doctor sets their own password through an expiring, single-use invitation; MIS never sees it.</p>
 
           <div class="row g-2">
+            <div class="col-12"><h3 class="h6 mb-1">Personal information</h3></div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">First Name <span class="text-danger">*</span></label>
-              <input type="text" name="first_name" value="<?=doctor_old('first_name')?>" class="form-control form-control-sm" required maxlength="80" placeholder="First name">
+              <label for="doctor-first_name" class="form-label small fw-semibold">First Name <span class="text-danger">*</span></label>
+              <input type="text" id="doctor-first_name" name="first_name" value="<?=doctor_old('first_name')?>" class="form-control form-control-sm" required maxlength="80" placeholder="First name">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Last Name <span class="text-danger">*</span></label>
-              <input type="text" name="last_name" value="<?=doctor_old('last_name')?>" class="form-control form-control-sm" required maxlength="80" placeholder="Last name">
+              <label for="doctor-last_name" class="form-label small fw-semibold">Last Name <span class="text-danger">*</span></label>
+              <input type="text" id="doctor-last_name" name="last_name" value="<?=doctor_old('last_name')?>" class="form-control form-control-sm" required maxlength="80" placeholder="Last name">
             </div>
             <div class="col-12">
-              <label class="form-label small fw-semibold">Middle Name</label>
-              <input type="text" name="middle_name" value="<?=doctor_old('middle_name')?>" class="form-control form-control-sm" maxlength="80" placeholder="Optional">
+              <label for="doctor-middle_name" class="form-label small fw-semibold">Middle Name</label>
+              <input type="text" id="doctor-middle_name" name="middle_name" value="<?=doctor_old('middle_name')?>" class="form-control form-control-sm" maxlength="80" placeholder="Optional">
             </div>
             <div class="col-12">
-              <label class="form-label small fw-semibold">Email Address <span class="text-danger">*</span></label>
-              <input type="email" name="email" value="<?=doctor_old('email')?>" class="form-control form-control-sm" required placeholder="admin@bpc.edu.ph">
+              <label for="doctor-email" class="form-label small fw-semibold">Email Address <span class="text-danger">*</span></label>
+              <input type="email" id="doctor-email" name="email" value="<?=doctor_old('email')?>" class="form-control form-control-sm" required placeholder="admin@bpc.edu.ph">
             </div>
             <div class="col-12">
-              <label class="form-label small fw-semibold">Username <span class="text-danger">*</span></label>
-              <input type="text" name="username" value="<?=doctor_old('username')?>" class="form-control form-control-sm" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" placeholder="admin_username">
+              <label for="doctor-username" class="form-label small fw-semibold">Username <span class="text-danger">*</span></label>
+              <input type="text" id="doctor-username" name="username" value="<?=doctor_old('username')?>" class="form-control form-control-sm" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" placeholder="admin_username">
               <div class="form-text small">Letters, numbers, underscores (3-50 chars).</div>
             </div>
             <div class="col-12">
-              <label class="form-label small fw-semibold">Contact Number</label>
-              <input type="text" name="contact_number" value="<?=doctor_old('contact_number')?>" class="form-control form-control-sm" maxlength="30" placeholder="e.g. 09123456789">
+              <label for="doctor-contact_number" class="form-label small fw-semibold">Contact Number</label>
+              <input type="text" id="doctor-contact_number" name="contact_number" value="<?=doctor_old('contact_number')?>" class="form-control form-control-sm" maxlength="30" placeholder="e.g. 09123456789">
+            </div>
+            <div class="col-12"><h3 class="h6 mt-2 mb-1">Professional appointment</h3></div>
+            <div class="col-md-6">
+              <label for="doctor-official_designation" class="form-label small fw-semibold">Professional Designation <span class="text-danger">*</span></label>
+              <input type="text" id="doctor-official_designation" name="official_designation" value="<?=doctor_old('official_designation')?>" class="form-control form-control-sm" required maxlength="150" placeholder="School Physician">
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Professional Designation <span class="text-danger">*</span></label>
-              <input type="text" name="official_designation" value="<?=doctor_old('official_designation')?>" class="form-control form-control-sm" required maxlength="150" placeholder="School Physician">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label small fw-semibold">Professional License Information</label>
-              <input type="text" name="professional_license" value="<?=doctor_old('professional_license')?>" class="form-control form-control-sm" maxlength="150" placeholder="License / registration reference">
+              <label for="doctor-professional_license" class="form-label small fw-semibold">Professional License Information</label>
+              <input type="text" id="doctor-professional_license" name="professional_license" value="<?=doctor_old('professional_license')?>" class="form-control form-control-sm" maxlength="150" placeholder="License / registration reference">
             </div>
             <div class="col-md-8">
-              <label class="form-label small fw-semibold">Appointment Reference <span class="text-danger">*</span></label>
-              <input type="text" name="appointment_reference" value="<?=doctor_old('appointment_reference')?>" class="form-control form-control-sm" required maxlength="255" placeholder="Approved memorandum / board reference">
+              <label for="doctor-appointment_reference" class="form-label small fw-semibold">Appointment Reference <span class="text-danger">*</span></label>
+              <input type="text" id="doctor-appointment_reference" name="appointment_reference" value="<?=doctor_old('appointment_reference')?>" class="form-control form-control-sm" required maxlength="255" placeholder="Approved memorandum / board reference">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold">Verification Status</label>
-              <select name="verification_status" class="form-select form-select-sm">
+              <label for="doctor-verification_status" class="form-label small fw-semibold">Verification Status</label>
+              <select id="doctor-verification_status" name="verification_status" class="form-select form-select-sm">
                 <option value="pending" <?=($_POST['verification_status']??'pending')==='pending'?'selected':''?>>Pending review</option>
                 <option value="verified" <?=($_POST['verification_status']??'')==='verified'?'selected':''?>>Verified appointment</option>
               </select>
@@ -278,7 +280,7 @@ unset($_SESSION['manual_doctor_invitation']);
         </div>
         <div class="modal-footer border-0">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-success">Create Pending Invitation</button>
+          <button type="submit" class="btn btn-sm btn-success">Send Invitation</button>
         </div>
     </form>
   </div>

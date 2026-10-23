@@ -82,3 +82,5 @@ window.FIREBASE_CONFIG = {
 <script>const APP_URL = "<?= APP_URL ?>";</script>
 <!-- Moment.js for real-time clock -->
 <script src="<?= asset_url('js/moment.min.js', true) ?>"></script>
+
+<link rel="stylesheet" href="<?= asset_url('css/workflow-mobile.css', true) ?>">

@@ -732,8 +732,8 @@ $pageTitle = 'Create an Account';
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-envelope"></i></span>
                 <input type="email" name="email" id="emailInput" class="form-control" required autocomplete="email" placeholder="name@example.com" value="<?= e($old['email'] ?? '') ?>">
-                <?php if(isset($fieldErrors['email'])): ?><div class="text-danger small" id="emailInputError"><?= e($fieldErrors['email']) ?></div><?php endif; ?>
               </div>
+                <?php if(isset($fieldErrors['email'])): ?><div role="alert" class="field-error" id="emailInputError"><?= e($fieldErrors['email']) ?></div><?php endif; ?>
               <div class="form-text small text-muted">A 6-digit OTP will be dispatched to this address.</div>
             </div>
             <div class="col-12 col-sm-6">
@@ -741,8 +741,8 @@ $pageTitle = 'Create an Account';
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-at"></i></span>
                 <input type="text" name="username" id="usernameInput" class="form-control" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" autocomplete="username" placeholder="Choose a username" value="<?= e($old['username'] ?? '') ?>">
-                <?php if(isset($fieldErrors['username'])): ?><div class="text-danger small" id="usernameInputError"><?= e($fieldErrors['username']) ?></div><?php endif; ?>
               </div>
+                <?php if(isset($fieldErrors['username'])): ?><div role="alert" class="field-error" id="usernameInputError"><?= e($fieldErrors['username']) ?></div><?php endif; ?>
               <div class="form-text small text-muted">Letters, numbers, underscores only (3-50 chars).</div>
             </div>
             <div class="col-12 col-sm-6">
@@ -1147,7 +1147,7 @@ $pageTitle = 'Create an Account';
   form.querySelectorAll('input, select, textarea').forEach(input => {
     input.addEventListener('input', updateProgress);
     input.addEventListener('change', updateProgress);
-    input.addEventListener('input', () => { if (input.getAttribute('aria-invalid') === 'true') clearFieldError(input); });
+    input.addEventListener('input', () => { if (input.getAttribute('aria-invalid') === 'true' || document.getElementById(input.id + 'Error')) clearFieldError(input); });
   });
   if (pwInput) pwInput.addEventListener('input', updateStrength);
 

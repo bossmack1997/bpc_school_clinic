@@ -120,7 +120,9 @@ final class AccountMonitoringService
         $selfService=in_array('self_service_only',$columns,true)?'u.self_service_only':'NULL AS self_service_only';
         $select="SELECT u.id,u.first_name,u.last_name,u.username,u.role,u.admin_type,u.email,u.email_verified,$verifiedAt,$selfService,u.status,u.registration_status,u.validation_reason,u.created_at,u.last_login,COALESCE(s.student_number,t.employee_id,n.employee_id) AS identifier,
         (EXISTS(SELECT 1 FROM student_qrs sq WHERE sq.student_id=s.id AND sq.status IN ('active','regenerated')) OR EXISTS(SELECT 1 FROM teacher_qrs tq WHERE tq.teacher_id=t.id AND tq.status IN ('active','regenerated'))) AS has_qr";
-        $q=$this->db->prepare($select.$joins.$clause." ORDER BY u.created_at DESC,u.id DESC LIMIT 25 OFFSET $offset");$q->execute($params);
+        $orders=['name'=>'u.last_name ASC,u.first_name ASC,u.id ASC','role'=>'u.role ASC,u.id ASC','identifier'=>'identifier ASC,u.id ASC','status'=>'u.status ASC,u.id ASC','newest'=>'u.created_at DESC,u.id DESC'];
+        $order=$orders[$filters['sort']??'newest']??$orders['newest'];
+        $q=$this->db->prepare($select.$joins.$clause." ORDER BY $order LIMIT 25 OFFSET $offset");$q->execute($params);
         return ['rows'=>$q->fetchAll(),'total'=>$total,'page'=>$page,'pages'=>$pages];
     }
 }

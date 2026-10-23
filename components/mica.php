@@ -48,9 +48,9 @@ $micaGreeting = $micaTimeOfDay . ', ' . $micaFirstName . '. I am MICA, your Medi
       <form id="sosForm" novalidate>
         <div class="modal-body">
           <div class="text-center mb-3">
-            <i class="bi bi-shield-exclamation text-danger" style="font-size:3rem;"></i>
+            <i class="bi bi-shield-exclamation text-danger" style="font-size:1.5rem;"></i>
             <p class="mt-2 mb-0 fw-semibold">Are you experiencing a medical emergency?</p>
-            <small class="text-muted">Location access is required to send your current location to the school clinic during an emergency.</small>
+            <small class="text-muted">Activate SOS to notify the clinic. Allow location access to share GPS, or enter a room or landmark below.</small>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold" for="emergencyType">Emergency Type</label>
@@ -224,7 +224,7 @@ window.getLocation = function (forceFresh) {
         // If permission explicitly denied, do not retry
         if (err && err.code === 1) { // PERMISSION_DENIED
           if (statusText) {
-            statusText.textContent = 'Location access permission was denied. Submitting SOS without GPS...';
+            statusText.textContent = 'Location access permission was denied. GPS will not be included. You can add a room or landmark.';
             if (statusBox) statusBox.className = 'alert alert-warning small py-2';
           }
           finish(null);
@@ -251,7 +251,7 @@ window.getLocation = function (forceFresh) {
             if (err2 && err2.code === 1) msg = 'Location permission denied.';
             else if (err2 && err2.code === 3) msg = 'Location request timed out.';
             if (statusText) {
-              statusText.textContent = msg + ' Submitting SOS...';
+              statusText.textContent = msg + ' SOS can be sent with the location details you entered.';
               if (statusBox) statusBox.className = 'alert alert-warning small py-2';
             }
             finish(null);
@@ -264,10 +264,13 @@ window.getLocation = function (forceFresh) {
   });
 };
 
-// Auto pre-fetch GPS whenever SOS modal is opened
-$(document).on('shown.bs.modal', '#sosModal', function () {
-  window.getLocation(true);
-});
+// Opening the dialog never sends SOS or requests location; activation is explicit.
+(function () {
+  var modal=document.getElementById('sosModal');
+  function fit(){if(!modal)return;var viewport=window.visualViewport;modal.style.setProperty('--sos-height',(viewport?viewport.height:innerHeight)+'px');modal.style.setProperty('--sos-top',(viewport?viewport.offsetTop:0)+'px');}
+  fit();window.addEventListener('resize',fit);
+  if(window.visualViewport){visualViewport.addEventListener('resize',fit);visualViewport.addEventListener('scroll',fit);}
+})();
 
 // Start Continuous Real-Time Tracking for active SOS
 window.startSosLocationTracking = function (emergencyId, initialLat, initialLng, initialAcc) {
@@ -459,10 +462,13 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
 });
 
 (function () {
+  var sosSequence=0;
+  document.getElementById('sosModal').addEventListener('hide.bs.modal',function(){sosSequence++;});
+  document.querySelectorAll('#sosModal [data-bs-dismiss="modal"]').forEach(function(button){button.addEventListener('click',function(){sosSequence++;});});
   function submitSOS(e) {
     e.preventDefault();
     var type = document.getElementById('emergencyType').value;
-    var desc = document.getElementById('emergencyDesc').value.trim() || type + ' - Emergency via MICA';
+    var desc = document.getElementById('emergencyDesc').value.trim() || type + ' - Emergency report';
 
     if (!type) {
       Swal.fire({ icon: 'warning', title: 'Select Emergency Type', text: 'Please select an emergency type before submitting.' });
@@ -471,12 +477,15 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
 
     var submitBtn = document.getElementById('sosSubmitBtn');
     if (submitBtn.disabled) return;
+    var attempt=++sosSequence;
     var originalText = submitBtn.innerHTML;
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Acquiring GPS & Sending...';
     submitBtn.disabled = true;
 
     // 1) Obtain device GPS location
     window.getLocation().then(function (loc) {
+      if(attempt!==sosSequence || !document.getElementById('sosModal').classList.contains('show')){submitBtn.innerHTML=originalText;submitBtn.disabled=false;return;}
+
       var lat = loc ? loc.lat : null;
       var lng = loc ? loc.lng : null;
       var acc = loc ? loc.accuracy : null;
@@ -506,8 +515,8 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
           Swal.fire({
             icon: 'success',
             title: 'SOS Activated!',
-            html: (res.message || 'Your emergency request has been sent to the School Clinic.') +
-                  (lat ? '<br><small class="text-success mt-2 d-block">GPS coordinates transmitted. Live tracking started.</small>' : '<br><small class="text-warning mt-2 d-block">Sent without exact GPS location.</small>'),
+            text: (res.message || 'Your emergency request has been sent to the School Clinic.') +
+                  (res.latitude !== null && res.latitude !== undefined && res.longitude !== null && res.longitude !== undefined ? ' GPS coordinates were included.' : ' Sent without GPS coordinates.'),
             timer: 5000,
             timerProgressBar: true
           });
@@ -539,7 +548,8 @@ $(document).on('click', '#btnCancelActiveSos, #btnCancelActiveSosQuick', functio
 <script>
 $(document).on('click','#sosHistoryBtn',function(){
   var button=this;button.disabled=true;
-  $.get(APP_URL+'/api/emergencies.php',{action:'list',history:1},function(res){
+  BPCModal.hide(document.getElementById('sosModal'));
+  $.get(APP_URL+'/api/emergencies.php',{action:'list',history:1,mine:1},function(res){
     if(!res.success){Swal.fire('SOS history',res.message,'error');return;}
     var rows=(res.data||[]).map(function(row){return '<tr><td>'+escapeHtml(String(row.id))+'</td><td>'+escapeHtml(row.emergency_type)+'</td><td>'+escapeHtml(row.status)+'</td><td>'+escapeHtml(row.created_at)+'</td></tr>';}).join('');
     Swal.fire({title:'My SOS history',html:'<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Reference</th><th>Emergency</th><th>Status</th><th>Reported</th></tr></thead><tbody>'+rows+'</tbody></table></div>',width:750});

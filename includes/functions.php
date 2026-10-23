@@ -1504,8 +1504,8 @@ function get_admin_needs_attention_alerts(?PDO $db = null): array {
             $alerts['warning'][] = [
                 'id'       => 'reg_review',
                 'category' => 'Identity & Registration',
-                'title'    => 'Account Registrations Requiring Review',
-                'desc'     => "{$medRiskCount} registration(s) queued for administrative verification.",
+                'title'    => 'Account Security Signals',
+                'desc'     => "{$medRiskCount} pending account(s) have security signals to investigate; email OTP does not require routine approval.",
                 'count'    => $medRiskCount,
                 'link'     => 'users.php?tab=pending',
                 'icon'     => 'bi-person-exclamation',

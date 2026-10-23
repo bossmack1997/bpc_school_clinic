@@ -66,7 +66,7 @@ final class MICAHubService
         $out=[];
         $add=function($type,$entity,$id,$role,$title,$description,$reason,$severity)use(&$out){$out[]=['action_type'=>$type,'target_type'=>$entity,'target_id'=>$id,'target_role'=>$role,'title'=>$title,'description'=>$description,'reason'=>$reason,'priority'=>$severity];};
         $pending=(new AccountMonitoringService($this->db))->counts()['verification'];
-        if($pending)$add('pending_review','user',null,'admin',"$pending Account(s) Requiring Verification","$pending account(s) are pending OTP completion or authorized identity review.","Verified users.status = pending. OTP completion and identity eligibility are separate requirements; use documented review only when needed.",'high');
+        if($pending)$add('pending_review','user',null,'admin',"$pending Account(s) Requiring Verification","$pending account(s) have pending email verification, activation or invitation setup.","Verified users.status = pending. Student, Teacher and Nurse basic accounts activate through OTP; investigate security concerns separately.",'high');
         $sos=$this->db->query("SELECT id,status FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchAll();
         foreach($sos as $s)$add('emergency_triage','sos_emergency',(int)$s['id'],'nurse','Active SOS #'.$s['id'],'Emergency status: '.$s['status'].'. Open Emergency Response.','Verified nonterminal SOS status. Only clinical personnel handle the incident.','critical');
         $items=(new MedicineInventoryService($this->db))->snapshot();

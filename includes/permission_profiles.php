@@ -37,7 +37,8 @@ function enforce_profile_route(): void {
     $clinicalApis=['patients.php','medical_records.php','health_monitoring.php','walkin.php','dispensing.php','vaccinations.php','certificates.php','nurse_dashboard.php','students_api.php','my_advisory.php','reports.php','clinical.php'];
     if($p==='mis' && str_contains($path,'/api/') && in_array($file,$clinicalApis,true))admin_access_denied('MIS access excludes clinical records and operations.');
     if($p==='mis' && str_contains($path,'/pages/doctor/'))admin_access_denied('Clinical authorization required.');
-    if($p==='mis' && str_contains($path,'/api/') && in_array($file,['emergencies.php','global_sos.php','queue.php','qr_codes.php'],true))admin_access_denied('Clinical monitoring is restricted to authorized clinic personnel.');
+    $ownSosHistory=$file==='emergencies.php' && ($_SERVER['REQUEST_METHOD']??'GET')==='GET' && ($_POST['action']??$_GET['action']??'')==='list' && ($_GET['mine']??'')==='1';
+    if($p==='mis' && !$ownSosHistory && str_contains($path,'/api/') && in_array($file,['emergencies.php','global_sos.php','queue.php','qr_codes.php'],true))admin_access_denied('Clinical monitoring is restricted to authorized clinic personnel.');
     if($p==='doctor'){
         $technicalPages=['users.php','account_exceptions.php','admin_accounts.php','security.php','activity_logs.php','sections.php','qr_management.php','qr_scanner.php','pwa_debug.php','system_monitoring.php','backups.php','role_profiles.php'];
         $technicalApis=['users.php','settings.php','sections.php','activity_logs.php','admin_profiles.php','system_backups.php'];

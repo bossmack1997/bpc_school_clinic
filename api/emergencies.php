@@ -31,7 +31,7 @@ if (in_array($action, ['report','sos','update_location','cancel_sos','update_sta
 
 
 if ($role==='admin') {
-    if(in_array($action,['oversight','oversight_detail','list','live_tracking','get_location'],true))require_admin_permission('view_emergencies');
+    if(in_array($action,['oversight','oversight_detail','list','live_tracking','get_location'],true) && !($action==='list' && ($_GET['mine']??'')==='1'))require_admin_permission('view_emergencies');
     if($action==='update_status'&&!admin_can_respond_sos($u))admin_access_denied('Co-administrators have emergency monitoring access only. A nurse must handle clinical response.');
 }
 
@@ -294,7 +294,7 @@ if ($action === 'list') {
     }
     $where = '';
     $params = [];
-    if (in_array($role, ['teacher','student'], true)) {
+    if (in_array($role, ['teacher','student'], true) || ($_GET['mine'] ?? '') === '1') {
         $where = "WHERE se.user_id = ?";
         $params[] = $u['id'];
     } else {
