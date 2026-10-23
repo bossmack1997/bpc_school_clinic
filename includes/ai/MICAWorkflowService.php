@@ -29,6 +29,17 @@ class MICAWorkflowService
     public function handleNaturalLanguageQuery(string $message): ?array
     {
         $profile=permission_profile($this->user,$this->db);
+        if(preg_match('/(?:draft|summari[sz]e|summary).*patient\s*#?\s*(\d+)/i',$message,$match)){
+            if($profile!=='doctor')return ['handled'=>true,'type'=>'access_denied','reply'=>'Patient history drafts require a verified Doctor profile. Open your own authorized health record for personal information.'];
+            require_once __DIR__.'/../doctor_clinical_service.php';
+            try{return ['handled'=>true,'type'=>'clinical_draft','reply'=>(new DoctorClinicalService($this->db,$this->user))->draft((int)$match[1])];}
+            catch(InvalidArgumentException $e){return ['handled'=>true,'type'=>'clinical_draft','reply'=>'The selected patient is unavailable. Choose a patient from Patient & Consultation Records.'];}
+            catch(PDOException $e){error_log('MICA clinical draft source unavailable SQLSTATE='.$e->getCode());return ['handled'=>true,'type'=>'clinical_draft','reply'=>'The clinical draft source is temporarily unavailable. No summary or clinical change was produced. Please use the patient record or retry later.'];}
+        }
+        if($profile==='doctor'&&preg_match('/(follow.?up|nurse escalation|clinical report|clinical priorit|clinical workflow|patient records)/i',$message)){
+            require_once __DIR__.'/../doctor_clinical_service.php';$facts=(new DoctorClinicalService($this->db,$this->user))->commandCenter();
+            return ['handled'=>true,'type'=>'clinical_draft','reply'=>'MICA DRAFT — clinical oversight brief for Doctor review. Consultations today: '.($facts['today_consultations']??'Unavailable').'. Upcoming dated follow-ups (up to 10): '.($facts['followups']===null?'Unavailable':count($facts['followups'])).'. Nurse referrals addressed to Doctor/Physician (up to 10): '.($facts['escalations']===null?'Unavailable':count($facts['escalations'])).'. Low/out-of-stock medicine concerns (up to 10): '.($facts['stock']===null?'Unavailable':count($facts['stock'])).'. Open Clinical Command Center for priorities, Patient & Consultation Records for patient history, Medicine Oversight for stock, or Clinical Reports for reviewed exports. No diagnosis, treatment or record change has been made.'];
+        }
         if($profile==='mis'){
             require_once __DIR__.'/../system_monitoring.php';
             $system=(new SystemMonitoringService($this->db))->summary();

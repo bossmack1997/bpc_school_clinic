@@ -131,8 +131,7 @@ if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Adminis
      ['dashboard','Dashboard','dashboard.php'],
  ],
  'Patient Care'=>[
-     ['users','Patient Records','patients.php'],
-     ['file-medical','Consultations','consultations.php'],
+     ['file-medical','Patient & Consultation Records','patients.php'],
  ],
  'Clinical Supervision'=>[
      ['pill','Medicine Oversight','inventory.php'],
@@ -218,6 +217,7 @@ if ($sbRole === 'teacher' && !empty($sbUser['self_service_only'])) {
         $sbTabQuery = (strpos((string)$sbFile, 'tab=') !== false) ? explode('tab=', (string)$sbFile)[1] : null;
 
         $sbActive = false;
+        if($sbProfile==='doctor' && $sbFileBase==='patients.php' && in_array($sbCur,['patients.php','consultations.php'],true))$sbActive=true;
         if ($sbFileBase && $sbCur === $sbFileBase) {
             if ($sbTabQuery !== null) {
                 $sbActive = ((string)$sbTabs === $sbTabQuery);

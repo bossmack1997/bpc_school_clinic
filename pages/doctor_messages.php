@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__.'/../config/config.php';
+if(permission_profile()==='doctor')require_once __DIR__.'/../includes/doctor_page.php';
 require_once __DIR__.'/../config/config.php';require_role(['student','teacher','nurse','admin']);$u=current_user();if($u['role']==='admin'&&permission_profile($u)!=='doctor')admin_access_denied('Only verified clinical personnel and conversation participants may use physician messages.');require_once __DIR__.'/../includes/doctor_messaging_service.php';$s=new DoctorMessagingService(getDB(),$u);$pageTitle='Physician Messages';$error='';$thread=(int)($_GET['thread']??0);
 if($_SERVER['REQUEST_METHOD']==='POST'){csrf_verify_or_die();try{if(($_POST['action']??'')==='start'){$thread=$s->start((int)($_POST['recipient']??0));}else{$thread=(int)($_POST['thread']??0);$s->send($thread,is_string($_POST['message']??null)?$_POST['message']:'');}redirect(APP_URL.'/pages/doctor_messages.php?thread='.$thread);}catch(PDOException $e){error_log('Physician messaging: '.$e->getMessage());$error='Message operation could not be completed.';}catch(RuntimeException|InvalidArgumentException $e){$error=$e->getMessage();}}
 $threads=$s->threads();$messages=[];if($thread){try{$messages=$s->messages($thread);}catch(RuntimeException $e){$error=$e->getMessage();$thread=0;}}

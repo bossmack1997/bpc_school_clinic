@@ -82,13 +82,14 @@ $('#reportForm').on('submit', function (e) {
     currentReportTitle = res.title || 'Report';
     currentReportData = res.data || [];
     const d = currentReportData;
-    if (d.length === 0) { $('#resultTable').find('thead, tbody').empty(); return; }
+    if (d.length === 0) { $('#resultTable thead').empty(); $('#resultTable tbody').html('<tr><td class="text-muted py-3">No matching clinical records for this date range.</td></tr>'); return; }
     const headers = Object.keys(d[0]);
     let thead = '<tr>' + headers.map(h => '<th>' + h.replace(/_/g,' ').replace(/\b\w/g, l => l.toUpperCase()) + '</th>').join('') + '</tr>';
-    let tbody = d.map(row => '<tr>' + headers.map(h => '<td>' + (row[h] ?? '—') + '</td>').join('') + '</tr>').join('');
+    const safeText = value => $('<div>').text(String(value ?? '—')).html();
+    let tbody = d.map(row => '<tr>' + headers.map(h => '<td>' + safeText(row[h]) + '</td>').join('') + '</tr>').join('');
     $('#resultTable thead').html(thead);
     $('#resultTable tbody').html(tbody);
-  }, 'json');
+  }, 'json').fail(function(){ toastError('Clinical reports are temporarily unavailable. Please retry.'); });
 });
 
 // ============================================================

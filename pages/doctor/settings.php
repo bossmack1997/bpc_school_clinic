@@ -1,2 +1,2 @@
 <?php
-require_once __DIR__.'/../../config/config.php';require_doctor();require __DIR__.'/../admin/profile.php';
+require_once __DIR__.'/../../includes/doctor_page.php';require_doctor();require __DIR__.'/../admin/profile.php';

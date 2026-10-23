@@ -1,0 +1,17 @@
+.main-content{min-width:0}.content-area{padding-bottom:110px}
+.sidebar-nav .nav-link span{white-space:normal;line-height:1.35}
+.clinical-workspace{max-width:1440px;margin:0 auto;padding-bottom:100px;min-width:0}
+.clinical-hero{background:linear-gradient(120deg,#07583c,#107353);color:#fff;border-radius:20px;padding:26px;margin-bottom:22px}
+.clinical-hero p{color:#e1f1e9;max-width:760px}.clinical-kicker{font-size:.75rem;text-transform:uppercase;letter-spacing:.12em;font-weight:700}
+.clinical-hero h1{color:#fff!important}.clinical-hero small{color:#d5ede4!important}
+.clinical-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:22px}
+.clinical-panel{background:var(--bs-body-bg,#fff);border:1px solid var(--bs-border-color,#dfe8e3);border-radius:16px;padding:20px;min-width:0;margin-bottom:18px}
+.clinical-grid .clinical-panel{margin:0}.clinical-metric{font-size:2rem;font-weight:750;display:block;color:var(--bs-success,#13734e)}
+.clinical-panel h2{font-size:1rem;font-weight:700}.clinical-list{list-style:none;padding:0;margin:0}.clinical-list li{border-bottom:1px solid var(--bs-border-color,#e6ece9);padding:12px 0;overflow-wrap:anywhere}.clinical-list li:last-child{border:0}
+.clinical-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}.clinical-tabs a{padding:10px 15px;border-radius:10px;border:1px solid #c7dbcf;text-decoration:none}.clinical-tabs a[aria-current=page]{background:#0c6846;color:white}
+.clinical-workspace .table{min-width:540px}.clinical-workspace textarea{min-height:90px}.clinical-workspace :is(p,dd,summary){overflow-wrap:anywhere}.clinical-workspace .form-control{min-width:0}
+@media(max-width:767px){.clinical-grid{grid-template-columns:1fr 1fr;gap:10px}.clinical-panel{padding:16px}.clinical-hero{padding:20px}.clinical-workspace .form-control,.clinical-workspace .form-select{font-size:16px}.clinical-tabs a{flex:1 1 42%;text-align:center}.clinical-workspace{padding-bottom:110px}}
+@media(max-width:767px){.clinical-workspace nav[aria-label="Clinical quick actions"]{padding-right:64px}}
+@media(max-width:359px){.clinical-grid{grid-template-columns:1fr}}
+.page-loader{animation:clinical-loader-fallback 0s 3s forwards}
+@keyframes clinical-loader-fallback{to{visibility:hidden;pointer-events:none}}

@@ -22,13 +22,15 @@ if ($action === 'generate') {
         $stmt = $db->prepare("
             SELECT c.id AS consultation_id, DATE(c.consultation_date) AS date,
                    TIME(c.consultation_date) AS time,
-                   s.student_number, CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                   COALESCE(s.student_number,t.employee_id) AS institutional_id,
+                   CONCAT(u.first_name, ' ', u.last_name) AS patient_name, c.patient_type,
                    s.course, s.year_level, s.section,
                    c.chief_complaint, c.diagnosis, c.treatment,
                    c.remarks, c.follow_up_date
             FROM consultations c
-            JOIN students s ON s.id = c.student_id
-            JOIN users u ON u.id = s.user_id
+            LEFT JOIN students s ON s.id = c.student_id
+            LEFT JOIN teachers t ON t.id = c.teacher_id
+            JOIN users u ON u.id = CASE WHEN c.patient_type='teacher' THEN t.user_id ELSE s.user_id END
             WHERE DATE(c.consultation_date) BETWEEN ? AND ?
             ORDER BY c.consultation_date DESC
         ");

@@ -11,6 +11,7 @@ $u = current_user();
 // Role directory used for absolute links (works on every page, including
 // the consolidated pages/ai_assistant.php at the pages/ root).
 $uRole = $u['role'] ?? 'student';
+$navDoctor = $uRole === 'admin' && permission_profile($u) === 'doctor';
 $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_array($uRole, ['admin', 'nurse', 'student'], true) ? $uRole : 'student');
 ?>
 <!-- Page Loader Overlay -->
@@ -81,10 +82,11 @@ $navRoleDir = ($uRole === 'teacher' || $uRole === 'adviser') ? 'adviser' : (in_a
         <?php $profileImage = trim((string)($u['profile_picture'] ?? '')); ?>
         <img src="<?= e($profileImage !== '' ? app_url($profileImage) : asset_url('images/default-avatar.svg')) ?>" onerror="this.onerror=null;this.src='<?= e(asset_url('images/default-avatar.svg')) ?>'" class="avatar" alt="Profile">
         <span class="name d-none d-md-inline"><?= e($u['first_name'] . ' ' . $u['last_name']) ?></span>
-        <span class="role-badge bg-primary-light text-primary d-none d-lg-inline"><?= e(get_role_display_name($u['role'])) ?></span>
+        <span class="role-badge bg-primary-light text-primary d-none d-lg-inline"><?= e($navDoctor ? 'Doctor / Clinical Co-Administrator' : get_role_display_name($u['role'])) ?></span>
       </button>
       <ul class="dropdown-menu dropdown-menu-end shadow">
-        <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/profile.php"><i class="bi bi-person me-2"></i>My Profile</a></li>
+        <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navDoctor ? 'doctor' : $navRoleDir ?>/profile.php"><i class="bi bi-person me-2"></i>My Profile</a></li>
+        <?php if($navDoctor): ?><li><a class="dropdown-item" href="<?= APP_URL ?>/pages/doctor/settings.php"><i class="bi bi-gear me-2"></i>Personal settings</a></li><?php endif; ?>
         <?php if ($uRole === 'admin'): ?>
           <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/<?= $navRoleDir ?>/emergencies.php"><i class="bi bi-shield-exclamation me-2"></i>Emergency Oversight</a></li>
         <?php endif; ?>

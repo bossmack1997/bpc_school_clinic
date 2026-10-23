@@ -8,7 +8,7 @@
  * ------------------------------------------------------------------
  */
 
-require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../includes/doctor_page.php';
 require_doctor();
 require_once __DIR__ . '/../../includes/nurse_verification_service.php';
 
