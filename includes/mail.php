@@ -354,15 +354,15 @@ HTML;
         $mailer->AltBody = "Dear {$doctorName},\n\nYou have been provisioned as Clinical Co-Administrator (Doctor) for the BPC School Clinic Management System.\nAppointment Reference: {$appointmentRef}\n\nPlease activate your account and set your password here:\n{$setupLink}\n\nThis link expires on {$expiresAt}.\n";
 
         $mailer->send();
-        error_log('[MAIL] Doctor invitation email sent successfully to ' . $toEmail);
+        error_log('[MAIL] Doctor invitation email accepted by transport.');
         return true;
     } catch (MailException $e) {
         $errorMessage = $mailer->ErrorInfo ?: $e->getMessage();
-        error_log('[MAIL] Doctor invitation email failed to ' . $toEmail . ': ' . $errorMessage);
+        error_log('[MAIL] Doctor invitation email transport failed.');
         return false;
     } catch (Throwable $e) {
         $errorMessage = $e->getMessage();
-        error_log('[MAIL] Doctor invitation email error for ' . $toEmail . ': ' . $errorMessage);
+        error_log('[MAIL] Doctor invitation email transport error.');
         return false;
     }
 }

@@ -77,6 +77,7 @@ window.FIREBASE_CONFIG = {
 <link rel="stylesheet" href="<?= asset_url('css/notifications-header.css', true) ?>">
 <!-- Deliberately last: cross-role accessibility and responsive safeguards. -->
 <link rel="stylesheet" href="<?= asset_url('css/ui-overrides.css', true) ?>">
+<?php if(!empty($loadMisAdminStyles)): ?><link rel="stylesheet" href="<?= asset_url('css/mis-admin-mobile.css',true) ?>"><?php endif; ?>
 
 <script>const APP_URL = "<?= APP_URL ?>";</script>
 <!-- Moment.js for real-time clock -->

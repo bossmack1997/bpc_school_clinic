@@ -12,6 +12,7 @@ foreach(['users','students','teachers','nurses','student_qrs','teacher_qrs','acc
 $db->exec("INSERT INTO users(id,username,email,password_hash,first_name,last_name,role,admin_type,status,email_verified) VALUES (700,'people_admin','people_admin@example.invalid','unused','People','Admin','admin','primary_admin','active',1),(701,'people_pending','people_pending@example.invalid','unused','Pending','Fixture','student',NULL,'pending',1)");
 $db->exec("INSERT INTO account_security_events(user_id,event_type,subject_key,details) VALUES (701,'identity_review',REPEAT('a',64),'<script>Fixture evidence</script>')");
 $db->exec("INSERT INTO activity_logs(user_id,action,module,details) VALUES (701,'Fixture sign-in','auth','Authentication history fixture'),(701,'Private clinical activity','consultation','CLINICAL_DETAIL_MUST_NOT_RENDER')");
+if(($argv[1]??'')==='legacy')$db->exec('ALTER TABLE users DROP COLUMN email_verified_at, DROP COLUMN self_service_only');
 $_SESSION['user']=$db->query('SELECT * FROM users WHERE id=700')->fetch();
 $_SESSION['credential_version']=0;$_SESSION['created']=time();$_SESSION['last_activity']=time();$_SESSION['last_db_activity_update']=time();
 $_SERVER['REQUEST_METHOD']='GET';$_GET=['view'=>701];

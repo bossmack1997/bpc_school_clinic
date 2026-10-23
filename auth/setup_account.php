@@ -1,9 +1,13 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
+header('Cache-Control: no-store, private');
+header('Referrer-Policy: no-referrer');
+date_default_timezone_set('Asia/Manila');
 
 if (is_logged_in()) redirect(dashboard_url_for(current_user()['role']));
 
 $db = getDB();
+$db->exec("SET time_zone='+08:00'");
 $token = trim((string)($_POST['token'] ?? $_GET['token'] ?? ''));
 $tokenHash = preg_match('/^[a-f0-9]{64}$/D', $token) ? hash('sha256', $token) : '';
 $error = '';
@@ -11,11 +15,11 @@ $success = false;
 $invitation = null;
 
 if ($tokenHash !== '') {
-    $q = $db->prepare("SELECT ai.id,ai.user_id,ai.expires_at,ai.used_at,u.email,u.first_name,u.last_name,u.registration_status,p.profile
+    $q = $db->prepare("SELECT ai.id,ai.user_id,ai.expires_at,ai.used_at,u.email,u.first_name,u.last_name,u.status,u.registration_status,p.profile
         FROM admin_invitations ai
         JOIN users u ON u.id=ai.user_id
         JOIN admin_profiles p ON p.user_id=u.id
-        WHERE ai.token_hash=? LIMIT 1");
+        WHERE ai.token_hash=? AND u.role='admin' AND u.admin_type='co_admin' LIMIT 1");
     $q->execute([$tokenHash]);
     $invitation = $q->fetch(PDO::FETCH_ASSOC) ?: null;
 }
@@ -26,6 +30,8 @@ if (!$invitation || $invitation['profile'] !== 'doctor') {
     $error = 'This account setup invitation has already been used.';
 } elseif (strtotime($invitation['expires_at']) <= time()) {
     $error = 'This account setup invitation has expired. Contact the MIS Administrator for a new invitation.';
+} elseif (($invitation['status']??'')!=='pending') {
+    $error = 'This account is no longer eligible for invitation activation.';
 } elseif (($invitation['registration_status'] ?? '') !== 'approved') {
     $error = 'The clinical appointment is still awaiting authorized verification. Account activation is not yet available.';
 }
@@ -42,12 +48,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
     } else {
         try {
             $db->beginTransaction();
-            $q = $db->prepare("SELECT ai.id,ai.user_id,ai.expires_at,ai.used_at,u.registration_status,p.profile
+            $q = $db->prepare("SELECT ai.id,ai.user_id,ai.expires_at,ai.used_at,u.status,u.registration_status,p.profile
                 FROM admin_invitations ai JOIN users u ON u.id=ai.user_id JOIN admin_profiles p ON p.user_id=u.id
-                WHERE ai.token_hash=? FOR UPDATE");
+                WHERE ai.token_hash=? AND u.role='admin' AND u.admin_type='co_admin' FOR UPDATE");
             $q->execute([$tokenHash]);
             $locked = $q->fetch(PDO::FETCH_ASSOC);
-            if (!$locked || $locked['profile'] !== 'doctor' || $locked['used_at'] || strtotime($locked['expires_at']) <= time() || $locked['registration_status'] !== 'approved') {
+            if (!$locked || $locked['profile'] !== 'doctor' || $locked['used_at'] || $locked['status']!=='pending' || strtotime($locked['expires_at']) <= time() || $locked['registration_status'] !== 'approved') {
                 throw new RuntimeException('The invitation is no longer eligible for activation.');
             }
             $db->prepare("UPDATE users SET password_hash=?,status='active',email_verified=1,credential_version=COALESCE(credential_version,0)+1 WHERE id=?")
@@ -60,7 +66,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
             $success = true;
         } catch (Throwable $e) {
             if ($db->inTransaction()) $db->rollBack();
-            error_log('Doctor setup failed: ' . $e->getMessage());
+            error_log('Doctor setup failed; code='.(string)$e->getCode());
             $error = 'Account activation could not be completed. Request a new invitation from the MIS Administrator.';
         }
     }
@@ -81,7 +87,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
     <?php if ($success): ?>
       <div class="alert alert-success" role="status">Your account is active. Your password was created privately and was not disclosed to MIS.</div>
       <a class="btn btn-success w-100" href="<?= e(APP_URL) ?>/auth/login.php">Continue to sign in</a>
-    <?php elseif ($error !== '' && (!$invitation || $invitation['used_at'] || strtotime($invitation['expires_at'] ?? 'now') <= time() || ($invitation['registration_status'] ?? '') !== 'approved')): ?>
+    <?php elseif ($error !== '' && (!$invitation || $invitation['used_at'] || ($invitation['status']??'')!=='pending' || strtotime($invitation['expires_at'] ?? 'now') <= time() || ($invitation['registration_status'] ?? '') !== 'approved')): ?>
       <div class="alert alert-danger" role="alert"><?= e($error) ?></div>
       <a class="btn btn-outline-success w-100" href="<?= e(APP_URL) ?>/auth/login.php">Return to sign in</a>
     <?php else: ?>

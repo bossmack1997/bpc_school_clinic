@@ -25,125 +25,35 @@ $pageTitle = 'Admin Accounts';
 
 $errors = [];
 $success = '';
+function doctor_old(string $key): string {return isset($_POST[$key])&&is_scalar($_POST[$key])?e(trim((string)$_POST[$key])):'';}
 
-// Handle POST actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    csrf_verify_or_die();
-    $action = $_POST['action'] ?? '';
-
-    if ($action === 'invite_doctor') {
-        $firstName     = trim($_POST['first_name'] ?? '');
-        $middleName    = trim($_POST['middle_name'] ?? '');
-        $lastName      = trim($_POST['last_name'] ?? '');
-        $email         = strtolower(trim($_POST['email'] ?? ''));
-        $username      = trim($_POST['username'] ?? '');
-        $contact       = trim($_POST['contact_number'] ?? '');
-        $designation   = trim($_POST['official_designation'] ?? '');
-        $license       = trim($_POST['professional_license'] ?? '');
-        $appointment   = trim($_POST['appointment_reference'] ?? '');
-        $verification  = trim($_POST['verification_status'] ?? 'pending');
-
-        if ($firstName === '' || $lastName === '') {
-            $errors[] = 'First and last name are required.';
-        }
-        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'A valid email address is required.';
-        }
-        if ($username === '' || !preg_match('/^[a-zA-Z0-9_]{3,50}$/', $username)) {
-            $errors[] = 'Username must be 3-50 characters (letters, numbers, underscores only).';
-        }
-        if ($designation === '') $errors[] = 'Professional designation is required.';
-        if ($appointment === '') $errors[] = 'Appointment reference is required.';
-        if (!in_array($verification, ['pending', 'verified'], true)) $errors[] = 'Select a valid appointment verification status.';
-
-        if (!$errors) {
-            $chk = $db->prepare("SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1");
-            $chk->execute([$username, $email]);
-            if ($chk->fetch()) {
-                $errors[] = 'This account already exists.';
-            }
-        }
-
-        if (!$errors) {
-            try {
-                $db->beginTransaction();
-                $temporarySecret = bin2hex(random_bytes(32));
-                $hash = password_hash($temporarySecret, PASSWORD_DEFAULT);
-                $token = bin2hex(random_bytes(32));
-                $tokenHash = hash('sha256', $token);
-                $expiresAt = date('Y-m-d H:i:s', time() + 86400);
-
-                $stmt = $db->prepare("
-                    INSERT INTO users (
-                        role, admin_type, username, email, password_hash,
-                        first_name, middle_name, last_name, phone,
-                        profile_picture, status, email_verified,
-                        registration_status, validation_reason, validation_confidence, risk_level
-                    ) VALUES (
-                        'admin', 'co_admin', ?, ?, ?,
-                        ?, ?, ?, ?,
-                        'assets/images/default-avatar.png', 'pending', 0,
-                        ?, ?, ?, 'low'
-                    )
-                ");
-                $stmt->execute([
-                    $username,
-                    $email,
-                    $hash,
-                    $firstName,
-                    $middleName ?: null,
-                    $lastName,
-                    $contact ?: null,
-                    $verification === 'verified' ? 'approved' : 'review',
-                    $verification === 'verified' ? 'Doctor appointment verified; secure password setup pending' : 'Doctor appointment verification and secure password setup pending',
-                    $verification === 'verified' ? 1.00 : 0.50,
-                ]);
-                $newId = (int)$db->lastInsertId();
-
-                $profile = $db->prepare("INSERT INTO admin_profiles (user_id,profile,official_designation,appointment_reference,clinical_registration,verified_by,verified_at) VALUES (?,'doctor',?,?,?,?,NOW())");
-                $profile->execute([$newId, $designation, $appointment, $license ?: null, $u['id']]);
-                $invite = $db->prepare("INSERT INTO admin_invitations (user_id,token_hash,created_by,expires_at) VALUES (?,?,?,?)");
-                $invite->execute([$newId, $tokenHash, $u['id'], $expiresAt]);
-                $invitationId = (int)$db->lastInsertId();
-
-                log_activity($u['id'], 'Created Doctor account invitation', 'admin_profiles',
-                    "Doctor account #$newId provisioned; appointment reference recorded; password not set by MIS");
-
-                $db->commit();
-                unset($temporarySecret);
-
-                $setupLink = APP_URL . '/auth/setup_account.php?token=' . rawurlencode($token);
-                $mailError = null;
-                $sent = send_doctor_invitation_email($email, trim("$firstName $lastName"), $setupLink, $expiresAt, $appointment, $mailError);
-                $delivery = $sent ? 'sent' : 'manual';
-                $db->prepare('UPDATE admin_invitations SET delivery_status=?,delivery_error=? WHERE id=?')
-                    ->execute([$delivery, $sent ? null : mb_substr((string)$mailError, 0, 255), $invitationId]);
-                if ($sent) {
-                    set_flash('success', "Secure account setup invitation sent to {$email}.");
-                } else {
-                    $_SESSION['manual_doctor_invitation'] = ['url'=>$setupLink, 'expires_at'=>$expiresAt, 'email'=>$email];
-                    set_flash('warning', 'The account is pending, but email delivery was unavailable. Use the one-time authorized setup link shown below.');
-                }
-                redirect('admin_accounts.php');
-            } catch (Exception $e) {
-                if ($db->inTransaction()) $db->rollBack();
-                error_log('Admin account creation error: ' . $e->getMessage());
-                $errors[] = safe_error_message(
-                    $e,
-                    'Failed to create the Doctor invitation. No partial account was retained.',
-                    'admin_accounts/invite_doctor'
-                );
-            }
-        }
+require_once __DIR__.'/../../includes/doctor_invitation_service.php';
+$loadMisAdminStyles=true;
+$isInvitationAjax=strtolower($_SERVER['HTTP_X_REQUESTED_WITH']??'')==='xmlhttprequest';
+$_SESSION['doctor_invite_nonce']=$_SESSION['doctor_invite_nonce']??bin2hex(random_bytes(32));
+if($_SERVER['REQUEST_METHOD']==='POST') {
+    $statusCode=422;
+    if(!is_string($_POST['csrf_token']??null) || !csrf_verify($_POST['csrf_token'])) {$errors[]='This form expired. Refresh the page and try again.';$statusCode=403;}
+    else {
+        try {
+            if(!is_string($_POST['request_nonce']??null) || !hash_equals($_SESSION['doctor_invite_nonce'],$_POST['request_nonce'])) {$statusCode=409;throw new DomainException('This form was already submitted or expired. Refresh the page before retrying.');}
+            $service=new DoctorInvitationService($db);
+            $action=$_POST['action']??'';
+            if($action==='invite_doctor')$result=$service->create((int)$u['id'],$_POST);
+            elseif($action==='resend_invitation' && is_scalar($_POST['user_id']??null))$result=$service->resend((int)$u['id'],(int)$_POST['user_id']);
+            else throw new InvalidArgumentException('Unsupported invitation action.');
+            $_SESSION['doctor_invite_nonce']=bin2hex(random_bytes(32));
+            unset($_SESSION['manual_doctor_invitation']);
+            $message=$result['delivery_status']==='sent'?'Secure invitation sent to the appointee.':'The account remains pending. Email delivery was not confirmed; use Resend invitation after checking mail availability.';
+            set_flash($result['delivery_status']==='sent'?'success':'warning',$message);
+            if($isInvitationAjax){http_response_code($result['delivery_status']==='sent'?200:202);json_response(true,['redirect'=>'admin_accounts.php','delivery_status'=>$result['delivery_status']],$message);}
+            redirect('admin_accounts.php');
+        }catch(InvalidArgumentException|DomainException $e){$errors[]=$e->getMessage();}
+        catch(Throwable $e){error_log('Doctor invitation request failed; code='.(string)$e->getCode());$statusCode=503;$errors[]='The invitation request could not be completed. Check the current account status before retrying.';}
     }
-
-    if ($action === 'update_status') {
-        http_response_code(410);
-        $errors[]='Use Account Security Exceptions with a documented reason and evidence reference.';
-    }
-
+    http_response_code($statusCode);
+    if($isInvitationAjax)json_response(false,[],implode(' ',$errors));
 }
-
 // Fetch all admin accounts
 $stmt = $db->query("
     SELECT u.id, u.role, u.admin_type, u.username, u.email, u.first_name, u.middle_name, u.last_name, u.phone,
@@ -156,7 +66,7 @@ $stmt = $db->query("
     LIMIT 500
 ");
 $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
-$manualInvitation = $_SESSION['manual_doctor_invitation'] ?? null;
+
 unset($_SESSION['manual_doctor_invitation']);
 ?>
 <!DOCTYPE html>
@@ -187,14 +97,6 @@ unset($_SESSION['manual_doctor_invitation']);
               <li><?= e($err) ?></li>
             <?php endforeach; ?>
           </ul>
-        </div>
-      <?php endif; ?>
-
-      <?php if ($manualInvitation): ?>
-        <div class="alert alert-warning" role="status">
-          <div class="fw-semibold mb-1">Authorized manual delivery required</div>
-          <p class="small mb-2">Give this single-use link only to <?= e($manualInvitation['email']) ?> after independently verifying the appointee. It expires <?= e(format_date($manualInvitation['expires_at'], true)) ?>.</p>
-          <input class="form-control form-control-sm" type="text" readonly value="<?= e($manualInvitation['url']) ?>" aria-label="One-time Doctor account setup link">
         </div>
       <?php endif; ?>
 
@@ -292,6 +194,9 @@ unset($_SESSION['manual_doctor_invitation']);
                   <td class="text-end pe-2">
                     <?php if ($admin['admin_type'] !== 'primary_admin' && (int)$admin['id'] !== (int)$u['id']): ?>
                       <a class="btn btn-sm btn-outline-secondary" href="account_exceptions.php">Security exception</a>
+                      <?php if(($admin['profile']??'')==='doctor' && $admin['status']==='pending'): ?>
+                      <form method="post" class="doctor-resend-form d-inline"><input type="hidden" name="action" value="resend_invitation"><input type="hidden" name="user_id" value="<?=(int)$admin['id']?>"><input type="hidden" name="request_nonce" value="<?=e($_SESSION['doctor_invite_nonce'])?>"><?=csrf_field()?><button class="btn btn-sm btn-outline-primary" type="submit">Resend invitation</button></form>
+                      <?php endif; ?>
                     <?php elseif ($admin['admin_type'] === 'primary_admin'): ?>
                       <span class="text-muted small"><i class="bi bi-lock me-1"></i> Protected</span>
                     <?php else: ?>
@@ -312,62 +217,61 @@ unset($_SESSION['manual_doctor_invitation']);
 </div>
 
 <!-- Add Admin Modal -->
-<div class="modal fade" id="addAdminModal" tabindex="-1" aria-hidden="true" aria-labelledby="addAdminModalTitle">
+<div class="modal fade" id="addAdminModal" tabindex="-1" aria-hidden="true" aria-labelledby="addAdminModalTitle" data-reopen="<?=$errors?'true':'false'?>">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content border-0 shadow">
-      <form method="POST" id="addAdminForm">
+    <form method="POST" id="addAdminForm" class="modal-content border-0 shadow">
         <?= csrf_field() ?>
-        <input type="hidden" name="action" value="invite_doctor">
+        <input type="hidden" name="action" value="invite_doctor"><input type="hidden" name="request_nonce" value="<?=e($_SESSION['doctor_invite_nonce'])?>">
         <div class="modal-header border-0" style="background: linear-gradient(135deg, rgba(11, 107, 58, 0.05), rgba(11, 107, 58, 0.03));">
           <h6 class="modal-title fw-semibold" id="addAdminModalTitle"><i class="bi bi-person-plus-fill me-1 text-primary"></i> Add Doctor / Clinical Co-Administrator</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close invitation form"></button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body"><div id="doctorInvitationFeedback" class="alert alert-danger small" role="alert" aria-live="polite" hidden></div>
           <p class="text-muted small mb-3">Provision a clinical-only account. The Doctor sets their own password through an expiring, single-use invitation; MIS never sees it.</p>
 
           <div class="row g-2">
             <div class="col-md-6">
               <label class="form-label small fw-semibold">First Name <span class="text-danger">*</span></label>
-              <input type="text" name="first_name" class="form-control form-control-sm" required maxlength="80" placeholder="First name">
+              <input type="text" name="first_name" value="<?=doctor_old('first_name')?>" class="form-control form-control-sm" required maxlength="80" placeholder="First name">
             </div>
             <div class="col-md-6">
               <label class="form-label small fw-semibold">Last Name <span class="text-danger">*</span></label>
-              <input type="text" name="last_name" class="form-control form-control-sm" required maxlength="80" placeholder="Last name">
+              <input type="text" name="last_name" value="<?=doctor_old('last_name')?>" class="form-control form-control-sm" required maxlength="80" placeholder="Last name">
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold">Middle Name</label>
-              <input type="text" name="middle_name" class="form-control form-control-sm" maxlength="80" placeholder="Optional">
+              <input type="text" name="middle_name" value="<?=doctor_old('middle_name')?>" class="form-control form-control-sm" maxlength="80" placeholder="Optional">
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold">Email Address <span class="text-danger">*</span></label>
-              <input type="email" name="email" class="form-control form-control-sm" required placeholder="admin@bpc.edu.ph">
+              <input type="email" name="email" value="<?=doctor_old('email')?>" class="form-control form-control-sm" required placeholder="admin@bpc.edu.ph">
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold">Username <span class="text-danger">*</span></label>
-              <input type="text" name="username" class="form-control form-control-sm" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" placeholder="admin_username">
+              <input type="text" name="username" value="<?=doctor_old('username')?>" class="form-control form-control-sm" required minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" placeholder="admin_username">
               <div class="form-text small">Letters, numbers, underscores (3-50 chars).</div>
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold">Contact Number</label>
-              <input type="text" name="contact_number" class="form-control form-control-sm" maxlength="30" placeholder="e.g. 09123456789">
+              <input type="text" name="contact_number" value="<?=doctor_old('contact_number')?>" class="form-control form-control-sm" maxlength="30" placeholder="e.g. 09123456789">
             </div>
             <div class="col-md-6">
               <label class="form-label small fw-semibold">Professional Designation <span class="text-danger">*</span></label>
-              <input type="text" name="official_designation" class="form-control form-control-sm" required maxlength="150" placeholder="School Physician">
+              <input type="text" name="official_designation" value="<?=doctor_old('official_designation')?>" class="form-control form-control-sm" required maxlength="150" placeholder="School Physician">
             </div>
             <div class="col-md-6">
               <label class="form-label small fw-semibold">Professional License Information</label>
-              <input type="text" name="professional_license" class="form-control form-control-sm" maxlength="150" placeholder="License / registration reference">
+              <input type="text" name="professional_license" value="<?=doctor_old('professional_license')?>" class="form-control form-control-sm" maxlength="150" placeholder="License / registration reference">
             </div>
             <div class="col-md-8">
               <label class="form-label small fw-semibold">Appointment Reference <span class="text-danger">*</span></label>
-              <input type="text" name="appointment_reference" class="form-control form-control-sm" required maxlength="255" placeholder="Approved memorandum / board reference">
+              <input type="text" name="appointment_reference" value="<?=doctor_old('appointment_reference')?>" class="form-control form-control-sm" required maxlength="255" placeholder="Approved memorandum / board reference">
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold">Verification Status</label>
               <select name="verification_status" class="form-select form-select-sm">
-                <option value="pending">Pending review</option>
-                <option value="verified">Verified appointment</option>
+                <option value="pending" <?=($_POST['verification_status']??'pending')==='pending'?'selected':''?>>Pending review</option>
+                <option value="verified" <?=($_POST['verification_status']??'')==='verified'?'selected':''?>>Verified appointment</option>
               </select>
             </div>
           </div>
@@ -376,26 +280,11 @@ unset($_SESSION['manual_doctor_invitation']);
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
           <button type="submit" class="btn btn-sm btn-success">Create Pending Invitation</button>
         </div>
-      </form>
-    </div>
+    </form>
   </div>
 </div>
 
 <?php include __DIR__ . '/../../components/footer.php'; ?>
-<script>
-(function () {
-  'use strict';
-
-  const addForm = document.getElementById('addAdminForm');
-  if (addForm) {
-    addForm.addEventListener('submit', function (e) {
-      const btn = this.querySelector('button[type="submit"]');
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating invitation...';
-    });
-  }
-
-})();
-</script>
+<script src="<?=asset_url('js/mis-admin.js',true)?>"></script>
 </body>
 </html>
