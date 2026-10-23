@@ -97,3 +97,4 @@ window.FIREBASE_CONFIG = {
 <link rel="stylesheet" href="<?= e(asset_url('css/patient-mobile.css',true)) ?>">
 <script>window.BPC_AVATAR_FALLBACK=<?=json_encode(asset_url('images/default-avatar.svg'),JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;</script>
 <script src="<?=e(asset_url('js/avatars.js',true))?>" defer></script>
+<script src="<?=e(asset_url('js/auth-session.js',true))?>" defer></script>

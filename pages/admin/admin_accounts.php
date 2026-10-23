@@ -13,6 +13,11 @@ require_once __DIR__ . '/../../config/config.php';
 require_primary_admin();
 require_login();
 if(permission_profile()!=='mis' || !has_permission('manage_users'))admin_access_denied('MIS account-provisioning permission required.');
+if(!password_confirmation_recent()) {
+    $_SESSION['password_confirmation_return']='pages/admin/admin_accounts.php';
+    if(auth_expects_json()){http_response_code(428);json_response(false,['error_code'=>'PASSWORD_CONFIRMATION_REQUIRED','reauthentication_required'=>true,'confirmation_url'=>app_url('auth/confirm_password.php')],'Confirm your password before provisioning or resending a physician invitation.');}
+    header('Location: '.app_url('auth/confirm_password.php'),true,303);exit;
+}
 
 $db = getDB();
 $u = current_user();

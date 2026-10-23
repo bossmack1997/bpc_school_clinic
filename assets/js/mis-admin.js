@@ -40,7 +40,7 @@
         if (!(response.headers.get('content-type') || '').toLowerCase().includes('application/json')) throw new Error('The server returned an unexpected response. Refresh the account list before retrying.');
         let result;
         try { result = await response.json(); } catch (_) { throw new Error('The server response could not be read. Refresh the account list before retrying.'); }
-        if (result?.success === false && result.error_code !== 'INVITATION_OUTCOME_UNKNOWN' && [401, 403, 409, 422].includes(response.status)) outcomeUnknown = false;
+        if (result?.success === false && result.error_code !== 'INVITATION_OUTCOME_UNKNOWN' && [401, 403, 409, 422, 428].includes(response.status)) outcomeUnknown = false;
         if (response.status === 401 && result?.success === false && result.error_code !== 'INVITATION_OUTCOME_UNKNOWN') throw new Error('Your session expired. Sign in again, then reopen this form.');
         if (!response.ok || result?.success !== true) throw new Error(typeof result?.message === 'string' ? result.message : 'The invitation could not be completed. Refresh the account list before retrying.');
         const destination = new URL(result.redirect || 'admin_accounts.php', window.location.href);

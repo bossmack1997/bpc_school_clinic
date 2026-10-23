@@ -53,9 +53,14 @@ try{
  $profile=misRequest($invitee,'/pages/doctor/profile.php');checkMis($profile['status']===200&&str_contains($profile['body'],'School Physician')&&str_contains($profile['body'],'SYNTHETIC'),'Doctor profile displays professional appointment');
  $settings=misRequest($invitee,'/pages/doctor/settings.php');checkMis($settings['status']===200&&str_contains($settings['body'],'id="infoForm"')&&str_contains($settings['body'],'id="pwForm"'),'Doctor settings and password form render');
  checkMis(misRequest($invitee,'/pages/doctor/dashboard.php')['status']===200,'Activated Doctor dashboard renders without Nurse schema migration');
- checkMis(misRequest($invitee,'/pages/doctor/nurse_verification.php')['status']===503,'Nurse review requires its schema migration');
+ $unavailableReview=misRequest($invitee,'/pages/doctor/nurse_verification.php');
+ checkMis($unavailableReview['status']===503,'Nurse review requires its schema migration');
+ checkMis(str_contains($unavailableReview['body'],'sidebar-nav')&&str_contains($unavailableReview['body'],'id="mainContent"')&&str_contains($unavailableReview['body'],'does not require MIS approval'),'Unavailable verification retains Doctor navigation and explains clinical authority');
+ $doctorHome=misRequest($invitee,'/pages/doctor/dashboard.php');
+ checkMis(substr_count($doctorHome['body'],'href="nurse_verification.php"')>=2,'Doctor dashboard exposes a prominent review action alongside pending applications');
  if(in_array('--staff-verification',$argv,true))require __DIR__.'/staff_verification_checks.php';
  if(in_array('--student-ui',$argv,true))require __DIR__.'/student_ui_checks.php';
+ if(in_array('--reauthentication',$argv,true))require __DIR__.'/reauthentication_checks.php';
  if(!preg_match('/name="csrf-token" content="([^"]+)"/',$settings['body'],$settingsMatch))throw new RuntimeException('Settings CSRF metadata missing');$settingsToken=html_entity_decode($settingsMatch[1]);
  $saved=misRequest($invitee,'/api/profile.php',['action'=>'update_info','csrf_token'=>$settingsToken,'first_name'=>'Doctor','middle_name'=>'','last_name'=>'Updated','email'=>'accept@example.invalid','phone'=>'09123456789'],true);
  checkMis(json_decode($saved['body'],true)['success']??false,'Doctor saves allowed personal settings');
