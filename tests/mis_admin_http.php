@@ -13,7 +13,7 @@ function misField($r,$name){if(!preg_match('/name="'.preg_quote($name,'/').'" va
 try{
  $admin->exec("CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
  foreach($admin->query("SHOW FULL TABLES WHERE Table_type='BASE TABLE'")->fetchAll(PDO::FETCH_NUM)as$row){$t=$row[0];if(!preg_match('/^[a-zA-Z0-9_]+$/',$t))throw new RuntimeException('Invalid table');$admin->exec("CREATE TABLE `$database`.`$t` LIKE `".DB_NAME."`.`$t`");}
- $db=new PDO('mysql:host='.DB_HOST.';port='.DB_PORT.';dbname='.$database.';charset=utf8mb4',DB_USER,DB_PASS,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+ $db=new PDO('mysql:host='.DB_HOST.';port='.DB_PORT.';dbname='.$database.';charset=utf8mb4',DB_USER,DB_PASS,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
  $db->exec('DROP TABLE IF EXISTS nurse_clinical_reviews');
  foreach(['clinical_authorization_status','clinical_reviewed_by','clinical_reviewed_at','clinical_review_notes'] as $column){$q=$db->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='nurses' AND COLUMN_NAME=?");$q->execute([$column]);if($q->fetchColumn())$db->exec("ALTER TABLE nurses DROP COLUMN `$column`");}
  checkMis(true,'Phase 1 fixture excludes Nurse authorization schema');
@@ -59,6 +59,7 @@ try{
  $doctorHome=misRequest($invitee,'/pages/doctor/dashboard.php');
  checkMis(substr_count($doctorHome['body'],'href="nurse_verification.php"')>=2,'Doctor dashboard exposes a prominent review action alongside pending applications');
  if(in_array('--staff-verification',$argv,true))require __DIR__.'/staff_verification_checks.php';
+ if(in_array('--doctor-three-pages',$argv,true))require __DIR__.'/doctor_three_page_checks.php';
  if(in_array('--global-mica',$argv,true))require __DIR__.'/global_mica_checks.php';
  if(in_array('--student-ui',$argv,true))require __DIR__.'/student_ui_checks.php';
  if(in_array('--reauthentication',$argv,true))require __DIR__.'/reauthentication_checks.php';

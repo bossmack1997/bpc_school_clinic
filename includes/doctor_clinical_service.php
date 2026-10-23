@@ -1,11 +1,12 @@
 <?php
+require_once __DIR__.'/clinical_diagnostics.php';
 /** Physician encounters reuse consultations and preserve nursing ownership. */
 final class DoctorClinicalService
 {
  public function __construct(private PDO $db,private array $user){if(!has_permission('consultations_manage',$user,$db)||permission_profile($user,$db)!=='doctor')throw new RuntimeException('Verified Doctor profile required.');}
  public function summary(): array {
   $today=(int)$this->db->query('SELECT COUNT(*) FROM consultations WHERE consultation_date>=CURDATE() AND consultation_date<CURDATE()+INTERVAL 1 DAY')->fetchColumn();
-  $queue=(int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE created_at>=CURDATE() AND status IN ('waiting','called','serving')")->fetchColumn();
+  $queue=(int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE created_at>=CURDATE() AND created_at<CURDATE()+INTERVAL 1 DAY AND status IN ('waiting','called','serving')")->fetchColumn();
   $sos=(int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
   require_once __DIR__.'/medicine_inventory_service.php';$inventory=(new MedicineInventoryService($this->db))->snapshot();
   $attended=(int)$this->db->query("SELECT COUNT(DISTINCT CONCAT(COALESCE(student_id,0),':',COALESCE(teacher_id,0))) FROM consultations WHERE consultation_date>=CURDATE() AND consultation_date<CURDATE()+INTERVAL 1 DAY")->fetchColumn();
@@ -38,19 +39,19 @@ final class DoctorClinicalService
  }
  /** Optional sources fail independently; unavailable is never reported as zero. */
  public function commandCenter(): array {
-  $out=['unavailable'=>[],'generated_at'=>(new DateTimeImmutable('now',new DateTimeZone('Asia/Manila')))->format('Y-m-d H:i:s').' Asia/Manila'];
+  $out=['unavailable'=>[],'staff_setup_required'=>false,'generated_at'=>(new DateTimeImmutable('now',new DateTimeZone('Asia/Manila')))->format('Y-m-d H:i:s').' Asia/Manila'];
   $queries=[
    'today_consultations'=>"SELECT COUNT(*) AS count FROM consultations WHERE consultation_date>=CURDATE() AND consultation_date<CURDATE()+INTERVAL 1 DAY",
-   'awaiting_review'=>"SELECT COUNT(*) AS count FROM queue_numbers WHERE status IN ('waiting','called','serving') AND created_at>=CURDATE()",
+   'awaiting_review'=>"SELECT COUNT(*) AS count FROM queue_numbers WHERE status IN ('waiting','called','serving') AND created_at>=CURDATE() AND created_at<CURDATE()+INTERVAL 1 DAY",
    'followups'=>"SELECT c.id,c.follow_up_date,c.chief_complaint,u.id AS patient_user_id,u.first_name,u.last_name FROM consultations c LEFT JOIN students s ON s.id=c.student_id LEFT JOIN teachers t ON t.id=c.teacher_id JOIN users u ON u.id=CASE WHEN c.patient_type='teacher' THEN t.user_id ELSE s.user_id END WHERE c.follow_up_date IS NOT NULL AND c.follow_up_date>=CURDATE() ORDER BY c.follow_up_date,c.id LIMIT 10",
    'escalations'=>"SELECT r.id,r.priority,r.status,r.created_at,s.user_id AS patient_user_id,u.first_name,u.last_name FROM support_referrals r JOIN users author ON author.id=r.created_by AND author.role='nurse' JOIN students s ON s.id=r.student_id JOIN users u ON u.id=s.user_id WHERE r.status IN ('pending','accepted','in_support','pending_assessment','referral_recommended','referred','follow_up_required') AND (LOWER(r.referred_to) LIKE '%doctor%' OR LOWER(r.referred_to) LIKE '%physician%') ORDER BY r.created_at DESC LIMIT 10",
    'alerts'=>"SELECT id,emergency_type,priority,status,created_at FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding') ORDER BY created_at DESC LIMIT 10",
    'activity'=>"SELECT id,action,module,created_at FROM activity_logs WHERE module IN ('consultations','clinical') ORDER BY created_at DESC,id DESC LIMIT 10"
   ];
-  foreach($queries as $key=>$sql){try{$rows=$this->db->query($sql)->fetchAll();$out[$key]=in_array($key,['today_consultations','awaiting_review'],true)?(int)$rows[0]['count']:$rows;}catch(PDOException $e){error_log('Doctor source unavailable: '.$key.' SQLSTATE='.$e->getCode());$out[$key]=null;$out['unavailable'][]=$key;}}
-  try { require_once __DIR__.'/nurse_verification_service.php'; $staff=new NurseVerificationService($this->db,$this->user); if(!$staff->ready())throw new RuntimeException('Staff schema unavailable'); $out['pending_nurses']=$staff->summaryCounts()['pending']; }
-  catch(Throwable $e) { $out['pending_nurses']=null; $out['unavailable'][]='pending_nurses'; }
-  try{require_once __DIR__.'/medicine_inventory_service.php';$out['stock']=array_slice(MedicineInventoryService::low((new MedicineInventoryService($this->db))->snapshot()),0,10);}catch(PDOException $e){error_log('Doctor stock source unavailable SQLSTATE='.$e->getCode());$out['stock']=null;$out['unavailable'][]='stock';}
+  foreach($queries as $key=>$sql){try{$rows=$this->db->query($sql)->fetchAll();$out[$key]=in_array($key,['today_consultations','awaiting_review'],true)?(int)$rows[0]['count']:$rows;}catch(PDOException $e){clinical_database_failure('doctor.dashboard.'.$key,$e);$out[$key]=null;$out['unavailable'][]=$key;}}
+  try { require_once __DIR__.'/nurse_verification_service.php'; $staff=new NurseVerificationService($this->db,$this->user); if(!$staff->ready()){$out['staff_setup_required']=true;throw new RuntimeException('Staff schema unavailable');} $out['pending_nurses']=$staff->summaryCounts()['pending']; }
+  catch(Throwable $e) { if($e instanceof PDOException)clinical_database_failure('doctor.dashboard.pending_nurses',$e);else error_log('Clinical source unavailable operation=doctor.dashboard.pending_nurses reason=review_schema_not_ready');$out['pending_nurses']=null; $out['unavailable'][]='pending_nurses'; }
+  try{require_once __DIR__.'/medicine_inventory_service.php';$out['stock']=array_slice(MedicineInventoryService::low((new MedicineInventoryService($this->db))->snapshot()),0,10);}catch(PDOException $e){clinical_database_failure('doctor.dashboard.stock',$e);$out['stock']=null;$out['unavailable'][]='stock';}
   return $out;
  }
  public function save(array $input): int {

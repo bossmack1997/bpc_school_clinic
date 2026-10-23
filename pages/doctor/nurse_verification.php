@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         unset($_SESSION['clinical_review_attempts']);
         redirect(APP_URL . '/pages/doctor/nurse_verification.php' . (!empty($_GET['tab']) ? '?tab=' . urlencode($_GET['tab']) : ''));
     } catch (Throwable $e) {
-        error_log('Nurse verification error: ' . $e->getMessage());
+        if($e instanceof PDOException)clinical_database_failure('doctor.staff.decision',$e);
         $error = $e instanceof PDOException ? 'Unable to record the review. No decision was confirmed. Please retry.' : $e->getMessage();
     }
 }
