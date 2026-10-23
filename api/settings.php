@@ -27,25 +27,26 @@ if (in_array($action,['get_admin_permissions','update_admin_permissions'],true))
 }
 require_admin_permission('manage_settings');
 
+require_once __DIR__.'/../includes/system_settings_service.php';
+$allowed=SystemSettingsService::KEYS;
 if ($action === 'list') {
     $stmt = $db->query("SELECT setting_key, setting_value FROM system_settings ORDER BY setting_key");
     $settings = [];
     foreach ($stmt->fetchAll() as $row) {
-        $settings[$row['setting_key']] = $row['setting_value'];
+        if(in_array($row['setting_key'],$allowed,true))$settings[$row['setting_key']] = $row['setting_value'];
     }
     json_response(true, ['data' => $settings]);
 }
 
 if ($action === 'update') {
+    if($_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(405);json_response(false,[],'Use POST.');}
     csrf_verify_or_die();
     $updates = $_POST['settings'] ?? [];
     if (empty($updates) || !is_array($updates)) json_response(false, [], 'No settings provided.');
 
-    $stmt = $db->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?");
-    foreach ($updates as $key => $value) {
-        $stmt->execute([trim($value), trim($key)]);
-    }
-    log_activity($user['id'], 'Updated system settings', 'settings');
+    try{(new SystemSettingsService($db))->save((int)$user['id'],$updates);}
+    catch(InvalidArgumentException $e){http_response_code(422);json_response(false,[],$e->getMessage());}
+    catch(Throwable $e){$code=$e->getCode()===403?403:503;http_response_code($code);json_response(false,[],$code===403?'Configuration permission required.':'Settings could not be saved.');}
     json_response(true, [], 'Settings saved successfully.');
 }
 

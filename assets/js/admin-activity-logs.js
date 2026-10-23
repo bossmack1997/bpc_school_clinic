@@ -12,7 +12,7 @@ function escapeLog(value) { return $('<span>').text(String(value ?? '')).html();
 function loadLogs(page) {
   const search = $('#searchInput').val();
   if (request) request.abort();
-  request = $.get(APP_URL + '/api/activity_logs.php', { action: 'list', page, search }, function (res) {
+  request = $.get(APP_URL + '/api/activity_logs.php', { action: 'list', page, search, module:$('#logModule').val()||'', from:$('#logFrom').val()||'', to:$('#logTo').val()||'' }, function (res) {
     if (!res.success) {
       $('#logInfo').text(res.message || 'Unable to load activity logs. Use Search to retry.');
       return;
@@ -63,5 +63,6 @@ function searchLogs() { loadLogs(1); }
 $('#searchInput').on('keyup', function (e) { if (e.key === 'Enter') searchLogs(); });
 
 $('#searchLogsButton').on('click', searchLogs);
+$('#logModule, #logFrom, #logTo').on('change',searchLogs);
 
 })();

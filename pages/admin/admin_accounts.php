@@ -84,7 +84,7 @@ unset($_SESSION['manual_doctor_invitation']);
 <head>
 <?php include __DIR__ . '/../../includes/head.php'; ?>
 </head>
-<body>
+<body class="mis-admin-page">
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
@@ -148,6 +148,7 @@ unset($_SESSION['manual_doctor_invitation']);
         </div>
       </div>
 
+      <div class="d-flex flex-wrap gap-2 mb-3"><a class="btn btn-outline-primary" href="role_profiles.php">Verified profiles, access and departures</a></div>
       <!-- Admin Accounts Table -->
       <div class="app-card">
         <div class="app-card__body app-card__body--flush">
@@ -190,6 +191,7 @@ unset($_SESSION['manual_doctor_invitation']);
                       <div class="small fw-semibold"><?= e($admin['official_designation'] ?: 'MIS / IT Personnel') ?></div><span class="app-badge app-badge--primary"><i class="bi bi-star-fill me-1"></i> MIS Main Administrator</span>
                     <?php elseif (($admin['profile'] ?? '') === 'doctor'): ?>
                       <div class="small fw-semibold"><?= e($admin['official_designation'] ?: 'Doctor') ?></div><span class="app-badge app-badge--info"><i class="bi bi-heart-pulse me-1"></i> Clinical Co-Administrator</span>
+                    <?php elseif (($admin['profile'] ?? '') === 'mis'): ?><span class="app-badge app-badge--primary">MIS / Technical Administrator</span>
                     <?php else: ?>
                       <span class="app-badge app-badge--neutral"><i class="bi bi-person-badge me-1"></i> Legacy Administrator</span>
                     <?php endif; ?>
@@ -201,7 +203,7 @@ unset($_SESSION['manual_doctor_invitation']);
                   <td>
                     <div class="small"><?= $admin['last_login'] ? e(format_date($admin['last_login'], true)) : '<span class="text-muted">Never</span>' ?></div>
                   </td>
-                  <td class="text-end pe-2">
+                  <td class="text-end pe-2"><a class="btn btn-sm btn-outline-primary" href="role_profiles.php?target=<?=(int)$admin['id']?>">View / Manage</a>
                     <?php if ($admin['admin_type'] !== 'primary_admin' && (int)$admin['id'] !== (int)$u['id']): ?>
                       <a class="btn btn-sm btn-outline-secondary" href="account_exceptions.php">Security exception</a>
                       <?php if(($admin['profile']??'')==='doctor' && $admin['status']==='pending'): ?>

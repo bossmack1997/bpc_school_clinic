@@ -46,6 +46,11 @@
   }
 
   function start() {
+    document.querySelectorAll('.mis-admin-page table').forEach(function(table){
+      if(table.closest('.table-responsive'))return;
+      const wrapper=document.createElement('div');wrapper.className='table-responsive';
+      table.before(wrapper);wrapper.appendChild(table);
+    });
     track();
     new MutationObserver(track).observe(document.body, { childList: true, subtree: true });
   }

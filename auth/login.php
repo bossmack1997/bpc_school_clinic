@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['pending_verification_user_id']=(int)$user['id'];
                 redirect('verify_registration.php');
             } elseif ($user['status'] !== 'active') {
-                login_rate_limit_clear($clientIp);
+                login_rate_limit_clear($clientIp, $identifier);
                 $errors[] = match($user['status']) {
                     'pending' => AccountMonitoringService::pendingMessage($user),
                     'inactive', 'suspended' => 'Your account is suspended. Contact authorized support for recovery.',
@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'This account role is not available. Please contact the system administrator.';
             } else {
                 login_user($user);
-                login_rate_limit_clear($clientIp);
+                login_rate_limit_clear($clientIp, $identifier);
                 login_rate_limit_reset_user($user['id']);
                 $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$user['id']]);
                 log_activity($user['id'], 'Logged in', 'auth');

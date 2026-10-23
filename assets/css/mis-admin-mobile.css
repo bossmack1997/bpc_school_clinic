@@ -1,4 +1,10 @@
 /* Targeted MIS dashboard and Doctor invitation layout; shared components stay unchanged. */
+.mis-admin-page .table-responsive > table { min-width: 720px; table-layout: auto; }
+.mis-admin-page .table th { white-space: nowrap; }
+.mis-admin-page .table td { min-width: 100px; max-width: 320px; word-break: normal; overflow-wrap: break-word; }
+.mis-admin-page .table-responsive { overflow-x: auto; }
+.mis-admin-page .card, .mis-admin-page .admin-card { min-width: 0; }
+.mis-admin-page .logs-toolbar > .form-control { max-width: 100%; }
 .mis-audit-summary .audit-action-icon,.mis-audit-summary .audit-mobile-meta { display:none; }
 .mis-audit-summary td { padding-block:.65rem; }
 #addAdminModal .modal-content { overflow:hidden; }

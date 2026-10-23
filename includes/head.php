@@ -17,6 +17,12 @@
 <link rel="icon" type="image/png" sizes="512x512" href="<?= APP_URL ?>/assets/icons/icon-512.png">
 <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
 <title><?= isset($pageTitle) ? e($pageTitle) . ' — ' : '' ?><?= APP_NAME ?></title>
+<?php
+try {$themeQuery=getDB()->query("SELECT setting_value FROM system_settings WHERE setting_key='theme_mode'");$defaultTheme=$themeQuery->fetchColumn();}
+catch(Throwable $e){$defaultTheme='light';}
+if(!in_array($defaultTheme,['light','dark','auto'],true))$defaultTheme='light';
+?>
+<script>window.BPC_DEFAULT_THEME=<?=json_encode($defaultTheme)?>;</script>
 
 <?php if (getenv('FIREBASE_PROJECT_ID')): ?>
 <script>

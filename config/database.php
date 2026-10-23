@@ -46,6 +46,7 @@ function getDB() {
                 PDO::ATTR_TIMEOUT            => 8,
             ];
             $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+            $pdo->exec("SET time_zone='+08:00'");
         } catch (PDOException $e) {
             $reference = bin2hex(random_bytes(6));
             error_log('Database connection failure [' . $reference . '] environment=' . (defined('APP_ENV') ? APP_ENV : 'unknown') . ' sqlstate=' . ($e->getCode() ?: 'unknown'));

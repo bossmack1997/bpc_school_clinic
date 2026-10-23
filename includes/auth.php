@@ -15,6 +15,13 @@ function current_user() {
         $stmt->execute([(int)$user['id']]);
         $dbUser = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        // Scheduled departure is an access deadline, even if an operator worker is delayed.
+        if ($dbUser && $dbUser['role'] === 'admin' && $dbUser['admin_type'] !== 'primary_admin') {
+            $due = $db->prepare("SELECT id FROM admin_departures WHERE user_id=? AND status='scheduled' AND effective_at<=NOW() LIMIT 1");
+            $due->execute([(int)$dbUser['id']]);
+            if ($due->fetchColumn()) return null;
+        }
+
         if ($dbUser && isset($_SESSION['credential_version']) && (int)$_SESSION['credential_version'] !== (int)$dbUser['credential_version']) return null;
         if (!$dbUser || ($dbUser['status'] ?? '') !== 'active' || !is_supported_role($dbUser['role'] ?? '')) {
             return null;

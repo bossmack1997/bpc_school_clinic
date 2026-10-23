@@ -1,12 +1,13 @@
 <?php
 require_once __DIR__ . '/../../config/config.php';
 require_admin_permission('backups_manage');
+$loadMisAdminStyles=true;
 $pageTitle = 'Backup & Recovery';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head><?php include __DIR__ . '/../../includes/head.php'; ?></head>
-<body>
+<body class="mis-admin-page">
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
@@ -29,7 +30,7 @@ $pageTitle = 'Backup & Recovery';
           </div>
         </div>
       </section>
-      <div class="alert alert-info mt-3 small"><i class="bi bi-shield-lock me-1"></i>Production restore is intentionally unavailable from this page. Restore testing must use an isolated database and authorized server tooling.</div>
+      <section class="card p-3 mt-3"><h2 class="h6">Recover into a separate database</h2><p class="small text-muted">An operator must create an empty recovery database first. This workflow verifies a v2 backup and restores there. It refuses to overwrite the active database or any non-empty target. Review recovered records before any separately authorized production cutover.</p><form id="recoveryForm" method="post" action="<?=APP_URL?>/api/system_backups.php"><?=csrf_field()?><input type="hidden" name="action" value="restore"><div class="row g-3"><div class="col-md-6"><label for="recovery-id" class="form-label">Completed backup ID</label><input id="recovery-id" name="id" type="number" min="1" required class="form-control"></div><div class="col-md-6"><label for="recovery-target" class="form-label">Empty recovery database</label><input id="recovery-target" name="target_database" required pattern="[A-Za-z0-9_]{1,64}" maxlength="64" class="form-control"></div><div class="col-md-6"><label for="recovery-confirm" class="form-label">Type the recovery database name to confirm</label><input id="recovery-confirm" name="confirmation" required class="form-control"></div><div class="col-md-6"><label for="recovery-password" class="form-label">Current MIS password</label><input id="recovery-password" name="current_password" type="password" required autocomplete="current-password" class="form-control"></div></div><button class="btn btn-outline-danger mt-3" type="submit">Verify and recover into separate database</button></form></section>
     </main>
   </div>
 </div>
@@ -45,7 +46,7 @@ $pageTitle = 'Backup & Recovery';
   const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   function notify(message, type) { alertBox.className = 'alert alert-' + type; alertBox.textContent = message; }
   async function request(url, options) {
-    const response = await fetch(url, Object.assign({credentials:'same-origin', headers:{'Accept':'application/json'}}, options || {}));
+    const response = await fetch(url, Object.assign({signal:AbortSignal.timeout(180000), credentials:'same-origin', headers:{'Accept':'application/json'}}, options || {}));
     const text = await response.text();
     let result; try { result = JSON.parse(text); } catch (_) { throw new Error('The server returned an invalid response.'); }
     if (!response.ok || !result.success) throw new Error(result.message || 'The backup request failed.');
@@ -55,6 +56,7 @@ $pageTitle = 'Backup & Recovery';
     rows.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm me-2"></span>Loading backup history…</td></tr>';
     try {
       const result = await request(endpoint + '?action=list');
+      if (!Array.isArray(result.backups)) throw new Error('Backup history response was incomplete.');
       if (!result.backups.length) { rows.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No backups have been created.</td></tr>'; return; }
       rows.innerHTML = result.backups.map(item => {
         const statusClass = item.status === 'completed' ? 'success' : (item.status === 'failed' ? 'danger' : 'warning');
@@ -81,6 +83,13 @@ $pageTitle = 'Backup & Recovery';
     try { const result = await post('verify', button.dataset.id); notify(result.message, 'success'); }
     catch (error) { notify(error.message, 'danger'); }
     finally { button.disabled = false; }
+  });
+  document.getElementById('recoveryForm').addEventListener('submit',async function(event){
+    event.preventDefault();const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+    if(!confirm('Recover this backup into the named separate database? The active database cannot be overwritten.'))return;
+    button.disabled=true;const body=new FormData(form);
+    try {const result=await request(endpoint,{method:'POST',body});notify(result.message,'success');}
+    catch(error){notify(error.message,'danger');}finally{form.elements.current_password.value='';button.disabled=false;}
   });
   load();
 })();

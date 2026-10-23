@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_admin_permission('view_audit_logs');
 $db = getDB();
 $u = current_user();
+$loadMisAdminStyles=true;
 $pageTitle = 'Activity & Audit Logs';
 ?>
 <!DOCTYPE html>
@@ -23,7 +24,7 @@ $pageTitle = 'Activity & Audit Logs';
     .empty-state { text-align: center; padding: 32px 16px; color: var(--text-secondary); }
   </style>
 </head>
-<body>
+<body class="mis-admin-page">
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
@@ -39,7 +40,8 @@ $pageTitle = 'Activity & Audit Logs';
         </div>
       </div>
 
-      <div class="logs-toolbar">
+      <p class="small text-muted">Technical administrative events only. Times use Asia/Manila. Clinical audit records remain preserved in the database.</p>
+      <div class="logs-toolbar"><label class="visually-hidden" for="logModule">Module filter</label><select id="logModule" class="form-select w-auto"><option value="">All modules</option><?php foreach(['auth','security','admin','account_security','admin_profiles','backups','settings'] as $module): ?><option><?=e($module)?></option><?php endforeach; ?></select><label for="logFrom" class="small">From</label><input id="logFrom" type="date" class="form-control w-auto"><label for="logTo" class="small">To</label><input id="logTo" type="date" class="form-control w-auto">
         <div class="input-group logs-search">
           <input type="text" id="searchInput" class="form-control" placeholder="Search logs by user, action, module, or details...">
           <button class="btn btn-outline-primary" type="button" id="searchLogsButton" aria-label="Search logs"><i class="bi bi-search"></i></button>

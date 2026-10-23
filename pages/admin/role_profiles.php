@@ -12,6 +12,7 @@ require_once __DIR__ . '/../../includes/admin_profile_service.php';
 require_primary_admin();
 $db = getDB();
 $u = current_user();
+$loadMisAdminStyles=true;
 $pageTitle = 'Administrator Management';
 
 $error = '';
@@ -19,8 +20,9 @@ $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
+    foreach(['action','target','profile','reference','license','current_password','effective','confirmed','confirm_action'] as $key)if(isset($_POST[$key])&&!is_scalar($_POST[$key])){http_response_code(400);exit('Invalid administrator action input.');}
     try {
-        if (empty($_POST['confirmed'])) {
+        if (empty($_POST['confirmed']) || empty($_POST['confirm_action'])) {
             throw new InvalidArgumentException('Confirm identity and official appointment verification.');
         }
         $s = new AdminProfileService($db);
@@ -31,6 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'assign') {
             $s->assign((int)$u['id'], $id, $_POST['profile'] ?? '', $ref, trim($_POST['license'] ?? ''), $pw);
             $success = 'Verified administrative profile assigned. Affected account must sign in again.';
+        } elseif (in_array($action,['deactivate','reactivate','revoke','cancel_departure'],true)) {
+            $s->changeAccess((int)$u['id'],$id,$action,$ref,$pw);
+            $success='Administrator access change recorded. Affected sessions are invalidated.';
         } elseif ($action === 'succeed') {
             $s->succeed((int)$u['id'], $id, $ref, $pw);
             $success = 'MIS succession recorded. You have been demoted to Co-Administrator. Please sign in again.';
@@ -44,10 +49,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         set_flash('success', $success);
         redirect('role_profiles.php');
     } catch (PDOException $e) {
+        try {(new AdminProfileService($db))->rejected((int)$u['id'],(int)($_POST['target']??0),(string)($_POST['action']??''));}catch(Throwable $ignored){}
         error_log('Profile transition: ' . $e->getMessage());
         $error = 'The transition was not committed.';
     } catch (RuntimeException | InvalidArgumentException $e) {
-        $error = $e->getMessage();
+        (new AdminProfileService($db))->rejected((int)$u['id'],(int)($_POST['target']??0),(string)($_POST['action']??''));
+        http_response_code(422);$error = $e->getMessage();
     }
 }
 
@@ -61,7 +68,7 @@ try {
 $admins = $db->query("
     SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.status, u.admin_type,
            u.email_verified, u.last_login, u.created_at,
-           COALESCE(p.profile, 'legacy') AS profile,
+           COALESCE(p.profile, IF(u.admin_type='primary_admin','mis','legacy')) AS profile,
            p.appointment_reference, p.clinical_registration, p.verified_by, p.verified_at
     FROM users u
     LEFT JOIN admin_profiles p ON p.user_id = u.id
@@ -115,7 +122,7 @@ function adminRoleLabel(string $type, ?string $profile): string {
     }
   </style>
 </head>
-<body>
+<body class="mis-admin-page">
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
@@ -216,8 +223,8 @@ function adminRoleLabel(string $type, ?string $profile): string {
             <input type="hidden" name="confirmed" value="1">
             <div class="row g-3">
               <div class="col-md-4">
-                <label class="form-label small fw-semibold">Target Account ID <span class="text-danger">*</span></label>
-                <input id="profile-target" name="target" type="number" min="1" required class="form-control">
+                <label class="form-label small fw-semibold">Administrator account <span class="text-danger">*</span></label>
+                <label class="visually-hidden" for="profile-search">Search administrator accounts</label><input id="profile-search" class="form-control mb-2 account-filter" type="search" placeholder="Search name, email or role" data-select="profile-target"><select id="profile-target" name="target" required class="form-select"><option value="">Select an administrator</option><?php foreach($admins as $candidate): if($candidate['admin_type']==='primary_admin')continue; ?><option value="<?=$candidate['id']?>" <?=(int)($_GET['target']??0)===(int)$candidate['id']?'selected':''?>><?=e($candidate['first_name'].' '.$candidate['last_name'].' ? '.$candidate['email'].' ? '.$candidate['profile'])?></option><?php endforeach; ?></select>
               </div>
               <div class="col-md-4">
                 <label class="form-label small fw-semibold">Verified Profile <span class="text-danger">*</span></label>
@@ -255,6 +262,8 @@ function adminRoleLabel(string $type, ?string $profile): string {
         </div>
       </section>
 
+      <div class="alert alert-info small">Deactivation blocks access immediately and preserves history. Revocation also removes legacy permissions; a new verified appointment is required before reactivation. Dates use Asia/Manila.</div>
+      <section class="admin-card mb-4"><div class="admin-card__body"><h2 class="h6">Scheduled departures</h2><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Administrator</th><th>Effective (Asia/Manila)</th><th>Status</th><th>Authority</th></tr></thead><tbody><?php $departures=$db->query("SELECT d.*,u.username FROM admin_departures d JOIN users u ON u.id=d.user_id ORDER BY d.id DESC LIMIT 30")->fetchAll();foreach($departures as $departure): ?><tr><td><?=e($departure['username'])?></td><td><?=e($departure['effective_at'])?></td><td><?=e($departure['status'])?></td><td><?=e($departure['authority_reference'])?></td></tr><?php endforeach; if(!$departures)echo '<tr><td colspan="4">No departures scheduled.</td></tr>'; ?></tbody></table></div></div></section>
       <!-- Authorized Departure -->
       <section class="admin-card mb-4">
         <div class="admin-card__head">
@@ -264,12 +273,12 @@ function adminRoleLabel(string $type, ?string $profile): string {
           <p class="small text-muted mb-3">Schedule the verified departure of a Co-Administrator (not Primary). The outgoing account is deactivated at the approved effective date. Medical and account history are preserved.</p>
           <form method="post" class="card p-3">
             <?= csrf_field() ?>
-            <input type="hidden" name="action" value="departure">
+            <label for="access-action" class="form-label">Access action</label><select class="form-select mb-3" id="access-action" name="action"><option value="departure">Schedule Departure</option><option value="deactivate">Deactivate Immediately</option><option value="reactivate">Reactivate Account</option><option value="revoke">Revoke Administrative Privileges</option><option value="cancel_departure">Cancel Scheduled Departure</option></select>
             <input type="hidden" name="confirmed" value="1">
             <div class="row g-3">
               <div class="col-md-4">
-                <label class="form-label small fw-semibold">Target Account ID <span class="text-danger">*</span></label>
-                <input id="departure-target" name="target" type="number" min="1" required class="form-control">
+                <label class="form-label small fw-semibold">Administrator account <span class="text-danger">*</span></label>
+                <label class="visually-hidden" for="departure-search">Search administrator accounts</label><input id="departure-search" class="form-control mb-2 account-filter" type="search" placeholder="Search name, email or role" data-select="departure-target"><select id="departure-target" name="target" required class="form-select"><option value="">Select an administrator</option><?php foreach($admins as $candidate): if($candidate['admin_type']==='primary_admin')continue; ?><option value="<?=$candidate['id']?>" <?=(int)($_GET['target']??0)===(int)$candidate['id']?'selected':''?>><?=e($candidate['first_name'].' '.$candidate['last_name'].' ? '.$candidate['email'].' ? '.$candidate['profile'])?></option><?php endforeach; ?></select>
               </div>
               <div class="col-md-4">
                 <label class="form-label small fw-semibold">Effective Date / Time <span class="text-danger">*</span></label>
@@ -292,7 +301,7 @@ function adminRoleLabel(string $type, ?string $profile): string {
                 </div>
               </div>
               <div class="col-12">
-                <button type="submit" class="btn btn-sm btn-outline-danger">Schedule Departure</button>
+                <button type="submit" class="btn btn-sm btn-outline-danger">Apply Authorized Action</button>
               </div>
             </div>
           </form>
@@ -315,8 +324,8 @@ function adminRoleLabel(string $type, ?string $profile): string {
             <input type="hidden" name="confirmed" value="1">
             <div class="row g-3">
               <div class="col-md-4">
-                <label class="form-label small fw-semibold">Successor Account ID <span class="text-danger">*</span></label>
-                <input id="succession-target" name="target" type="number" min="1" required class="form-control">
+                <label class="form-label small fw-semibold">Successor account <span class="text-danger">*</span></label>
+                <label class="visually-hidden" for="succession-search">Search administrator accounts</label><input id="succession-search" class="form-control mb-2 account-filter" type="search" placeholder="Search name, email or role" data-select="succession-target"><select id="succession-target" name="target" required class="form-select"><option value="">Select an administrator</option><?php foreach($admins as $candidate): if($candidate['admin_type']==='primary_admin')continue; ?><option value="<?=$candidate['id']?>" <?=(int)($_GET['target']??0)===(int)$candidate['id']?'selected':''?>><?=e($candidate['first_name'].' '.$candidate['last_name'].' ? '.$candidate['email'].' ? '.$candidate['profile'])?></option><?php endforeach; ?></select>
               </div>
               <div class="col-md-4">
                 <label class="form-label small fw-semibold">Official Appointment Reference <span class="text-danger">*</span></label>
@@ -388,5 +397,16 @@ function adminRoleLabel(string $type, ?string $profile): string {
   </div>
 </div>
 <?php include __DIR__ . '/../../components/footer.php'; ?>
+
+<script>
+document.querySelectorAll('.account-filter').forEach(function(search){
+ search.addEventListener('input',function(){const select=document.getElementById(search.dataset.select);[...select.options].forEach(function(option){option.hidden=!!option.value&&!option.textContent.toLowerCase().includes(search.value.toLowerCase());});});
+});
+const profileChoice=document.getElementById('profile-choice'),profileLicense=document.getElementById('profile-license');
+if(profileChoice){function updateLicense(){profileLicense.required=profileChoice.value==='doctor';}profileChoice.addEventListener('change',updateLicense);updateLicense();}
+const accessAction=document.getElementById('access-action'),effective=document.getElementById('departure-effective');
+if(accessAction){function updateEffective(){effective.required=accessAction.value==='departure';effective.disabled=!effective.required;}accessAction.addEventListener('change',updateEffective);updateEffective();}
+</script>
+
 </body>
 </html>

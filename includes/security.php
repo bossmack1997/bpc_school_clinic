@@ -18,6 +18,7 @@
 /**
  * Maximum failed login attempts before temporary lockout.
  */
+require_once __DIR__.'/security_policy.php';
 const MAX_LOGIN_ATTEMPTS = 5;
 
 /**
@@ -43,6 +44,9 @@ function login_rate_limit_check(string $ip, ?string $identifier = null): int {
     try {
         $db = getDB();
         $now = time();
+        $release=$db->prepare("SELECT COALESCE(MAX(CAST(setting_value AS UNSIGNED)),0) FROM system_settings WHERE setting_key IN (?,?)");
+        $release->execute(['login_release_'.hash('sha256',$ip.'|*'),'login_release_'.hash('sha256',$ip.'|'.($identifier??'*'))]);
+        $released=(int)$release->fetchColumn();
 
         // Count recent failed attempts within the lockout window
         // If identifier is provided, check per (IP, identifier) to avoid
@@ -51,22 +55,22 @@ function login_rate_limit_check(string $ip, ?string $identifier = null): int {
             $stmt = $db->prepare("
                 SELECT COUNT(*) FROM login_attempts
                 WHERE ip_address = ? AND username = ?
-                  AND UNIX_TIMESTAMP(attempted_at) >= ?
+                  AND id > ? AND UNIX_TIMESTAMP(attempted_at) >= ?
             ");
-            $stmt->execute([$ip, $identifier, $now - LOGIN_LOCKOUT_SECONDS]);
+            $stmt->execute([$ip, $identifier, $released, $now - (security_policy('lockout_minutes') * 60)]);
             $attempts = (int)$stmt->fetchColumn();
 
-            if ($attempts >= MAX_LOGIN_ATTEMPTS) {
+            if ($attempts >= security_policy('max_login_attempts')) {
                 $stmt = $db->prepare("
                     SELECT MAX(UNIX_TIMESTAMP(attempted_at)) FROM login_attempts
                     WHERE ip_address = ? AND username = ?
-                      AND UNIX_TIMESTAMP(attempted_at) >= ?
+                      AND id > ? AND UNIX_TIMESTAMP(attempted_at) >= ?
                 ");
-                $stmt->execute([$ip, $identifier, $now - LOGIN_LOCKOUT_SECONDS]);
+                $stmt->execute([$ip, $identifier, $released, $now - (security_policy('lockout_minutes') * 60)]);
                 $lastAttempt = $stmt->fetchColumn();
 
                 if ($lastAttempt) {
-                    $unlockTs = (int)$lastAttempt + LOGIN_LOCKOUT_SECONDS;
+                    $unlockTs = (int)$lastAttempt + (security_policy('lockout_minutes') * 60);
                     return max(0, $unlockTs - $now);
                 }
             }
@@ -74,22 +78,22 @@ function login_rate_limit_check(string $ip, ?string $identifier = null): int {
             $stmt = $db->prepare("
                 SELECT COUNT(*) FROM login_attempts
                 WHERE ip_address = ?
-                  AND UNIX_TIMESTAMP(attempted_at) >= ?
+                  AND id > ? AND UNIX_TIMESTAMP(attempted_at) >= ?
             ");
-            $stmt->execute([$ip, $now - LOGIN_LOCKOUT_SECONDS]);
+            $stmt->execute([$ip, $released, $now - (security_policy('lockout_minutes') * 60)]);
             $attempts = (int)$stmt->fetchColumn();
 
-            if ($attempts >= MAX_LOGIN_ATTEMPTS) {
+            if ($attempts >= security_policy('max_login_attempts')) {
                 $stmt = $db->prepare("
                     SELECT MAX(UNIX_TIMESTAMP(attempted_at)) FROM login_attempts
                     WHERE ip_address = ?
-                      AND UNIX_TIMESTAMP(attempted_at) >= ?
+                      AND id > ? AND UNIX_TIMESTAMP(attempted_at) >= ?
                 ");
-                $stmt->execute([$ip, $now - LOGIN_LOCKOUT_SECONDS]);
+                $stmt->execute([$ip, $released, $now - (security_policy('lockout_minutes') * 60)]);
                 $lastAttempt = $stmt->fetchColumn();
 
                 if ($lastAttempt) {
-                    $unlockTs = (int)$lastAttempt + LOGIN_LOCKOUT_SECONDS;
+                    $unlockTs = (int)$lastAttempt + (security_policy('lockout_minutes') * 60);
                     return max(0, $unlockTs - $now);
                 }
             }
@@ -121,10 +125,11 @@ function login_rate_limit_record_failure(string $ip, ?string $username = null): 
 /**
  * Clear failed login attempts for an IP after successful login.
  */
-function login_rate_limit_clear(string $ip): void {
+function login_rate_limit_clear(string $ip, ?string $identifier = null): void {
     try {
         $db = getDB();
-        $db->prepare("DELETE FROM login_attempts WHERE ip_address = ?")->execute([$ip]);
+        $q=$db->prepare('SELECT COALESCE(MAX(id),0) FROM login_attempts WHERE ip_address=?');$q->execute([$ip]);
+        $db->prepare('INSERT INTO system_settings(setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)')->execute(['login_release_'.hash('sha256',$ip.'|'.($identifier??'*')),(string)$q->fetchColumn()]);
     } catch (Exception $e) {
         error_log('login_rate_limit_clear failed: ' . $e->getMessage());
     }
@@ -251,8 +256,8 @@ function validate_username(string $username): bool {
 function validate_password_strength(string $password): array {
     $errors = [];
 
-    if (strlen($password) < 8) {
-        $errors[] = 'Password must be at least 8 characters.';
+    if (strlen($password) < security_policy('password_min_length')) {
+        $errors[] = 'Password must be at least '.security_policy('password_min_length').' characters.';
     }
     if (!preg_match('/[A-Z]/', $password)) {
         $errors[] = 'Password must contain at least one uppercase letter.';
@@ -419,7 +424,7 @@ function validate_session(): bool {
         return false;
     }
 
-    $timeout = 3600; // 1 hour
+    $timeout = security_policy('session_timeout');
     if (time() - $_SESSION['last_activity'] > $timeout) {
         return false;
     }

@@ -185,7 +185,8 @@ $(function () {
   // Dark Mode Toggle
   // ================================================================
   const darkToggle = $('#darkModeToggle');
-  const storedTheme = localStorage.getItem('clinic-theme') || 'light';
+  const defaultTheme=window.BPC_DEFAULT_THEME==='auto'?(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):(window.BPC_DEFAULT_THEME||'light');
+  const storedTheme = localStorage.getItem('clinic-theme') || defaultTheme;
 
   function applyTheme(theme) {
     const isDark = theme === 'dark';

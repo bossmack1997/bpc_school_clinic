@@ -9,8 +9,10 @@
 
 require_once __DIR__ . '/../../config/config.php';
 require_role('admin');
+require_once __DIR__.'/../../includes/system_settings_service.php';
 $db = getDB();
 $u = current_user();
+$loadMisAdminStyles=true;
 $pageTitle = 'System Settings';
 
 $requestedTab = $_GET['tab'] ?? null;
@@ -50,6 +52,7 @@ $userRecord = $userStmt->fetch(PDO::FETCH_ASSOC) ?: $u;
 // -------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
+    foreach(['action','school_name','clinic_name','school_address','clinic_contact','theme_mode','session_timeout','max_login_attempts','lockout_minutes','password_min_length'] as $key)if(isset($_POST[$key])&&!is_scalar($_POST[$key])){http_response_code(400);exit('Invalid settings input.');}
     $action = $_POST['action'] ?? '';
 
     // 1. Update General System Settings
@@ -69,17 +72,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'theme_mode'     => $themeMode,
         ];
 
-        foreach ($settings as $k => $v) {
-            $stmt = $db->prepare("INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()");
-            $stmt->execute([$k, $v]);
-        }
-
-        log_activity($u['id'], 'Updated institutional system settings', 'settings');
+        try{(new SystemSettingsService($db))->save((int)$u['id'],$settings);}
+        catch(InvalidArgumentException $e){set_flash('danger',$e->getMessage());redirect('settings.php?tab=general');}
         set_flash('success', 'System configuration updated successfully.');
         redirect('settings.php?tab=general');
     }
 
-    // 2. Update Security Policies (configuration only)
+    // 2. Update the bounded policies used by authentication.
     if ($action === 'update_security_policies') {
         require_admin_permission('manage_security');
         $sessionTimeout  = (int)($_POST['session_timeout'] ?? 3600);
@@ -94,12 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'security_password_min_length' => (string)$passwordMinLen,
         ];
 
-        foreach ($settings as $k => $v) {
-            $stmt = $db->prepare("INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()");
-            $stmt->execute([$k, $v]);
-        }
-
-        log_activity($u['id'], 'Updated security policies', 'settings');
+        try{(new SystemSettingsService($db))->save((int)$u['id'],$settings);}
+        catch(InvalidArgumentException $e){set_flash('danger',$e->getMessage());redirect('settings.php?tab=policies');}
         set_flash('success', 'Security policies updated successfully.');
         redirect('settings.php?tab=policies');
     }
@@ -122,9 +117,9 @@ $passwordMinLen  = (int)($settingsRows['security_password_min_length'] ?? 8);
 
 // Integration status (read-only, no secrets exposed)
 $integrationStatus = [
-    'email'      => function_exists('send_registration_otp_email') ? 'configured' : 'not configured',
-    'micai'      => class_exists('MICAHubService') ? 'available' : 'not available',
-    'qr'         => class_exists('MICARegistrationValidator') ? 'available' : 'not available',
+    'email'      => (getenv('MAIL_HOST')||getenv('SMTP_HOST')) ? 'Configuration present; delivery not probed' : 'Mail host not configured',
+    'micai'      => is_file(BASE_PATH.'/includes/ai/AIService.php') ? 'Component installed; live provider not probed' : 'Component unavailable',
+    'qr'         => is_file(BASE_PATH.'/assets/js/html5-qrcode.min.js') ? 'Scanner component installed; camera not probed' : 'Scanner component unavailable',
     'pwa'        => file_exists(__DIR__ . '/../../manifest.json') ? 'available' : 'not available',
 ];
 
@@ -169,7 +164,7 @@ $lastBackup = $db->query("SELECT status, filename, created_at FROM system_backup
     }
   </style>
 </head>
-<body>
+<body class="mis-admin-page">
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
@@ -222,7 +217,7 @@ $lastBackup = $db->query("SELECT status, filename, created_at FROM system_backup
                     <input type="text" class="form-control" name="clinic_contact" value="<?= e($clinicContact) ?>" required>
                   </div>
                   <div class="col-md-6">
-                    <label class="form-label small fw-semibold">Interface Default Theme</label>
+                    <label class="form-label small fw-semibold">Default theme for browsers without a personal preference</label>
                     <select class="form-select" name="theme_mode">
                       <option value="light" <?= $themeMode === 'light' ? 'selected' : '' ?>>Light Theme (Standard)</option>
                       <option value="dark" <?= $themeMode === 'dark' ? 'selected' : '' ?>>Dark Theme</option>
@@ -349,7 +344,7 @@ $lastBackup = $db->query("SELECT status, filename, created_at FROM system_backup
                     </div>
                     <div class="col-md-3">
                       <label class="form-label small fw-semibold">Minimum Password Length</label>
-                      <input type="number" class="form-control" name="password_min_length" value="<?= e($passwordMinLen) ?>" min="6" max="64" required>
+                      <input type="number" class="form-control" name="password_min_length" value="<?= e($passwordMinLen) ?>" min="8" max="72" required>
                     </div>
                   </div>
                   <div class="mt-4 pt-3 border-top">

@@ -9,9 +9,12 @@
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/account_security_exceptions.php';
+require_once __DIR__ . '/../../includes/security_monitoring.php';
+require_once __DIR__ . '/../../includes/security_incident_service.php';
 require_admin_permission('manage_security');
 $db = getDB();
 $u = current_user();
+$loadMisAdminStyles=true;
 $pageTitle = 'Security Center';
 
 $exceptionError = '';
@@ -33,7 +36,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $service = new AccountSecurityExceptionService($db);
         $action = $_POST['action'] ?? '';
 
-        if ($action === 'open') {
+        if ($action === 'clear_ip_lockout') {
+            $ip=trim((string)($_POST['ip_address']??''));if(!filter_var($ip,FILTER_VALIDATE_IP))throw new InvalidArgumentException('Select a valid IP address.');
+            login_rate_limit_clear($ip);log_activity((int)$u['id'],'Cleared login lockout','security','IP '.$ip);$exceptionSuccess='Lockout released. Historical failed attempts are preserved.';
+        } elseif ($action === 'clear_all_lockouts') {
+            foreach((new SecurityMonitoringService($db))->lockouts() as $locked)login_rate_limit_clear($locked['ip_address']);
+            log_activity((int)$u['id'],'Cleared active login lockouts','security');$exceptionSuccess='Active lockouts released; failed-attempt history is preserved.';
+        } elseif ($action === 'incident') {
+            (new SecurityIncidentService($db))->transition((int)$u['id'],(int)($_POST['event_id']??0),(string)($_POST['stage']??''),(string)($_POST['notes']??''));
+            $exceptionSuccess='Security incident transition recorded.';
+        } elseif ($action === 'open') {
             $service->open(
                 (int)$u['id'],
                 (int)($_POST['user_id'] ?? 0),
@@ -65,27 +77,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // -------------------------------------------------------------
 $totalFailed24h = (int)$db->query("SELECT COUNT(*) FROM login_attempts WHERE attempted_at >= (NOW() - INTERVAL 24 HOUR)")->fetchColumn();
 
-$lockedIps = $db->query("
-    SELECT ip_address, COUNT(*) AS attempt_count, MAX(attempted_at) AS last_attempt,
-           GROUP_CONCAT(DISTINCT username SEPARATOR ', ') AS targeted_accounts
-    FROM login_attempts
-    WHERE UNIX_TIMESTAMP(attempted_at) >= (UNIX_TIMESTAMP() - 900)
-    GROUP BY ip_address
-    HAVING COUNT(*) >= 5
-    ORDER BY attempt_count DESC
-")->fetchAll(PDO::FETCH_ASSOC);
+$lockedIps = (new SecurityMonitoringService($db))->lockouts();
 
 $totalAdmins = (int)$db->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn();
 
 $openExceptions = (int)$db->query("SELECT COUNT(*) FROM account_security_exceptions WHERE status = 'open'")->fetchColumn();
 
-$recentSuspicious = $db->query("
-    SELECT event_type, subject_key, user_id, details, occurred_at
-    FROM account_security_events
-    WHERE occurred_at >= (NOW() - INTERVAL 24 HOUR)
-    ORDER BY occurred_at DESC
-    LIMIT 10
-")->fetchAll(PDO::FETCH_ASSOC);
+$recentSuspicious = (new SecurityMonitoringService($db))->events();
 
 // -------------------------------------------------------------
 // Exception History
@@ -136,7 +134,7 @@ $selectableAccounts = $db->query("
     }
   </style>
 </head>
-<body>
+<body class="mis-admin-page">
 <div class="app-wrapper">
   <?php include __DIR__ . '/../../components/sidebar.php'; ?>
   <div class="main-content">
@@ -152,6 +150,7 @@ $selectableAccounts = $db->query("
         </div>
       </div>
 
+      <section class="card p-3 mb-3"><h2 class="h6">Security incident review</h2><p class="small text-muted">Routine activation and ordinary validation events remain informational. Repeated failures or unauthorized access may warrant an incident. Stages: Detected, Under Review, Action Taken, Resolved. Notes are appended to audit history.</p><form method="post"><?=csrf_field()?><input type="hidden" name="action" value="incident"><div class="row g-2"><div class="col-md-4"><label for="incident-event" class="form-label">Event</label><select id="incident-event" name="event_id" class="form-select" required><option value="">Select suspicious event</option><?php foreach($recentSuspicious as $event): if(!in_array($event['severity'],['medium','high','critical'],true))continue; ?><option value="<?=$event['id']?>"><?=e('#'.$event['id'].' '.$event['event_type'].' / '.$event['severity'])?></option><?php endforeach; ?></select></div><div class="col-md-3"><label for="incident-stage" class="form-label">Stage</label><select id="incident-stage" name="stage" class="form-select"><option value="detected">Detected</option><option value="under_review">Under Review</option><option value="action_taken">Action Taken</option><option value="resolved">Resolved</option></select></div><div class="col-md-5"><label for="incident-notes" class="form-label">Findings / outcome</label><input id="incident-notes" name="notes" class="form-control" minlength="15" maxlength="255" required></div></div><button class="btn btn-outline-primary mt-2">Record incident review</button></form><div class="table-responsive mt-3"><table class="table table-sm"><thead><tr><th>Event</th><th>Severity</th><th>Stage</th><th>Reviewer</th><th>Outcome</th><th>Updated</th></tr></thead><tbody><?php try {$incidents=$db->query('SELECT i.*,u.username reviewer FROM security_incidents i LEFT JOIN users u ON u.id=i.reviewer_id ORDER BY i.id DESC LIMIT 30')->fetchAll(); foreach($incidents as $incident): ?><tr><td>#<?=$incident['event_id']?></td><td><?=e($incident['severity'])?></td><td><?=e($incident['stage'])?></td><td><?=e($incident['reviewer'])?></td><td><?=e($incident['outcome'])?></td><td><?=e($incident['updated_at'])?></td></tr><?php endforeach; if(!$incidents)echo '<tr><td colspan="6">No incidents recorded.</td></tr>'; }catch(PDOException $e){echo '<tr><td colspan="6">Incident storage is unavailable. Apply the reviewed MIS audit migration before incident recording.</td></tr>';} ?></tbody></table></div></section>
       <?php if ($exceptionError): ?>
         <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3" role="alert">
           <i class="bi bi-exclamation-triangle-fill"></i>
@@ -173,7 +172,7 @@ $selectableAccounts = $db->query("
           <span class="security-kpi__sub">Authentication attempts failed in the last 24 hours</span>
         </div>
         <div class="security-kpi__card">
-          <span class="security-kpi__label">Active IP Lockouts</span>
+          <span class="security-kpi__label">Active Account / IP Lockouts</span>
           <span class="security-kpi__value text-<?= count($lockedIps) > 0 ? 'danger' : 'dark' ?>"><?= count($lockedIps) ?></span>
           <span class="security-kpi__sub"><?= count($lockedIps) > 0 ? 'Exceeded threshold in 15 min' : 'No active IP lockouts' ?></span>
         </div>
@@ -225,7 +224,7 @@ $selectableAccounts = $db->query("
             </div>
             <div class="col-md-6">
               <div class="card p-3 shadow-sm border-0 rounded-3">
-                <h6 class="fw-bold text-dark mb-2">Active IP Lockouts</h6>
+                <h6 class="fw-bold text-dark mb-2">Active Account / IP Lockouts</h6>
                 <?php if (empty($lockedIps)): ?>
                   <div class="empty-state"><i class="bi bi-shield-check fs-4 text-success d-block mb-2"></i>No IP addresses are currently locked out.</div>
                 <?php else: ?>
@@ -268,13 +267,13 @@ $selectableAccounts = $db->query("
 
           <?php if (!empty($recentSuspicious)): ?>
           <div class="card p-3 shadow-sm border-0 rounded-3 mt-3">
-            <h6 class="fw-bold text-dark mb-2">Recent Suspicious Activity (24h)</h6>
+            <h6 class="fw-bold text-dark mb-2">Recent Security Events (24h)</h6>
             <table class="table table-hover align-middle mb-0 small">
-              <thead><tr><th>Event Type</th><th>Subject</th><th>Details</th><th>Occurred At</th></tr></thead>
+              <thead><tr><th>Event Type / Severity</th><th>Subject</th><th>Details</th><th>Occurred At</th></tr></thead>
               <tbody>
               <?php foreach ($recentSuspicious as $evt): ?>
                 <tr>
-                  <td><?= e(str_replace('_', ' ', $evt['event_type'])) ?></td>
+                  <td><?= e(str_replace('_', ' ', $evt['event_type'])) ?><div class="small"><?=e(ucfirst($evt['severity']))?> &middot; <?=(int)$evt['repetitions']?> event(s)</div></td>
                   <td><?= e($evt['user_id'] ? '#' . $evt['user_id'] : $evt['subject_key']) ?></td>
                   <td class="small text-muted"><?= e($evt['details']) ?></td>
                   <td class="small text-muted"><?= e(format_datetime($evt['occurred_at'])) ?></td>
