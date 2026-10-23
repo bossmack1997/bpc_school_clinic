@@ -1,7 +1,8 @@
 import re, os, urllib.request
-root = r"c:\xampp\htdocs\bpc_clinic_system"
+root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 used = set()
 for dirpath, dirnames, filenames in os.walk(root):
+    dirnames[:] = [name for name in dirnames if name not in {'.git', 'vendor', 'scratch', 'node_modules'}]
     for fn in filenames:
         if fn.lower().endswith((('.php', '.html', '.js', '.css'))):
             path = os.path.join(dirpath, fn)

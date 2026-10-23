@@ -8,7 +8,7 @@
   for (const width of widths) {
     const frame = document.createElement('iframe');
     frame.style.cssText = `width:${width}px;height:640px;border:0`;
-    frame.src = 'auth/register.php?probe=' + Date.now();
+    frame.src = '../auth/register.php?probe=' + Date.now();
     document.body.appendChild(frame);
     await new Promise((resolve, reject) => { frame.onload = resolve; setTimeout(() => reject(new Error('load timeout')), 8000); });
     await wait(350);

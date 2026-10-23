@@ -2,7 +2,7 @@
     RewriteEngine On
     # Private medical attachments are served only through the authorized PHP endpoint.
     RewriteRule ^uploads/medical_records(?:/|$) - [F,L,NC]
-    RewriteRule ^(?:config|database|includes|scratch|setup|storage)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:config|database|includes|scratch|setup|storage|tests|tools|vendor)(?:/|$) - [F,L,NC]
 </IfModule>
 
 Options -Indexes
@@ -23,6 +23,17 @@ Options -Indexes
 # served, because they can print database rows, credentials or stack
 # traces to an anonymous visitor.
 <FilesMatch "\.(sql|log|ini|env|bak|old|orig|md)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Source/database snapshots are private even when stored beside index.php.
+<FilesMatch "(?i)\.(?:zip|sql\.gz|tar|tgz|7z|py|cjs)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
