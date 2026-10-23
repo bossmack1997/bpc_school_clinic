@@ -16,6 +16,8 @@ $db = getDB();
 $doctor = current_user();
 $service = new NurseVerificationService($db, $doctor);
 
+if (!$service->ready()) { http_response_code(503); $pageTitle='Clinical Staff Verification'; include __DIR__.'/../../includes/head.php'; echo '<main class="container py-5"><h1>Clinical Staff Verification</h1><p role="alert">The clinical authorization schema is unavailable. MIS must apply the reviewed nurse clinical authorization migration before reviews can proceed.</p><a href="dashboard.php">Clinical Command Center</a></main>'; exit; }
+
 $error = '';
 $success = '';
 
@@ -24,31 +26,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify_or_die();
     $action = trim($_POST['action'] ?? '');
     $nurseId = (int)($_POST['nurse_id'] ?? 0);
-    $notes = trim($_POST['notes'] ?? '');
+    $notes = is_string($_POST['notes'] ?? null) ? trim($_POST['notes']) : '';
+    $password = is_string($_POST['review_password'] ?? null) ? $_POST['review_password'] : '';
+    $version = filter_var($_POST['review_version'] ?? null, FILTER_VALIDATE_INT);
+    $version = $version === false || $version === null ? -1 : $version;
 
     try {
+        $attempts=$_SESSION['clinical_review_attempts']??[];
+        $attempts=array_values(array_filter($attempts,static fn($time)=>$time>time()-900));
+        if(count($attempts)>=5)throw new RuntimeException('Too many review attempts. Wait 15 minutes before retrying.');
+        $attempts[]=time(); $_SESSION['clinical_review_attempts']=$attempts;
         if ($nurseId <= 0) {
             throw new InvalidArgumentException('Invalid nurse account specified.');
         }
 
         switch ($action) {
             case 'authorize':
-                $service->authorize($nurseId, $notes);
+                if(($_POST['institutional_verified']??'')!=='1')throw new InvalidArgumentException('Confirm verification of institutional appointment authorization.');
+                $service->authorize($nurseId, $notes, $password, $version);
                 set_flash('success', 'Nurse clinical access successfully authorized. Clinical permissions granted.');
                 break;
 
             case 'request_info':
-                $service->requestInformation($nurseId, $notes);
+                $service->requestInformation($nurseId, $notes, $password, $version);
                 set_flash('info', 'Additional information requested from nurse. Instructions updated on their account.');
                 break;
 
             case 'reject':
-                $service->reject($nurseId, $notes);
+                $service->reject($nurseId, $notes, $password, $version);
                 set_flash('warning', 'Nurse clinical authorization application rejected.');
                 break;
 
             case 'revoke':
-                $service->revoke($nurseId, $notes);
+                $service->revoke($nurseId, $notes, $password, $version);
                 set_flash('danger', 'Nurse clinical access has been revoked. All active sessions invalidated.');
                 break;
 
@@ -56,10 +66,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new InvalidArgumentException('Invalid action requested.');
         }
 
+        unset($_SESSION['clinical_review_attempts']);
         redirect(APP_URL . '/pages/doctor/nurse_verification.php' . (!empty($_GET['tab']) ? '?tab=' . urlencode($_GET['tab']) : ''));
     } catch (Throwable $e) {
         error_log('Nurse verification error: ' . $e->getMessage());
-        $error = $e->getMessage();
+        $error = $e instanceof PDOException ? 'Unable to record the review. No decision was confirmed. Please retry.' : $e->getMessage();
     }
 }
 
@@ -86,6 +97,7 @@ $pageTitle = 'Nurse Clinical Verification';
 <head>
   <?php include __DIR__ . '/../../includes/head.php'; ?>
   <style>
+    .modal-header.bg-success .modal-title { color: #fff; }
     .nurse-review-badge { font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 4px 8px; border-radius: 6px; }
     .badge-pending { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
     .badge-needs-info { background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
@@ -330,6 +342,7 @@ $pageTitle = 'Nurse Clinical Verification';
           <div class="modal-dialog modal-dialog-centered">
             <form method="post" class="modal-content">
               <?= csrf_field() ?>
+              <input type="hidden" name="review_version" value="<?= (int)$selectedNurse['credential_version'] ?>">
               <input type="hidden" name="action" value="authorize">
               <input type="hidden" name="nurse_id" value="<?= (int)$selectedNurse['user_id'] ?>">
               <div class="modal-header bg-success text-white">
@@ -337,15 +350,16 @@ $pageTitle = 'Nurse Clinical Verification';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
               <div class="modal-body">
+                <div class="p-3 border-bottom"><label class="form-label">Confirm your Doctor password<input type="password" name="review_password" class="form-control" autocomplete="current-password" required maxlength="1024"></label></div>
                 <p>You are about to authorize <strong><?= e($selectedNurse['first_name'] . ' ' . $selectedNurse['last_name']) ?></strong> for clinical staff permissions.</p>
                 <div class="form-check mb-3">
-                  <input class="form-check-input" type="checkbox" id="confirmVerificationCheck" required>
+                  <input class="form-check-input" type="checkbox" id="confirmVerificationCheck" name="institutional_verified" value="1" required>
                   <label class="form-check-label small" for="confirmVerificationCheck">
                     I confirm that I have verified this nurse's legitimate employment / clinic assignment via authorized school records or institutional confirmation.
                   </label>
                 </div>
-                <label for="authNotes" class="form-label small">Review Notes / Verification Remarks (Optional)</label>
-                <textarea class="form-control form-control-sm" id="authNotes" name="notes" rows="2" placeholder="e.g. Verified PRC license against institutional registry"></textarea>
+                <label for="authNotes" class="form-label small">Verification reference and review notes (required)</label>
+                <textarea class="form-control form-control-sm" id="authNotes" name="notes" rows="2" required minlength="5" maxlength="2000" placeholder="e.g. Verified PRC license against institutional registry"></textarea>
               </div>
               <div class="modal-footer border-0">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -360,6 +374,7 @@ $pageTitle = 'Nurse Clinical Verification';
           <div class="modal-dialog modal-dialog-centered">
             <form method="post" class="modal-content">
               <?= csrf_field() ?>
+              <input type="hidden" name="review_version" value="<?= (int)$selectedNurse['credential_version'] ?>">
               <input type="hidden" name="action" value="request_info">
               <input type="hidden" name="nurse_id" value="<?= (int)$selectedNurse['user_id'] ?>">
               <div class="modal-header bg-info text-white">
@@ -367,6 +382,7 @@ $pageTitle = 'Nurse Clinical Verification';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
               <div class="modal-body">
+                <div class="p-3 border-bottom"><label class="form-label">Confirm your Doctor password<input type="password" name="review_password" class="form-control" autocomplete="current-password" required maxlength="1024"></label></div>
                 <p class="small text-muted">Specify the additional documents, credentials, or clarifications the nurse must provide before clinical authorization.</p>
                 <label for="infoInstructions" class="form-label small fw-semibold">Instructions for Nurse <span class="text-danger">*</span></label>
                 <textarea class="form-control form-control-sm" id="infoInstructions" name="notes" rows="3" required placeholder="e.g. Please present updated PRC ID card or appointment letter to the clinic office."></textarea>
@@ -384,6 +400,7 @@ $pageTitle = 'Nurse Clinical Verification';
           <div class="modal-dialog modal-dialog-centered">
             <form method="post" class="modal-content">
               <?= csrf_field() ?>
+              <input type="hidden" name="review_version" value="<?= (int)$selectedNurse['credential_version'] ?>">
               <input type="hidden" name="action" value="reject">
               <input type="hidden" name="nurse_id" value="<?= (int)$selectedNurse['user_id'] ?>">
               <div class="modal-header bg-danger text-white">
@@ -391,6 +408,7 @@ $pageTitle = 'Nurse Clinical Verification';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
               <div class="modal-body">
+                <div class="p-3 border-bottom"><label class="form-label">Confirm your Doctor password<input type="password" name="review_password" class="form-control" autocomplete="current-password" required maxlength="1024"></label></div>
                 <p class="small text-muted">This will reject the clinical application. The nurse's basic personal account will remain active without clinical access.</p>
                 <label for="rejectReason" class="form-label small fw-semibold">Rejection Reason <span class="text-danger">*</span></label>
                 <textarea class="form-control form-control-sm" id="rejectReason" name="notes" rows="3" required placeholder="e.g. Unable to verify credentials with institutional records."></textarea>
@@ -408,6 +426,7 @@ $pageTitle = 'Nurse Clinical Verification';
           <div class="modal-dialog modal-dialog-centered">
             <form method="post" class="modal-content">
               <?= csrf_field() ?>
+              <input type="hidden" name="review_version" value="<?= (int)$selectedNurse['credential_version'] ?>">
               <input type="hidden" name="action" value="revoke">
               <input type="hidden" name="nurse_id" value="<?= (int)$selectedNurse['user_id'] ?>">
               <div class="modal-header bg-danger text-white">
@@ -415,6 +434,7 @@ $pageTitle = 'Nurse Clinical Verification';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
               <div class="modal-body">
+                <div class="p-3 border-bottom"><label class="form-label">Confirm your Doctor password<input type="password" name="review_password" class="form-control" autocomplete="current-password" required maxlength="1024"></label></div>
                 <div class="alert alert-danger py-2 px-3 small">
                   <strong>Warning:</strong> Revoking clinical access will immediately terminate any active sessions and block access to medical records, medicine dispensing, and queue operations.
                 </div>

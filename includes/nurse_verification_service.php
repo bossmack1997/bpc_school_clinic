@@ -167,6 +167,7 @@ final class NurseVerificationService
      */
     public function getNurse(int $userId): ?array
     {
+        $this->requireReader($userId);
         $statusCol = $this->hasColumns ? 'n.clinical_authorization_status' : 'NULL AS clinical_authorization_status';
         $revByCol  = $this->hasColumns ? 'n.clinical_reviewed_by' : 'NULL AS clinical_reviewed_by';
         $revAtCol  = $this->hasColumns ? 'n.clinical_reviewed_at' : 'NULL AS clinical_reviewed_at';
@@ -210,6 +211,7 @@ final class NurseVerificationService
      */
     public function getHistory(int $userId): array
     {
+        $this->requireReader($userId);
         if ($this->hasReviewTable) {
             $stmt = $this->db->prepare("
                 SELECT r.*, u.first_name AS doctor_first_name, u.last_name AS doctor_last_name
@@ -228,10 +230,10 @@ final class NurseVerificationService
             SELECT id, action, details AS notes, created_at, user_id AS doctor_user_id,
                    'activity_log' AS source
             FROM activity_logs
-            WHERE module = 'nurse_clinical_authorization' AND details LIKE ?
+            WHERE module = 'nurse_clinical_authorization' AND details REGEXP ?
             ORDER BY id DESC
         ");
-        $stmt->execute(['%Account #' . $userId . '%']);
+        $stmt->execute(['Account #' . $userId . '([^0-9]|$)']);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -240,6 +242,7 @@ final class NurseVerificationService
      */
     public function summaryCounts(): array
     {
+        $this->requireDoctorActor();
         $this->detectSchema();
         if ($this->hasColumns) {
             $stmt = $this->db->query("
@@ -277,327 +280,65 @@ final class NurseVerificationService
         ];
     }
 
-    /**
-     * Authorize nurse clinical access.
-     */
-    public function authorize(int $nurseUserId, string $notes = ''): void
-    {
-        $actor = $this->requireDoctorActor();
-        $actorId = (int)$actor['id'];
-
-        $ownsTx = false;
-        if (!$this->db->inTransaction()) {
-            $this->db->beginTransaction();
-            $ownsTx = true;
-        }
-
-        try {
-            $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ? AND role = 'nurse' FOR UPDATE");
-            $stmt->execute([$nurseUserId]);
-            $nurseUser = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$nurseUser) {
-                throw new InvalidArgumentException('Nurse account not found.');
-            }
-            if (empty($nurseUser['email_verified'])) {
-                throw new RuntimeException('Cannot authorize clinical access: Nurse email OTP verification is incomplete.');
-            }
-            if ($nurseUser['status'] !== 'active') {
-                throw new RuntimeException('Cannot authorize clinical access: Account status is ' . $nurseUser['status'] . '.');
-            }
-
-            $currentStatus = 'pending';
-            if ($this->hasColumns) {
-                $curStmt = $this->db->prepare("SELECT clinical_authorization_status FROM nurses WHERE user_id = ? FOR UPDATE");
-                $curStmt->execute([$nurseUserId]);
-                $currentStatus = $curStmt->fetchColumn() ?: 'pending';
-            }
-
-            // 1. Grant clinical scope and bump credential_version to refresh active sessions
-            $this->db->prepare("
-                UPDATE users 
-                SET self_service_only = 0,
-                    credential_version = COALESCE(credential_version, 0) + 1,
-                    reviewed_by = ?,
-                    reviewed_at = NOW(),
-                    validation_reason = ?
-                WHERE id = ?
-            ")->execute([$actorId, $notes ?: 'Doctor authorized nurse clinical access', $nurseUserId]);
-
-            // 2. Update nurses record
-            if ($this->hasColumns) {
-                $this->db->prepare("
-                    UPDATE nurses 
-                    SET clinical_authorization_status = 'authorized',
-                        clinical_reviewed_by = ?,
-                        clinical_reviewed_at = NOW(),
-                        clinical_review_notes = ?
-                    WHERE user_id = ?
-                ")->execute([$actorId, $notes, $nurseUserId]);
-            }
-
-            // 3. Insert review audit log
-            if ($this->hasReviewTable) {
-                $this->db->prepare("
-                    INSERT INTO nurse_clinical_reviews 
-                    (nurse_user_id, doctor_user_id, action, previous_status, new_status, notes)
-                    VALUES (?, ?, 'authorize', ?, 'authorized', ?)
-                ")->execute([$nurseUserId, $actorId, $currentStatus, $notes]);
-            }
-
-            // 4. Activity log
-            $this->db->prepare("
-                INSERT INTO activity_logs (user_id, action, module, details)
-                VALUES (?, 'Doctor authorized nurse clinical access', 'nurse_clinical_authorization', ?)
-            ")->execute([$actorId, "Doctor #$actorId authorized nurse Account #$nurseUserId; clinical scope granted. Notes: $notes"]);
-
-            if ($ownsTx && $this->db->inTransaction()) {
-                $this->db->commit();
-            }
-        } catch (Throwable $e) {
-            if ($ownsTx && $this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            throw $e;
-        }
+    private function requireReader(int $id): void {
+        $actor = $this->actor ?? current_user();
+        if (!$actor || ($actor['role'] !== 'nurse' || (int)$actor['id'] !== $id) && permission_profile($actor,$this->db) !== 'doctor') throw new RuntimeException('Credential review access denied.');
     }
 
-    /**
-     * Request additional information from nurse.
-     */
-    public function requestInformation(int $nurseUserId, string $notes): void
-    {
-        $actor = $this->requireDoctorActor();
-        $actorId = (int)$actor['id'];
+    public function ready(): bool { return $this->hasColumns && $this->hasReviewTable; }
 
+    /** A restricted Nurse may update and resubmit their own professional details. */
+    public function submitCredentials(string $license, string $position, ?string $document): void {
+        $actor=$this->actor ?? current_user();
+        if(!$this->ready() || !$actor || $actor['role']!=='nurse')throw new RuntimeException('Nurse credential submission unavailable.');
+        $license=trim($license); $position=trim($position);
+        if($license==='' || mb_strlen($license)>100 || $position==='' || mb_strlen($position)>120)throw new InvalidArgumentException('Provide professional registration and school appointment position.');
+        $this->db->beginTransaction();
+        try {
+            $q=$this->db->prepare("SELECT u.status,u.email_verified,u.self_service_only,n.* FROM users u JOIN nurses n ON n.user_id=u.id WHERE u.id=? AND u.role='nurse' FOR UPDATE");$q->execute([$actor['id']]);$nurse=$q->fetch(PDO::FETCH_ASSOC);
+            if(!$nurse || $nurse['status']!=='active' || !$nurse['email_verified'] || !$nurse['self_service_only'] || $nurse['clinical_authorization_status']==='authorized' || $nurse['clinical_authorization_status']==='revoked')throw new RuntimeException('This account is not eligible for credential resubmission. Contact the Clinic Head.');
+            $document=$document ?: $nurse['valid_id_path'];
+            if(!$document)throw new InvalidArgumentException('Upload a supporting professional credential.');
+            $this->db->prepare("UPDATE nurses SET license_number=?,position=?,valid_id_path=?,clinical_authorization_status='pending' WHERE user_id=?")->execute([$license,$position,$document,$actor['id']]);
+            // Invalidates any review form opened before the new submission.
+            $this->db->prepare('UPDATE users SET credential_version=COALESCE(credential_version,0)+1 WHERE id=?')->execute([$actor['id']]);
+            $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Nurse credentials submitted','nurse_clinical_authorization',?)")->execute([$actor['id'],'Account #'.$actor['id'].' submitted credentials for physician review.']);
+            $this->db->prepare("INSERT INTO notifications(user_id,type,title,message,link) SELECT u.id,'clinical_review','Nurse credentials awaiting review','A Nurse submitted professional credentials for your review.',? FROM users u JOIN admin_profiles p ON p.user_id=u.id WHERE u.status='active' AND p.profile='doctor'")->execute([app_url('pages/doctor/nurse_verification.php')]);
+            $this->db->commit();
+        } catch(Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
+    }
+
+    public function authorize(int $id, string $notes = '', string $password = '', int $version = -1): void { $this->decide($id, 'authorize', $notes, $password, $version); }
+    public function requestInformation(int $id, string $notes, string $password = '', int $version = -1): void { $this->decide($id, 'request_info', $notes, $password, $version); }
+    public function reject(int $id, string $notes, string $password = '', int $version = -1): void { $this->decide($id, 'reject', $notes, $password, $version); }
+    public function revoke(int $id, string $notes, string $password = '', int $version = -1): void { $this->decide($id, 'revoke', $notes, $password, $version); }
+
+    private function decide(int $id, string $action, string $notes, string $password, int $version): void
+    {
+        if (!$this->ready()) throw new RuntimeException('Clinical authorization schema is unavailable. Ask MIS to apply the reviewed migration.');
+        $actor = $this->requireDoctorActor();
         $notes = trim($notes);
-        if (mb_strlen($notes) < 5 || mb_strlen($notes) > 2000) {
-            throw new InvalidArgumentException('Please provide specific instructions or required details (5–2000 characters).');
-        }
-
-        $ownsTx = false;
-        if (!$this->db->inTransaction()) {
-            $this->db->beginTransaction();
-            $ownsTx = true;
-        }
-
+        if (mb_strlen($notes) < 5 || mb_strlen($notes) > 2000) throw new InvalidArgumentException('Record the verification reference and review notes (5-2000 characters).');
+        if ($id === (int)$actor['id']) throw new RuntimeException('Self approval is prohibited.');
+        if ($this->db->inTransaction()) throw new RuntimeException('A separate review transaction is required.');
+        $this->db->beginTransaction();
         try {
-            $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ? AND role = 'nurse' FOR UPDATE");
-            $stmt->execute([$nurseUserId]);
-            $nurseUser = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$nurseUser) {
-                throw new InvalidArgumentException('Nurse account not found.');
-            }
-
-            $currentStatus = 'pending';
-            if ($this->hasColumns) {
-                $curStmt = $this->db->prepare("SELECT clinical_authorization_status FROM nurses WHERE user_id = ? FOR UPDATE");
-                $curStmt->execute([$nurseUserId]);
-                $currentStatus = $curStmt->fetchColumn() ?: 'pending';
-            }
-
-            // Keep self_service_only = 1
-            $this->db->prepare("
-                UPDATE users 
-                SET self_service_only = 1,
-                    validation_reason = ?
-                WHERE id = ?
-            ")->execute([$notes, $nurseUserId]);
-
-            if ($this->hasColumns) {
-                $this->db->prepare("
-                    UPDATE nurses 
-                    SET clinical_authorization_status = 'needs_information',
-                        clinical_reviewed_by = ?,
-                        clinical_reviewed_at = NOW(),
-                        clinical_review_notes = ?
-                    WHERE user_id = ?
-                ")->execute([$actorId, $notes, $nurseUserId]);
-            }
-
-            if ($this->hasReviewTable) {
-                $this->db->prepare("
-                    INSERT INTO nurse_clinical_reviews 
-                    (nurse_user_id, doctor_user_id, action, previous_status, new_status, notes)
-                    VALUES (?, ?, 'request_info', ?, 'needs_information', ?)
-                ")->execute([$nurseUserId, $actorId, $currentStatus, $notes]);
-            }
-
-            $this->db->prepare("
-                INSERT INTO activity_logs (user_id, action, module, details)
-                VALUES (?, 'Doctor requested nurse clinical information', 'nurse_clinical_authorization', ?)
-            ")->execute([$actorId, "Doctor #$actorId requested additional info for nurse Account #$nurseUserId. Instructions: $notes"]);
-
-            if ($ownsTx && $this->db->inTransaction()) {
-                $this->db->commit();
-            }
-        } catch (Throwable $e) {
-            if ($ownsTx && $this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            throw $e;
-        }
-    }
-
-    /**
-     * Reject nurse clinical application.
-     */
-    public function reject(int $nurseUserId, string $reason): void
-    {
-        $actor = $this->requireDoctorActor();
-        $actorId = (int)$actor['id'];
-
-        $reason = trim($reason);
-        if (mb_strlen($reason) < 5 || mb_strlen($reason) > 2000) {
-            throw new InvalidArgumentException('Please provide a reason for rejecting the clinical application (5–2000 characters).');
-        }
-
-        $ownsTx = false;
-        if (!$this->db->inTransaction()) {
-            $this->db->beginTransaction();
-            $ownsTx = true;
-        }
-
-        try {
-            $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ? AND role = 'nurse' FOR UPDATE");
-            $stmt->execute([$nurseUserId]);
-            $nurseUser = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$nurseUser) {
-                throw new InvalidArgumentException('Nurse account not found.');
-            }
-
-            $currentStatus = 'pending';
-            if ($this->hasColumns) {
-                $curStmt = $this->db->prepare("SELECT clinical_authorization_status FROM nurses WHERE user_id = ? FOR UPDATE");
-                $curStmt->execute([$nurseUserId]);
-                $currentStatus = $curStmt->fetchColumn() ?: 'pending';
-            }
-
-            // Ensure restricted personal-only scope
-            $this->db->prepare("
-                UPDATE users 
-                SET self_service_only = 1,
-                    validation_reason = ?,
-                    reviewed_by = ?,
-                    reviewed_at = NOW()
-                WHERE id = ?
-            ")->execute([$reason, $actorId, $nurseUserId]);
-
-            if ($this->hasColumns) {
-                $this->db->prepare("
-                    UPDATE nurses 
-                    SET clinical_authorization_status = 'rejected',
-                        clinical_reviewed_by = ?,
-                        clinical_reviewed_at = NOW(),
-                        clinical_review_notes = ?
-                    WHERE user_id = ?
-                ")->execute([$actorId, $reason, $nurseUserId]);
-            }
-
-            if ($this->hasReviewTable) {
-                $this->db->prepare("
-                    INSERT INTO nurse_clinical_reviews 
-                    (nurse_user_id, doctor_user_id, action, previous_status, new_status, notes)
-                    VALUES (?, ?, 'reject', ?, 'rejected', ?)
-                ")->execute([$nurseUserId, $actorId, $currentStatus, $reason]);
-            }
-
-            $this->db->prepare("
-                INSERT INTO activity_logs (user_id, action, module, details)
-                VALUES (?, 'Doctor rejected nurse clinical authorization', 'nurse_clinical_authorization', ?)
-            ")->execute([$actorId, "Doctor #$actorId rejected clinical application for nurse Account #$nurseUserId. Reason: $reason"]);
-
-            if ($ownsTx && $this->db->inTransaction()) {
-                $this->db->commit();
-            }
-        } catch (Throwable $e) {
-            if ($ownsTx && $this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            throw $e;
-        }
-    }
-
-    /**
-     * Revoke previously granted nurse clinical access.
-     */
-    public function revoke(int $nurseUserId, string $reason): void
-    {
-        $actor = $this->requireDoctorActor();
-        $actorId = (int)$actor['id'];
-
-        $reason = trim($reason);
-        if (mb_strlen($reason) < 5 || mb_strlen($reason) > 2000) {
-            throw new InvalidArgumentException('Please provide a reason for revoking clinical access (5–2000 characters).');
-        }
-
-        $ownsTx = false;
-        if (!$this->db->inTransaction()) {
-            $this->db->beginTransaction();
-            $ownsTx = true;
-        }
-
-        try {
-            $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ? AND role = 'nurse' FOR UPDATE");
-            $stmt->execute([$nurseUserId]);
-            $nurseUser = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$nurseUser) {
-                throw new InvalidArgumentException('Nurse account not found.');
-            }
-
-            $currentStatus = 'authorized';
-            if ($this->hasColumns) {
-                $curStmt = $this->db->prepare("SELECT clinical_authorization_status FROM nurses WHERE user_id = ? FOR UPDATE");
-                $curStmt->execute([$nurseUserId]);
-                $currentStatus = $curStmt->fetchColumn() ?: 'authorized';
-            }
-
-            // 1. Immediately revoke clinical scope and bump credential_version to invalidate live sessions!
-            $this->db->prepare("
-                UPDATE users 
-                SET self_service_only = 1,
-                    credential_version = COALESCE(credential_version, 0) + 1,
-                    validation_reason = ?,
-                    reviewed_by = ?,
-                    reviewed_at = NOW()
-                WHERE id = ?
-            ")->execute([$reason, $actorId, $nurseUserId]);
-
-            if ($this->hasColumns) {
-                $this->db->prepare("
-                    UPDATE nurses 
-                    SET clinical_authorization_status = 'revoked',
-                        clinical_reviewed_by = ?,
-                        clinical_reviewed_at = NOW(),
-                        clinical_review_notes = ?
-                    WHERE user_id = ?
-                ")->execute([$actorId, $reason, $nurseUserId]);
-            }
-
-            if ($this->hasReviewTable) {
-                $this->db->prepare("
-                    INSERT INTO nurse_clinical_reviews 
-                    (nurse_user_id, doctor_user_id, action, previous_status, new_status, notes)
-                    VALUES (?, ?, 'revoke', ?, 'revoked', ?)
-                ")->execute([$nurseUserId, $actorId, $currentStatus, $reason]);
-            }
-
-            $this->db->prepare("
-                INSERT INTO activity_logs (user_id, action, module, details)
-                VALUES (?, 'Doctor revoked nurse clinical access', 'nurse_clinical_authorization', ?)
-            ")->execute([$actorId, "Doctor #$actorId revoked clinical access for nurse Account #$nurseUserId. Reason: $reason"]);
-
-            if ($ownsTx && $this->db->inTransaction()) {
-                $this->db->commit();
-            }
-        } catch (Throwable $e) {
-            if ($ownsTx && $this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            throw $e;
-        }
+            $q = $this->db->prepare('SELECT * FROM users WHERE id=? FOR UPDATE');
+            $q->execute([$actor['id']]); $fresh = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$fresh || $fresh['status'] !== 'active' || permission_profile($fresh, $this->db) !== 'doctor' || !password_verify($password, $fresh['password_hash'])) throw new RuntimeException('Doctor password reauthentication failed.');
+            $q = $this->db->prepare("SELECT u.*, n.clinical_authorization_status, n.license_number, n.position, n.valid_id_path FROM users u JOIN nurses n ON n.user_id=u.id WHERE u.id=? AND u.role='nurse' FOR UPDATE");
+            $q->execute([$id]); $nurse = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$nurse || (int)$nurse['credential_version'] !== $version) throw new RuntimeException('Application changed or is unavailable. Reload before reviewing.');
+            $previous = $nurse['clinical_authorization_status'];
+            $next = ['authorize'=>'authorized','request_info'=>'needs_information','reject'=>'rejected','revoke'=>'revoked'][$action];
+            if ($previous === $next || ($action === 'revoke' && $previous !== 'authorized') || ($action !== 'revoke' && $previous === 'authorized')) throw new RuntimeException('This decision is no longer applicable. Reload the application.');
+            if ($action === 'authorize' && ($nurse['status'] !== 'active' || empty($nurse['email_verified']) || empty($nurse['license_number']) || empty($nurse['position']) || empty($nurse['valid_id_path']))) throw new RuntimeException('Approval requires an active verified account, professional registration, appointment position and supporting credential. Record the institutional appointment verification reference in review notes.');
+            $this->db->prepare('UPDATE users SET self_service_only=?, credential_version=COALESCE(credential_version,0)+1, reviewed_by=?, reviewed_at=NOW(), validation_reason=? WHERE id=?')->execute([$action === 'authorize' ? 0 : 1, $actor['id'], $notes, $id]);
+            $this->db->prepare('UPDATE nurses SET clinical_authorization_status=?, clinical_reviewed_by=?, clinical_reviewed_at=NOW(), clinical_review_notes=? WHERE user_id=?')->execute([$next,$actor['id'],$notes,$id]);
+            $this->db->prepare('INSERT INTO nurse_clinical_reviews(nurse_user_id,doctor_user_id,action,previous_status,new_status,notes) VALUES (?,?,?,?,?,?)')->execute([$id,$actor['id'],$action,$previous,$next,$notes]);
+            $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Nurse clinical review','nurse_clinical_authorization',?)")->execute([$actor['id'],'Account #'.$id.'; decision '.$next.'; reference retained in restricted review history.']);
+            $this->db->prepare('INSERT INTO notifications(user_id,type,title,message,link) VALUES (?,?,?,?,?)')->execute([$id,'clinical_review','Clinical staff review updated','Your clinical authorization status is '.str_replace('_',' ',$next).'. Sign in to review the decision.',app_url('pages/nurse/account.php')]);
+            $this->db->commit();
+        } catch (Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
     }
 }

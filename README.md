@@ -1,6 +1,6 @@
 # BPC School Clinic Management System
 
-PHP and MySQL/MariaDB clinic portal for Admin, Nurse, Student, and Teacher/Adviser roles. The project includes role-specific pages, API endpoints, QR check-in, queues, clinical records, inventory, messaging, SOS, notifications, and MICA integrations. The source remains a PHP, MySQL, vanilla JavaScript, and Bootstrap application.
+PHP and MySQL/MariaDB clinic portal for MIS, Doctor, Nurse, Student, and Teacher/Adviser roles. Doctor and MIS use separate permission profiles under the existing administrator database role. The project includes role-specific pages, API endpoints, QR check-in, queues, clinical records, inventory, messaging, SOS, notifications, and MICA integrations. The source remains a PHP, MySQL, vanilla JavaScript, and Bootstrap application.
 
 ## Run locally with XAMPP
 
@@ -31,6 +31,8 @@ The primary navigation links are defined in `components/sidebar.php`; the role d
 The `scratch/` directory contains audit and test utilities. Review a script before running it against a database with real records: some workflow test scripts change queue, inventory, or notification data. The full role-by-role workflows require authenticated test accounts and should be exercised in a browser against a backed-up test database.
 
 See [AUDIT.md](AUDIT.md) for the latest inventory, verified repairs, and test results.
+
+See [Clinical verification completion](docs/CLINICAL_VERIFICATION_COMPLETION_20261024.md) for the latest Doctor-led Nurse review workflow, messaging boundaries, regression results and migration prerequisites. Nurse clinical access requires explicit physician authorization when that schema is installed; MIS identity verification cannot grant it.
 
 ## Hostinger production configuration
 

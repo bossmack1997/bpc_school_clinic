@@ -29,6 +29,16 @@ function current_user() {
         if($dbUser['role']!=='admin' && empty($dbUser['email_verified']))return null;
         if(($dbUser['registration_status']??'')==='rejected')return null;
 
+        // When the clinical schema is installed, its decision is authoritative.
+        // Older installations retain their existing scope until migration.
+        if($dbUser['role']==='nurse') {
+            $schema=$db->query("SHOW COLUMNS FROM nurses LIKE 'clinical_authorization_status'")->fetch();
+            if($schema) {
+                $clinical=$db->prepare('SELECT clinical_authorization_status FROM nurses WHERE user_id=?');
+                $clinical->execute([$dbUser['id']]);
+                if($clinical->fetchColumn()!=='authorized')$dbUser['self_service_only']=1;
+            }
+        }
         $_SESSION['user'] = [
             'id' => (int)$dbUser['id'],
             'role' => canonical_role($dbUser['role']),

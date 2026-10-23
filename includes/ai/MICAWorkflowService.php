@@ -29,6 +29,14 @@ class MICAWorkflowService
     public function handleNaturalLanguageQuery(string $message): ?array
     {
         $profile=permission_profile($this->user,$this->db);
+        if (preg_match('/nurse.*(verif|credential|approv)|(?:pending|verif|approv).*nurse/i',$message)) {
+            if($profile!=='doctor')return ['handled'=>true,'type'=>'access_denied','reply'=>'Nurse credential reviews require a verified Doctor profile.'];
+            require_once __DIR__.'/../nurse_verification_service.php';
+            $staff=new NurseVerificationService($this->db,$this->user);
+            $reply='Clinical Staff Verification is temporarily unavailable; ask MIS to check the reviewed migration.';
+            if($staff->ready()) { $counts=$staff->summaryCounts(); $reply='Recorded Nurse applications pending review: '.$counts['pending'].'. More information required: '.$counts['needs_information'].'. Open Clinical Staff Verification: '.app_url('pages/doctor/nurse_verification.php').'. A Doctor must review supporting credentials and appointment authorization and confirm their password. MICA cannot approve credentials.'; }
+            return ['handled'=>true,'type'=>'staff_verification_grounded','reply'=>$reply];
+        }
         if(preg_match('/(?:draft|summari[sz]e|summary).*patient\s*#?\s*(\d+)/i',$message,$match)){
             if($profile!=='doctor')return ['handled'=>true,'type'=>'access_denied','reply'=>'Patient history drafts require a verified Doctor profile. Open your own authorized health record for personal information.'];
             require_once __DIR__.'/../doctor_clinical_service.php';

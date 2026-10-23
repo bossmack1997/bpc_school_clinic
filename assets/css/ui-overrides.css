@@ -355,7 +355,8 @@ input[type="password"]::-ms-clear { display: none; }
 
   .modal-dialog { width: 100%; margin-block: 12px; }
   .modal-footer { flex-wrap: wrap; }
-  .modal-footer > .btn { flex: 1 1 10rem; }
+  /* Auto basis also works when responsive.css switches the footer to a column. */
+  .modal-footer > .btn { flex: 0 1 auto; min-height: 44px; }
   .card-body, .app-card, .adm-card { min-width: 0; }
   .dataTables_wrapper .row { row-gap: .75rem; }
   .dataTables_wrapper .dataTables_filter,

@@ -21,7 +21,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   await navigate('/auth/login.php','[name="identifier"]');
   await evaluate(`document.querySelector('[name="identifier"]').value='accept_http';document.querySelector('[name="password"]').value='FixturePass!42';document.querySelector('form').submit()`);
   await sleep(800);fs.mkdirSync('scratch/doctor-browser',{recursive:true});
-  for(const width of [320,390,768,1366]){
+  for(const width of [320,360,375,390,430,768,1024,1440]){
    await call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});
    for(const path of ['/pages/doctor/dashboard.php','/pages/doctor/patients.php?patient='+patient+'&tab=consultations','/pages/doctor/inventory.php','/pages/doctor/emergencies.php','/pages/doctor/reports.php','/pages/doctor/profile.php','/pages/doctor/settings.php','/pages/doctor_messages.php']){
     await navigate(path);

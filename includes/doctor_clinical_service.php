@@ -9,7 +9,7 @@ final class DoctorClinicalService
   $sos=(int)$this->db->query("SELECT COUNT(*) FROM sos_emergencies WHERE status IN ('active','new','acknowledged','responding')")->fetchColumn();
   require_once __DIR__.'/medicine_inventory_service.php';$inventory=(new MedicineInventoryService($this->db))->snapshot();
   $attended=(int)$this->db->query("SELECT COUNT(DISTINCT CONCAT(COALESCE(student_id,0),':',COALESCE(teacher_id,0))) FROM consultations WHERE consultation_date>=CURDATE() AND consultation_date<CURDATE()+INTERVAL 1 DAY")->fetchColumn();
-  // Phase 1 does not load or activate the Nurse clinical review workflow.
+  // Clinical staff review uses its own authoritative, migrated schema.
   return ['today_consultations'=>$today,'queue_awaiting_completion'=>$queue,'pending_consultations'=>$queue,'patients_attended'=>$attended,'active_clinical_cases'=>$queue,'active_emergencies'=>$sos,'active_nurses'=>(int)$this->db->query("SELECT COUNT(*) FROM users WHERE role='nurse' AND status='active'")->fetchColumn(),'stock_warnings'=>count(MedicineInventoryService::low($inventory)),'trend'=>$this->db->query('SELECT DATE(consultation_date) AS day,COUNT(*) AS consultations FROM consultations WHERE consultation_date>=CURDATE()-INTERVAL 6 DAY GROUP BY DATE(consultation_date) ORDER BY day')->fetchAll(),'generated_at'=>date('c')];
  }
  public function patients(string $search='',string $role='',string $identifier=''): array {
@@ -48,6 +48,8 @@ final class DoctorClinicalService
    'activity'=>"SELECT id,action,module,created_at FROM activity_logs WHERE module IN ('consultations','clinical') ORDER BY created_at DESC,id DESC LIMIT 10"
   ];
   foreach($queries as $key=>$sql){try{$rows=$this->db->query($sql)->fetchAll();$out[$key]=in_array($key,['today_consultations','awaiting_review'],true)?(int)$rows[0]['count']:$rows;}catch(PDOException $e){error_log('Doctor source unavailable: '.$key.' SQLSTATE='.$e->getCode());$out[$key]=null;$out['unavailable'][]=$key;}}
+  try { require_once __DIR__.'/nurse_verification_service.php'; $staff=new NurseVerificationService($this->db,$this->user); if(!$staff->ready())throw new RuntimeException('Staff schema unavailable'); $out['pending_nurses']=$staff->summaryCounts()['pending']; }
+  catch(Throwable $e) { $out['pending_nurses']=null; $out['unavailable'][]='pending_nurses'; }
   try{require_once __DIR__.'/medicine_inventory_service.php';$out['stock']=array_slice(MedicineInventoryService::low((new MedicineInventoryService($this->db))->snapshot()),0,10);}catch(PDOException $e){error_log('Doctor stock source unavailable SQLSTATE='.$e->getCode());$out['stock']=null;$out['unavailable'][]='stock';}
   return $out;
  }

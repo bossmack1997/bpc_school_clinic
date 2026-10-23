@@ -42,7 +42,8 @@ final class AccountSecurityExceptionService
                 if($next!=='pending' && !($decision==='verify' && $next==='active' && $u['role']==='nurse' && !empty($u['self_service_only'])))throw new RuntimeException('Only pending identity reviews can be decided.');
                 if($decision==='verify'&&!$u['email_verified'])throw new RuntimeException('OTP email verification is mandatory.');
                 $next=$decision==='verify'?'active':'rejected';$registration=$decision==='verify'?'approved':'rejected';
-                if($decision==='verify' && in_array($u['role'],['teacher','nurse'],true)) {
+                // MIS identity review never substitutes for physician clinical approval.
+                if($decision==='verify' && $u['role']==='teacher') {
                     $this->db->prepare('UPDATE users SET self_service_only=0 WHERE id=?')->execute([$u['id']]);
                 }
             }
