@@ -107,9 +107,10 @@ if ($action === 'upload') {
 
     $stmt = $db->prepare("INSERT INTO medical_records (consultation_id, student_id, file_path, file_type, description) VALUES (?,?,?,?,?)");
     $stmt->execute([$consultationId, $studentId, $destRel, $file['type'], $description]);
+    $recordId=(int)$db->lastInsertId();
 
     log_activity($user['id'], 'Uploaded medical record', 'medical_records', "Student #$studentId");
-    json_response(true, ['path' => APP_URL . '/' . $destRel], 'File uploaded successfully.');
+    json_response(true, ['path' => app_url('api/medical_records.php?action=file&id='.$recordId)], 'File uploaded successfully.');
 }
 
 if ($action === 'delete') {

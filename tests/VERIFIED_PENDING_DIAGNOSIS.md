@@ -1,5 +1,7 @@
 # Verified student login: findings and validation
 
+Historical diagnosis. The current basic-account policy is documented in [BASIC_OTP_ACTIVATION.md](BASIC_OTP_ACTIVATION.md); the institutional-matching login requirement described below has been removed for basic accounts.
+
 ## Exact blocking condition
 
 After password verification, `auth/login.php` calls `reconcileForLogin()` for an email-verified pending account. `finishVerification()` keeps `users.status='pending'` and `registration_status='review'` when trusted eligibility is false. The pending branch then emits the reported message and deliberately does not create a session. No separate routine MIS approval flag is checked.

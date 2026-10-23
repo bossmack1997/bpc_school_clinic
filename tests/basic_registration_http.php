@@ -1,16 +1,18 @@
 <?php
 /** Real HTTP registration/OTP/dashboard tests against a disposable, schema-only local database. */
 if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
+$suiteCompleted=false;
+register_shutdown_function(function()use(&$suiteCompleted){if(!$suiteCompleted){fwrite(STDERR,"FAIL HTTP suite did not complete\n");exit(1);}});
 ini_set('session.save_path',sys_get_temp_dir());
 require __DIR__.'/../config/config.php';
 if(APP_ENV!=='local' || !in_array(DB_HOST,['localhost','127.0.0.1','::1'],true))throw new RuntimeException('This test requires a local loopback database.');
-$admin=getDB();$database='bpc_basic_otp_test_'.bin2hex(random_bytes(5));$server=null;$checks=0;
+$admin=getDB();$database='bpc_basic_otp_test_'.bin2hex(random_bytes(5));$server=null;$checks=0;$fixtureFile=null;$uploadedFixtures=[];$uploadSource=null;
 function basicCheck(bool $ok,string $label): void {global $checks;if(!$ok)throw new RuntimeException($label);$checks++;echo "PASS $label\n";}
 function client(){ $c=curl_init();curl_setopt_array($c,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_COOKIEFILE=>'',CURLOPT_FOLLOWLOCATION=>false,CURLOPT_TIMEOUT=>15]);return $c; }
 function request($client,string $path,?array $post=null): array {
     global $base;
     $headers=[];curl_setopt_array($client,[CURLOPT_URL=>$base.$path,CURLOPT_POST=>$post!==null,CURLOPT_HEADERFUNCTION=>function($c,$line)use(&$headers){if(str_contains($line,':')){[$name,$value]=explode(':',$line,2);$headers[strtolower($name)]=trim($value);}return strlen($line);}]);
-    if($post!==null)curl_setopt($client,CURLOPT_POSTFIELDS,http_build_query($post));
+    if($post!==null)curl_setopt($client,CURLOPT_POSTFIELDS,array_filter($post,static fn($value)=>$value instanceof CURLFile)?$post:http_build_query($post));
     $body=curl_exec($client);if($body===false)throw new RuntimeException('Local HTTP test request failed.');
     return ['status'=>curl_getinfo($client,CURLINFO_RESPONSE_CODE),'headers'=>$headers,'body'=>$body];
 }
@@ -29,6 +31,12 @@ try {
     $db->prepare("INSERT INTO students(user_id,student_number) VALUES (?,'OTHER-ST001')")->execute([$otherUser]);$otherPatient=(int)$db->lastInsertId();
     $db->prepare("INSERT INTO consultations(student_id,consultation_date,chief_complaint) VALUES (?,NOW(),'OTHER_PATIENT_PRIVATE_FIXTURE')")->execute([$otherPatient]);$otherVisit=(int)$db->lastInsertId();
     $db->prepare("INSERT INTO medical_records(consultation_id,student_id,description) VALUES (?,?,'OTHER_PATIENT_PRIVATE_FIXTURE')")->execute([$otherVisit,$otherPatient]);
+    $otherRecord=(int)$db->lastInsertId();
+    $fixtureName='basic-otp-fixture-'.bin2hex(random_bytes(6)).'.txt';
+    $fixtureFile=BASE_PATH.'/uploads/medical_records/'.$fixtureName;
+    if(!is_dir(dirname($fixtureFile)))mkdir(dirname($fixtureFile),0755,true);
+    file_put_contents($fixtureFile,'SYNTHETIC_PRIVATE_ATTACHMENT');
+    $db->prepare('UPDATE medical_records SET file_path=? WHERE id=?')->execute(['uploads/medical_records/'.$fixtureName,$otherRecord]);
     $socket=stream_socket_server('tcp://127.0.0.1:0',$error,$description);$port=(int)substr(strrchr(stream_socket_get_name($socket,false),':'),1);fclose($socket);$base='http://127.0.0.1:'.$port;
     // Child server uses synthetic records only and a closed loopback SMTP port: no real mail is sent.
     foreach(['DB_NAME'=>$database,'APP_URL'=>$base,'APP_ENV'=>'local','MAIL_HOST'=>'127.0.0.1','MAIL_PORT'=>'1','MAIL_USERNAME'=>'','MAIL_PASSWORD'=>'','MAIL_FROM_ADDRESS'=>'fixture@example.invalid','APP_ENV_FILE'=>__DIR__.'/nonexistent-test.env'] as $key=>$value)putenv($key.'='.$value);
@@ -60,6 +68,29 @@ try {
         if($role==='nurse') {
             basicCheck($after['status']==='pending' && $after['self_service_only']==1,'Nurse OTP cannot grant clinical access');
             basicCheck(request($c,'/pages/nurse/dashboard.php')['status']===302,'Unprovisioned nurse cannot enter clinical dashboard');
+            require_once __DIR__.'/../includes/account_security_exceptions.php';
+            $actor=(int)$db->query("SELECT id FROM users WHERE username='http_fixture_admin'")->fetchColumn();
+            $security=new AccountSecurityExceptionService($db);
+            $exception=$security->open($actor,(int)$after['id'],'Synthetic authorized clinical staff provisioning','HTTP-TEST-EVIDENCE');
+            $security->resolve($actor,$exception,'verify','Authorized test officer confirmed staff credentials and clinical access');
+            $loginToken=token(request($c,'/auth/login.php'));
+            $login=request($c,'/auth/login.php',['csrf_token'=>$loginToken,'identifier'=>$username,'password'=>'FixturePass!42']);
+            basicCheck($login['status']===302 && testAccount($db,$username)['self_service_only']==0,'Nurse signs in only after audited authorized provisioning');
+            basicCheck(request($c,'/api/medical_records.php?action=file&id='.$otherRecord)['body']==='SYNTHETIC_PRIVATE_ATTACHMENT','Authorized clinic nurse can download a patient attachment');
+            $uploadToken=token(request($c,'/pages/nurse/medical_records.php'));
+            $uploadSource=tempnam(sys_get_temp_dir(),'bpc-otp');file_put_contents($uploadSource,"%PDF-1.4\nSynthetic test attachment\n%%EOF");
+            $uploaded=request($c,'/api/medical_records.php',['action'=>'upload','csrf_token'=>$uploadToken,'consultation_id'=>$otherVisit,'student_id'=>$otherPatient,'description'=>'Synthetic upload fixture','file'=>new CURLFile($uploadSource,'application/pdf','fixture.pdf')]);
+            $uploadBody=json_decode($uploaded['body'],true);
+            basicCheck(($uploadBody['success']??false) && str_starts_with($uploadBody['path']??'',$base.'/api/medical_records.php?action=file&id='),'Nurse upload returns the authorized download URL');
+            parse_str(parse_url($uploadBody['path'],PHP_URL_QUERY),$downloadQuery);$uploadedId=(int)$downloadQuery['id'];
+            $pathQuery=$db->prepare('SELECT file_path FROM medical_records WHERE id=?');$pathQuery->execute([$uploadedId]);
+            $uploadedPath=realpath(BASE_PATH.'/'.$pathQuery->fetchColumn());
+            if($uploadedPath && str_starts_with($uploadedPath,realpath(BASE_PATH.'/uploads/medical_records').DIRECTORY_SEPARATOR))$uploadedFixtures[]=$uploadedPath;
+            basicCheck(str_starts_with(request($c,'/api/medical_records.php?action=file&id='.$uploadedId)['body'],'%PDF-1.4'),'Newly uploaded record remains downloadable by authorized clinic staff');
+            $db->prepare("UPDATE medical_records SET file_path='config/config.php' WHERE id=?")->execute([$otherRecord]);
+            basicCheck(request($c,'/api/medical_records.php?action=file&id='.$otherRecord)['status']===404,'Attachment download cannot escape the private medical directory');
+            $db->prepare('UPDATE medical_records SET file_path=? WHERE id=?')->execute(['uploads/medical_records/'.$fixtureName,$otherRecord]);
+            curl_close($c);
             continue;
         }
         $target=$base.'/pages/'.($role==='teacher'?'adviser':'student').'/dashboard.php';
@@ -69,10 +100,17 @@ try {
         basicCheck($dashboard['status']===200 && str_contains($dashboard['body'],$role==='teacher'?'My Clinic Status':'My Clinic Services'),"$role reaches actual protected dashboard over HTTP");
         $denied=request($c,'/api/medical_records.php?action=detail&visit_id='.$otherVisit);$body=json_decode($denied['body'],true);
         basicCheck(($body['success']??true)===false,"$role cannot read another user's medical record");
+        basicCheck(request($c,'/api/medical_records.php?action=file&id='.$otherRecord)['status']===403,"$role cannot download another patient's attachment");
         $list=request($c,'/api/medical_records.php?action=list&student_id='.$otherPatient);
         basicCheck(!str_contains($list['body'],'OTHER_PATIENT_PRIVATE_FIXTURE'),"$role cannot enumerate another patient's stored records");
         $workspace=request($c,'/api/patients.php?action=lookup&student_id='.$otherPatient);
         basicCheck((json_decode($workspace['body'],true)['success']??true)===false && !str_contains($workspace['body'],'OTHER_PATIENT_PRIVATE_FIXTURE'),"$role cannot open another patient's stored workspace");
+        if($role==='student') {
+            $profile=$db->prepare('SELECT id FROM students WHERE user_id=?');$profile->execute([$account['id']]);$ownId=(int)$profile->fetchColumn();
+            $db->prepare('UPDATE medical_records SET student_id=? WHERE id=?')->execute([$ownId,$otherRecord]);
+            basicCheck(request($c,'/api/medical_records.php?action=file&id='.$otherRecord)['body']==='SYNTHETIC_PRIVATE_ATTACHMENT','Student can download an attachment owned by the authenticated account');
+            $db->prepare('UPDATE medical_records SET student_id=? WHERE id=?')->execute([$otherPatient,$otherRecord]);
+        }
         if($role==='teacher') {
             basicCheck(request($c,'/api/my_advisory.php?action=set',['csrf_token'=>$verifyToken,'section_id'=>1])['status']===403,'Basic teacher cannot self-grant advisory access');
             basicCheck(request($c,'/api/sections.php?action=list')['status']===403,'Basic teacher cannot enumerate advisory student information');
@@ -98,10 +136,17 @@ try {
         request($c,'/auth/register.php',$payload);
         basicCheck(testAccount($db,$payload['username'])===[],"Public registration cannot obtain $role role");curl_close($c);
     }
+    if($apache=getenv('BPC_APACHE_TEST_URL')) {
+        $anonymous=client();curl_setopt($anonymous,CURLOPT_URL,rtrim($apache,'/').'/uploads/medical_records/'.$fixtureName);
+        curl_exec($anonymous);basicCheck(curl_getinfo($anonymous,CURLINFO_RESPONSE_CODE)===403,'Apache blocks direct private attachment URLs');curl_close($anonymous);
+    }
     echo "All $checks real HTTP checks passed. No live records or real mail recipients were used.\n";
 } catch(Throwable $e) {fwrite(STDERR,'FAIL '.$e->getMessage().PHP_EOL);$failed=true;}
 finally {
     if(is_resource($server)){proc_terminate($server);proc_close($server);}
+    if($fixtureFile && is_file($fixtureFile))unlink($fixtureFile);
+    if($uploadSource && is_file($uploadSource))unlink($uploadSource);
+    foreach($uploadedFixtures as $uploadedFixture)if(is_file($uploadedFixture))unlink($uploadedFixture);
     if(preg_match('/^bpc_basic_otp_test_[a-f0-9]{10}$/',$database))$admin->exec("DROP DATABASE IF EXISTS `$database`");
 }
-exit(!empty($failed)?1:0);
+$suiteCompleted=true;exit(!empty($failed)?1:0);

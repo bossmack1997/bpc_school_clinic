@@ -106,7 +106,7 @@ class DatabaseContext
                 ORDER BY c.consultation_date DESC
             ");
             $stmt->execute([$studentId]);
-            return $stmt->fetchAll();
+            return array_map(static function($record){if(!empty($record['file_path']))$record['file_path']='api/medical_records.php?action=file&id='.(int)$record['id'];return $record;},$stmt->fetchAll());
         }
 
         if ($role === 'nurse') {
@@ -119,7 +119,7 @@ class DatabaseContext
                 JOIN users u ON u.id = s.user_id
                 ORDER BY c.consultation_date DESC
             ");
-            return $stmt->fetchAll();
+            return array_map(static function($record){if(!empty($record['file_path']))$record['file_path']='api/medical_records.php?action=file&id='.(int)$record['id'];return $record;},$stmt->fetchAll());
         }
 
         // Admin — analytics only

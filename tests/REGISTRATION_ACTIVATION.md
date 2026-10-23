@@ -1,5 +1,7 @@
 # Registration and activation validation
 
+Historical policy report. The newer basic-account flow and deployment instructions are in [BASIC_OTP_ACTIVATION.md](BASIC_OTP_ACTIVATION.md); institutional matching no longer gates Student/Teacher sign-in.
+
 The verification route previously committed email ownership before starting the activation transaction. A failure during eligibility/audit/QR processing could therefore leave an email-verified account pending. Login rejected that account without reevaluating trusted eligibility. Missing or mismatched roster records also legitimately keep accounts pending; email ownership alone never establishes enrollment or employment.
 
 OTP verification, eligibility evaluation, activation and the activation audit now share one transaction. A failed activation rolls back OTP consumption as well. Successful password authentication individually reevaluates existing verified pending accounts. Suspended/rejected accounts cannot be restored by this path. An active-but-unverified public account is individually restricted and directed to OTP. Existing restricted administrator provisioning remains separate.

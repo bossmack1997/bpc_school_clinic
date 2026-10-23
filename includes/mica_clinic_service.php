@@ -56,7 +56,10 @@ final class MicaClinicService
             FROM medical_records mr LEFT JOIN consultations c ON c.id=mr.consultation_id
             WHERE mr.student_id=? ORDER BY mr.id DESC LIMIT 50");
         $stmt->execute([$studentId]);
-        return ['student' => $student, 'consultations' => $consultations, 'visits' => $visits, 'files' => $stmt->fetchAll(PDO::FETCH_ASSOC)];
+        $files=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach($files as &$file)if(!empty($file['file_path']))$file['file_path']='api/medical_records.php?action=file&id='.(int)$file['id'];
+        unset($file);
+        return ['student' => $student, 'consultations' => $consultations, 'visits' => $visits, 'files' => $files];
     }
 
     public function medicines(string $search = '', string $filter = 'all'): array
