@@ -82,7 +82,18 @@ $(function () {
     $scrim.toggleClass('is-visible', open);
     $('#sidebarToggle').attr('aria-expanded', open ? 'true' : 'false');
     $('.mica-fab').toggleClass('is-dimmed', open);
+    $('body').toggleClass('sidebar-open', open);
+    $sidebar.prop('inert', window.innerWidth < 1200 && !open);
+    if (open) $sidebar.find('.sidebar-close').trigger('focus');
   }
+
+  setSidebar(false);
+  $sidebar.on('click', '.sidebar-close, .nav-link', function () {
+    if (window.innerWidth < 1200) {
+      setSidebar(false);
+      $('#sidebarToggle').trigger('focus');
+    }
+  });
 
   $('#sidebarToggle').on('click', function () {
     setSidebar(!$sidebar.hasClass('show'));
@@ -104,6 +115,12 @@ $(function () {
   });
 
   $(document).on('keydown', function (e) {
+    if (e.key === 'Tab' && window.innerWidth < 1200 && $sidebar.hasClass('show')) {
+      const controls = $sidebar.find('a[href], button:not(:disabled)').filter(':visible');
+      const first = controls[0], last = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
     if (e.key === 'Escape' && $sidebar.hasClass('show')) {
       setSidebar(false);
       $('#sidebarToggle').trigger('focus');

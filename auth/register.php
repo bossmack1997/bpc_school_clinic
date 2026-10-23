@@ -969,33 +969,6 @@ $pageTitle = 'Create an Account';
     });
   });
 
-  // Password Visibility Toggles
-  function setupPwToggle(inputEl, toggleBtn, iconEl) {
-    if (!inputEl || !toggleBtn || !iconEl) return;
-    toggleBtn.addEventListener('click', function () {
-      const isPw = inputEl.type === 'password';
-      inputEl.type = isPw ? 'text' : 'password';
-      iconEl.classList.toggle('bi-eye', !isPw);
-      iconEl.classList.toggle('bi-eye-slash', isPw);
-      toggleBtn.setAttribute('aria-pressed', isPw ? 'true' : 'false');
-      const label=inputEl.name==='confirm_password'?'confirm password':'password';
-      toggleBtn.setAttribute('aria-label', (isPw?'Hide ':'Show ')+label);
-      inputEl.focus();
-    });
-  }
-
-  setupPwToggle(
-    document.getElementById('regPw'),
-    document.getElementById('regPwToggle'),
-    document.getElementById('regPwIcon')
-  );
-
-  setupPwToggle(
-    document.getElementById('regConfirmPw'),
-    document.getElementById('regConfirmPwToggle'),
-    document.getElementById('regConfirmPwIcon')
-  );
-
   // Live password matching indicator
   const pwInput = document.getElementById('regPw');
   const confirmPwInput = document.getElementById('regConfirmPw');

@@ -320,45 +320,6 @@ img, video, canvas, svg { max-width: 100%; }
 input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear { display: none; }
 
-.bpc-password-field {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  width: 100%;
-}
-.bpc-password-field > .form-control { padding-right: 3rem; }
-.bpc-password-field > .bpc-password-toggle {
-  position: absolute;
-  z-index: 4;
-  top: 0;
-  right: 0;
-  width: 2.75rem;
-  height: 100%;
-  min-height: 44px;
-  border: 0;
-  border-radius: 0 var(--bs-border-radius, .375rem) var(--bs-border-radius, .375rem) 0;
-  color: var(--bs-secondary-color, #64748b);
-  background: transparent;
-}
-.bpc-password-toggle:hover { color: var(--bs-success, #198754); }
-.auth-form-side #pwToggle,
-.bpc-password-toggle {
-  flex: 0 0 44px;
-  width: 44px;
-  padding-inline: 0 !important;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1rem;
-  line-height: 1;
-}
-.auth-form-side #pwToggle .bi,
-.bpc-password-toggle .bi { font-size: 1rem; width: 1em; height: 1em; }
-.bpc-password-toggle:focus-visible {
-  outline: 3px solid rgba(25, 135, 84, .28);
-  outline-offset: -3px;
-}
-
 .table-responsive {
   max-width: 100%;
   overscroll-behavior-inline: contain;
@@ -390,8 +351,8 @@ input[type="password"]::-ms-clear { display: none; }
 }
 
 @media (max-width: 767.98px) {
-  .form-control, .form-select, .input-group > .btn,
-  .bpc-password-toggle { min-height: 44px; }
+  .form-control, .form-select, .input-group > .btn { min-height: 44px; }
+
   .modal-dialog { width: 100%; margin-block: 12px; }
   .modal-footer { flex-wrap: wrap; }
   .modal-footer > .btn { flex: 1 1 10rem; }

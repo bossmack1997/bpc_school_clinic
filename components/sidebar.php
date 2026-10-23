@@ -129,7 +129,6 @@ if($sbProfile==='mis')$sbNav['admin']=['brand'=>'MIS / System Administrator','se
 if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Administrator','sections'=>[
  'Clinical Overview'=>[
      ['dashboard','Dashboard','dashboard.php'],
-     ['activity','Clinic Monitoring','clinic_monitoring.php'],
  ],
  'Patient Care'=>[
      ['users','Patient Records','patients.php'],
@@ -141,8 +140,7 @@ if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Adminis
      ['file-medical','Clinical Reports','reports.php']
  ],
  'Communication'=>[
-     ['chat','Messages','messages.php'],
-     ['sparkles','MICA AI','../ai_assistant.php']
+     ['chat','Messages','messages.php']
  ],
  'Account'=>[
      ['user','My Profile','profile.php'],
@@ -180,11 +178,19 @@ if ($sbRole === 'admin' && $sbProfile!=='doctor') {
     }
 }
 
+// Omit empty sections when a basic teacher has no advisory access.
+if ($sbRole === 'teacher' && !empty($sbUser['self_service_only'])) {
+    foreach ($sbMenus['sections'] as $section => $items) {
+        $sbMenus['sections'][$section] = array_values(array_filter($items, fn($item) => !in_array($item[2], ['students.php', 'my_advisory.php'], true)));
+        if (!$sbMenus['sections'][$section]) unset($sbMenus['sections'][$section]);
+    }
+}
 ?>
 
 <a class="skip-link" href="#mainContent">Skip to main content</a>
 
 <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+  <button type="button" class="sidebar-close" aria-label="Close navigation">&times;</button>
   <div class="brand">
     <div class="brand-logo">
       <img src="<?= APP_URL ?>/assets/images/bpc_logo.png" alt="" width="38" height="38">
@@ -209,7 +215,6 @@ if ($sbRole === 'admin' && $sbProfile!=='doctor') {
         $sbFile     = $sbItem[2];
         $sbType     = $sbItem[3] ?? 'link';
         $sbFileBase = $sbFile ? explode('?', (string)$sbFile)[0] : '';
-        if($sbRole==='teacher' && !empty($sbUser['self_service_only']) && in_array($sbFileBase,['students.php','my_advisory.php'],true))continue;
         $sbTabQuery = (strpos((string)$sbFile, 'tab=') !== false) ? explode('tab=', (string)$sbFile)[1] : null;
 
         $sbActive = false;
@@ -240,7 +245,7 @@ if ($sbRole === 'admin' && $sbProfile!=='doctor') {
             $sbAria   = $sbActive ? ' aria-current="page"' : '';
         }
       ?>
-        <a class="<?= $sbClass ?> <?= $activeClass ?>" href="<?= $sbHref ?>"<?= $sbExtra ?><?= $sbAria ?>>
+        <a class="<?= $sbClass ?> <?= $activeClass ?>" href="<?= $sbHref ?>" aria-label="<?= e($sbLabel) ?>" title="<?= e($sbLabel) ?>"<?= $sbExtra ?><?= $sbAria ?>>
           <?= bpc_icon($sbIcon, 'nav-ico') ?><span><?= e($sbLabel) ?></span>
         </a>
       <?php endforeach; ?>

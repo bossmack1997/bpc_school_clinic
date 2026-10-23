@@ -12,7 +12,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const check=(ok,label)=>{if(!ok)throw Error(label);console.log('PASS '+label);};
  try{
   await call('Page.enable');await call('Network.clearBrowserCookies');
-  for(const width of[320,360,375,390,430,768,1024,1440]){
+  for(const width of[320,360,375,390,430,768,1024,1440,1920]){
    await call('Emulation.setDeviceMetricsOverride',{width,height:844,deviceScaleFactor:1,mobile:width<768});await call('Page.navigate',{url:base+'/auth/register.php'});
    let ready=false;for(let n=0;n<300;n++){await sleep(100);if(await ev(`document.readyState==='complete'&&!!document.querySelector('#regPwToggle')`)){ready=true;break;}}check(ready,width+'px registration renders');await sleep(800);
    check(await ev(`!document.querySelector('.pwa-install-banner')||getComputedStyle(document.querySelector('.pwa-install-banner')).display==='none'`),width+'px install banner does not obstruct registration');

@@ -34,7 +34,7 @@ $pageTitle='Nurse Dashboard';$pageDescription='Clinic activity, queue and patien
           <div class="adm-card__head">
             <div>
               <h3 class="adm-card__title" id="admActivityTitle"><?= bpc_icon('chart') ?> Clinic Activity</h3>
-              <p class="adm-card__sub">Consultation volume and live queue</p>
+              <p class="adm-card__sub" id="nurseActivitySummary" aria-live="polite">Consultation volume and live queue</p>
             </div>
             <div class="adm-btn-row" role="group" aria-label="Select chart range">
               <button type="button" class="adm-btn adm-btn--sm adm-btn--primary" data-nurse-range="week" aria-pressed="true">This Week</button>

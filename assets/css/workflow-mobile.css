@@ -21,8 +21,7 @@
 body:has(#sosModal.show) .mica-fab,body:has(#sosModal.show) .mica-widget,
 body:has(#addAdminModal.show) .mica-fab,body:has(#addAdminModal.show) .mica-widget { visibility:hidden; pointer-events:none; }
 .people-extra { display:none; }
-.people-directory .content-area { padding-bottom:calc(24px + env(safe-area-inset-bottom,0px)); }
-.people-directory .mica-fab { position:relative; inset:auto; width:max-content; max-width:calc(100% - 32px); margin:12px 16px 20px auto; transform:none; animation:none; }
+.people-directory .content-area { padding-bottom:calc(96px + env(safe-area-inset-bottom,0px)); }
 .people-directory .mica-fab::after { display:none; }
 .people-directory .people-table td { word-break:normal; }
 @media(max-width:767.98px) {

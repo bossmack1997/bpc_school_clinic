@@ -1,0 +1,30 @@
+/* Shared password geometry; original inputs retain validation and submission. */
+.password-control { position: relative; display: flex; flex: 1 1 auto; min-width: 0; width: 100%; }
+.password-control > .form-control { width: 100%; min-width: 0; min-height: 44px; padding-right: 48px !important; border-right: var(--bs-border-width, 1px) solid var(--bs-border-color, #ced4da) !important; border-radius: var(--bs-border-radius, .375rem); }
+.password-control > .form-control.is-invalid { background-image: none; border-color: var(--bs-form-invalid-border-color, #dc3545) !important; }
+.password-visibility { position: absolute; right: 1px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; padding: 0; border: 0; border-radius: .375rem; background: transparent; color: var(--bs-secondary-color, #59636e); display: grid; place-items: center; z-index: 5; }
+.password-visibility i { font-size: 19px; line-height: 1; pointer-events: none; }
+.password-visibility:focus-visible { outline: 2px solid var(--brand-primary, #0b6b3a); outline-offset: -3px; }
+.password-input-group > .password-control { width: 1%; }
+.password-input-group > .input-group-text + .password-control > input { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.password-input-group:has(input.is-invalid) > .invalid-feedback,
+.was-validated .password-input-group:has(input:invalid) > .invalid-feedback,
+.password-control:has(input.is-invalid) + .invalid-feedback,
+.was-validated .password-control:has(input:invalid) + .invalid-feedback { display: block; }
+.sidebar-role__value { white-space: normal; overflow-wrap: anywhere; }
+.sidebar-nav { overscroll-behavior: contain; }
+.sidebar-nav .nav-section-label { padding-top: 12px; }
+.sidebar-close { display: none; }
+@media (max-width: 1199.98px) {
+  body.sidebar-open { overflow: hidden; }
+  .sidebar { width: min(var(--sidebar-width), calc(100vw - 32px)); height: 100dvh; }
+  .sidebar .brand { padding-right: 48px; }
+  .sidebar-close { display: grid; place-items: center; position: absolute; top: 12px; right: 8px; width: 40px; height: 40px; background: transparent; color: white; border: 1px solid #ffffff55; border-radius: 6px; font-size: 24px; }
+  .sidebar-footer { padding: 8px 18px; }
+  .sidebar-footer .info-item { margin-bottom: 3px; }
+  .sidebar-footer .copyright { margin-top: 4px; padding-top: 4px; }
+}
+@media (max-height: 600px) and (max-width: 1199.98px) {
+  .sidebar .sidebar-footer { display: none; }
+  .sidebar-role { margin-top: 4px; padding-top: 4px; padding-bottom: 4px; }
+}

@@ -70,11 +70,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
 <script>
 (() => {
   const form=document.getElementById('setupAccountForm'); if(!form)return;
-  const pw=document.getElementById('password'), confirm=document.getElementById('confirm_password'), error=document.getElementById('passwordError'), toggle=document.getElementById('togglePassword');
+  const pw=document.getElementById('password'), confirm=document.getElementById('confirm_password'), error=document.getElementById('passwordError');
   const tests={length:v=>v.length>=8,upper:v=>/[A-Z]/.test(v),lower:v=>/[a-z]/.test(v),number:v=>/[0-9]/.test(v),special:v=>/[^A-Za-z0-9]/.test(v)};
   function validate(){const value=pw.value;Object.entries(tests).forEach(([name,test])=>document.querySelector(`[data-rule="${name}"]`).classList.toggle('valid',test(value)));const ok=Object.values(tests).every(test=>test(value));error.textContent=confirm.value&&value!==confirm.value?'Passwords do not match.':(!ok&&value?'Password does not yet meet every requirement.':'');return ok&&value===confirm.value;}
   pw.addEventListener('input',validate);confirm.addEventListener('input',validate);
-  toggle.addEventListener('click',()=>{const show=pw.type==='password';pw.type=show?'text':'password';toggle.setAttribute('aria-label',show?'Hide password':'Show password');toggle.setAttribute('aria-pressed',String(show));toggle.querySelector('i').className=show?'bi bi-eye-slash':'bi bi-eye';});
   form.addEventListener('submit',event=>{if(!validate()){event.preventDefault();error.textContent=error.textContent||'Complete all password requirements.';pw.focus();return;}const button=document.getElementById('submitBtn');button.disabled=true;button.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Activating account...';});
 })();
 </script>

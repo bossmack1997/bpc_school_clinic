@@ -84,3 +84,5 @@ window.FIREBASE_CONFIG = {
 <script src="<?= asset_url('js/moment.min.js', true) ?>"></script>
 
 <link rel="stylesheet" href="<?= asset_url('css/workflow-mobile.css', true) ?>">
+<link rel="stylesheet" href="<?= asset_url('css/shared-ui.css', true) ?>">
+<script defer src="<?= asset_url('js/password-visibility.js', true) ?>"></script>

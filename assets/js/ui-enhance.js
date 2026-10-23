@@ -7,8 +7,7 @@
  *    menu against the screen instead, so it always shows in full.
  * 2. Publishes the live height of the SOS banner as --sos-h so the MICA panel
  *    and toasts on phones can sit below it instead of underneath it.
- * 3. Adds one accessible show/hide control to password fields that do not
- *    already have an application-provided control.
+ * Password visibility is owned by password-visibility.js, loaded from head.php.
  */
 (function () {
   'use strict';
@@ -48,63 +47,7 @@
 
   function start() {
     track();
-    enhancePasswords(document);
-    new MutationObserver(function (records) {
-      track();
-      records.forEach(function (record) {
-        record.addedNodes.forEach(function (node) {
-          if (node.nodeType === 1) enhancePasswords(node);
-        });
-      });
-    }).observe(document.body, { childList: true, subtree: true });
-  }
-
-  var passwordId = 0;
-
-  function enhancePasswords(scope) {
-    var fields = [];
-    if (scope.matches && scope.matches('input[type="password"]')) fields.push(scope);
-    if (scope.querySelectorAll) fields = fields.concat(Array.from(scope.querySelectorAll('input[type="password"]')));
-
-    fields.forEach(function (input) {
-      if (input.dataset.passwordToggleBound === 'true') return;
-
-      var group = input.closest('.input-group');
-      var existing = group && group.querySelector('button[type="button"][aria-label*="password" i], button[type="button"][id*="toggle" i]');
-      if (existing) {
-        if (!input.id) input.id = 'bpc-password-' + (++passwordId);
-        if (!existing.hasAttribute('aria-controls')) existing.setAttribute('aria-controls', input.id);
-        if (!existing.hasAttribute('aria-pressed')) existing.setAttribute('aria-pressed', 'false');
-        input.dataset.passwordToggleBound = 'true';
-        return;
-      }
-
-      if (!input.id) input.id = 'bpc-password-' + (++passwordId);
-      var host = group;
-      if (!host) {
-        host = document.createElement('div');
-        host.className = 'bpc-password-field';
-        input.parentNode.insertBefore(host, input);
-        host.appendChild(input);
-      }
-
-      var button = document.createElement('button');
-      button.type = 'button';
-      button.className = group ? 'btn btn-outline-secondary bpc-password-toggle' : 'bpc-password-toggle';
-      button.setAttribute('aria-controls', input.id);
-      button.setAttribute('aria-label', 'Show password');
-      button.setAttribute('aria-pressed', 'false');
-      button.innerHTML = '<i class="bi bi-eye" aria-hidden="true"></i>';
-      button.addEventListener('click', function () {
-        var show = input.type === 'password';
-        input.type = show ? 'text' : 'password';
-        button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-        button.setAttribute('aria-pressed', String(show));
-        button.querySelector('i').className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
-      });
-      host.appendChild(button);
-      input.dataset.passwordToggleBound = 'true';
-    });
+    new MutationObserver(track).observe(document.body, { childList: true, subtree: true });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

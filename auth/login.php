@@ -176,20 +176,7 @@ $pageTitle = 'Login';
 (function () {
   'use strict';
 
-  // ---- Password Toggle (single handler) ----
   const pwInput = document.getElementById('password');
-  const pwBtn = document.getElementById('pwToggle');
-  const pwIcon = document.getElementById('pwIcon');
-
-  pwBtn.addEventListener('click', function () {
-    const type = pwInput.type === 'password' ? 'text' : 'password';
-    pwInput.type = type;
-    pwIcon.classList.toggle('bi-eye', type === 'password');
-    pwIcon.classList.toggle('bi-eye-slash', type === 'text');
-    pwBtn.setAttribute('aria-pressed', type === 'text');
-    pwBtn.setAttribute('aria-label', type === 'text' ? 'Hide password' : 'Show password');
-    pwInput.focus();
-  });
 
   // ---- Client-side validation with loading state ----
   const form = document.getElementById('loginForm');
