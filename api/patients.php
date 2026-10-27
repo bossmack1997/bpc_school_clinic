@@ -340,7 +340,7 @@ if ($action === 'start_visit') {
     }
 
     // Generate new queue number
-    $queueNumber = generate_queue_number($db);
+    try{$queueNumber = generate_queue_number($db,$studentId,'student');}catch(DomainException $e){if($db->inTransaction())$db->rollBack();http_response_code(409);json_response(false,[],$e->getMessage());}
     $qrToken = ensure_student_qr($db, $studentId, $u['id'])['qr_token'] ?? null;
 
     $stmtInsert = $db->prepare("

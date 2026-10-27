@@ -11,6 +11,21 @@ require_role('nurse');
 $db = getDB();
 $u = current_user();
 $pageTitle = 'Clinic Queue Management';
+$referralError='';
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='clinic_policy') {
+    csrf_verify_or_die();require_once __DIR__.'/../../includes/clinic_policy_service.php';
+    try{(new ClinicPolicyService($db))->save($u,$_POST);set_flash('success','Clinic availability saved.');redirect('queue.php');}
+    catch(InvalidArgumentException|RuntimeException $e){$referralError=$e instanceof PDOException?'Clinic availability could not be saved.':$e->getMessage();}
+}
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='physician_referral') {
+    csrf_verify_or_die();
+    require_once __DIR__.'/../../includes/physician_queue_service.php';
+    try {
+        (new PhysicianQueueService($db,$u))->refer($_POST);
+        set_flash('success','Patient referred to the physician queue.');redirect('queue.php');
+    } catch (PDOException $e) {clinical_database_failure('nurse.physician_referral',$e);$referralError='Physician referral is unavailable. Ask MIS to verify the handoff migration.';}
+    catch (InvalidArgumentException|RuntimeException $e) {$referralError=$e->getMessage();}
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -44,6 +59,21 @@ $pageTitle = 'Clinic Queue Management';
       </div>
 
       <!-- Quick Stats Row -->
+      <?php if($referralError): ?><div class="alert alert-danger" role="alert"><?=e($referralError)?></div><?php endif; ?>
+      <details class="card p-3 mb-4"><summary class="fw-bold">Clinic availability and queue policy</summary>
+      <?php $policyDefaults=['clinic_open_time'=>'08:00','clinic_close_time'=>'17:00','clinic_operating_days'=>'1,2,3,4,5','clinic_manual_status'=>'scheduled','clinic_closed_dates'=>'','clinic_queue_capacity'=>'100'];$policyQuery=$db->query("SELECT setting_key,setting_value FROM system_settings WHERE setting_key IN ('clinic_open_time','clinic_close_time','clinic_operating_days','clinic_manual_status','clinic_closed_dates','clinic_queue_capacity')");$policy=array_replace($policyDefaults,$policyQuery->fetchAll(PDO::FETCH_KEY_PAIR)); ?>
+      <form method="post" class="row g-3 mt-1"><?=csrf_field()?><input type="hidden" name="action" value="clinic_policy">
+      <?php foreach(['clinic_open_time'=>'Opening time (HH:MM)','clinic_close_time'=>'Closing time (HH:MM)','clinic_operating_days'=>'Operating weekdays (1=Monday, comma separated)','clinic_closed_dates'=>'Holidays / closure dates (YYYY-MM-DD, comma separated)','clinic_queue_capacity'=>'Maximum active queue tickets'] as $key=>$label): ?><div class="col-12 col-md-6"><label class="form-label" for="policy-<?=$key?>"><?=$label?></label><input class="form-control" id="policy-<?=$key?>" name="<?=$key?>" value="<?=e($policy[$key])?>" maxlength="500" <?=$key==='clinic_closed_dates'?'':'required'?>></div><?php endforeach; ?>
+      <div class="col-12 col-md-6"><label class="form-label" for="policy-status">Current clinic status</label><select id="policy-status" class="form-select" name="clinic_manual_status"><option value="scheduled" <?=$policy['clinic_manual_status']==='scheduled'?'selected':''?>>Follow operating schedule</option><option value="closed" <?=$policy['clinic_manual_status']==='closed'?'selected':''?>>Closed by clinic staff</option></select></div><div class="col-12"><button class="btn btn-outline-success">Save clinic availability</button></div></form></details>
+      <details class="card p-3 mb-4"><summary class="fw-bold">Refer a patient for physician assessment</summary>
+        <p class="small text-muted mt-3">Save nursing assessment and vital signs first. Enter the ticket's numeric ID shown in the queue. Clinical priority must be confirmed by the Nurse. Emergency cases require immediate response through the SOS workflow.</p>
+        <form method="post" class="row g-3 mt-1"><?=csrf_field()?><input type="hidden" name="action" value="physician_referral">
+          <div class="col-12 col-md-3"><label class="form-label" for="physician-ticket">Ticket ID</label><input class="form-control" id="physician-ticket" name="queue_id" type="number" min="1" required></div>
+          <div class="col-12 col-md-3"><label class="form-label" for="physician-priority">Nurse-confirmed priority</label><select class="form-select" id="physician-priority" name="priority"><option value="normal">Routine</option><option value="urgent">Urgent</option><option value="emergency">Emergency</option></select></div>
+          <div class="col-12 col-md-6"><label class="form-label" for="physician-reason">Referral reason</label><textarea class="form-control" id="physician-reason" name="reason" maxlength="1000" required></textarea></div>
+          <div class="col-12"><button class="btn btn-outline-success">Send to Doctor</button></div>
+        </form>
+      </details>
       <div class="app-stats app-stats--4 mb-4">
         <div class="dbg-stat dbg-stat--green">
           <div class="dbg-stat__top">
@@ -262,19 +292,16 @@ $pageTitle = 'Clinic Queue Management';
                     <textarea class="form-control" name="symptoms" rows="2" placeholder="Onset, severity, duration..."></textarea>
                   </div>
                   <div class="col-md-6">
-                    <label class="form-label fw-semibold small">Clinical Assessment</label>
-                    <textarea class="form-control" name="assessment" rows="2" placeholder="Physical examination findings..."></textarea>
+                    <label class="form-label fw-semibold small">Nursing assessment / triage</label>
+                    <textarea class="form-control" name="assessment" rows="2" placeholder="Nursing observations and triage findings..."></textarea>
+                    <label class="form-label small mt-2" for="confirmed-priority">Nurse-confirmed clinical priority</label><select class="form-select" name="clinical_priority" id="confirmed-priority"><option value="normal">Routine</option><option value="urgent">Urgent</option><option value="emergency">Emergency</option></select>
                   </div>
                 </div>
 
                 <div class="row g-2 mb-3">
                   <div class="col-md-6">
-                    <label class="form-label fw-semibold small">Diagnosis</label>
-                    <input type="text" class="form-control" name="diagnosis" id="consultDiagnosis" placeholder="e.g. Tension Headache, Upper Respiratory Tract Infection">
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label fw-semibold small">Treatment Given</label>
-                    <textarea class="form-control" name="treatment" rows="2" placeholder="e.g. Bed rest, hydration, ice pack, oral medication"></textarea>
+                    <label class="form-label fw-semibold small">Authorized nursing interventions</label>
+                    <textarea class="form-control" name="nursing_interventions" rows="2" placeholder="e.g. Bed rest, hydration, ice pack, oral medication"></textarea>
                   </div>
                 </div>
 
@@ -365,10 +392,7 @@ $pageTitle = 'Clinic Queue Management';
                 <div id="certFieldsDiv" style="display: none;" class="mt-2 pt-2 border-top">
                   <div class="mb-2">
                     <label class="form-label small text-muted mb-1">Certificate Type</label>
-                    <select class="form-select form-select-sm" name="certificate_type">
-                      <option value="Clinic Visit Pass">Clinic Visit Clearance / Pass</option>
-                      <option value="Medical Certificate">Medical Certificate / Fit to Class</option>
-                    </select>
+                    <select class="form-select form-select-sm" name="certificate_type"><option value="Clinic Visit Confirmation">Clinic Visit Confirmation (attendance only)</option></select>
                   </div>
                   <div>
                     <label class="form-label small text-muted mb-1">Purpose / Reason</label>
@@ -380,8 +404,6 @@ $pageTitle = 'Clinic Queue Management';
           </div>
 
           <div class="card p-3 mt-3 border-0 shadow-sm">
-  <label class="form-label fw-semibold" for="consultSignature">Digital Signature</label>
-  <input class="form-control mb-3" name="digital_signature" id="consultSignature" placeholder="Nurse's name / digital signature">
   <div class="d-flex justify-content-between gap-2 align-items-center mb-2"><label class="form-label fw-semibold mb-0" for="aiSummary">AI Consultation Summary</label><button class="btn btn-sm btn-outline-success" type="button" id="generateSummaryBtn" onclick="generateConsultationSummary()">Generate Summary</button></div>
   <textarea class="form-control" rows="5" name="ai_summary" id="aiSummary"></textarea>
 </div>
@@ -556,7 +578,7 @@ $pageTitle = 'Clinic Queue Management';
 
       html += `
         <tr class="${rowHighlight}">
-          <td class="fw-bold fs-6 text-success">${item.queue_number}</td>
+          <td class="fw-bold fs-6 text-success">${item.queue_number}<small class="d-block text-muted">Ticket ID: ${Number(item.id)}</small></td>
           <td>
             <div class="fw-semibold text-dark">${escapeHtml(item.patient_name)}</div>
             <small class="text-muted">${item.student_number || item.employee_id || item.patient_type}</small>

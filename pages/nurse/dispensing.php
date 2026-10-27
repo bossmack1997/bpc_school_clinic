@@ -34,7 +34,6 @@ $pageTitle = 'Medicine Dispensing';
               <div class="alert alert-info py-2 small d-none" id="selectedMed"></div>
               <div class="mb-2"><label class="form-label small">Quantity</label><input type="number" class="form-control" name="quantity" min="1" required></div>
               <div class="mb-2"><label class="form-label small">Purpose / Reason <span class="text-danger">*</span></label><input class="form-control" name="purpose" id="dispensePurpose" required placeholder="e.g. Headache relief"></div>
-              <div class="mb-2"><label class="form-label small">Diagnosis / Reason</label><input class="form-control" name="diagnosis" placeholder="e.g. Tension headache"></div>
               <div class="mb-2"><label class="form-label small">Remarks</label><textarea class="form-control" name="remarks" rows="2" placeholder="Optional notes"></textarea></div>
               <button class="btn btn-primary w-100" type="submit"><i class="bi bi-check2-circle me-1"></i> Dispense</button>
             </form>

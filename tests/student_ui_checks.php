@@ -2,7 +2,7 @@
 /** Included only by the disposable MIS HTTP fixture. */
 if(!isset($database)||!preg_match('/^bpc_mis_test_[a-f0-9]{10}$/D',$database)||$db->query('SELECT DATABASE()')->fetchColumn()!==$database)throw new RuntimeException('Disposable fixture required.');
 // Always exercise the legacy read path, independently of the source schema version.
-foreach(['category','publication_status','starts_at','expires_at','image_path'] as $uiColumn){$uiColumnQuery=$db->prepare("SHOW COLUMNS FROM announcements LIKE ?");$uiColumnQuery->execute([$uiColumn]);if($uiColumnQuery->fetch())$db->exec("ALTER TABLE announcements DROP COLUMN `$uiColumn`");}
+foreach(['category','publication_status','starts_at','expires_at','image_path'] as $uiColumn){$uiColumnQuery=$db->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='announcements' AND COLUMN_NAME=?");$uiColumnQuery->execute([$uiColumn]);if($uiColumnQuery->fetch())$db->exec("ALTER TABLE announcements DROP COLUMN `$uiColumn`");}
 function uiLogin(string $name){$client=misClient();$page=misRequest($client,'/auth/login.php');$response=misRequest($client,'/auth/login.php',['csrf_token'=>misField($page,'csrf_token'),'identifier'=>$name,'password'=>'FixturePass!42']);checkMis($response['status']===302,$name.' fixture signs in');return $client;}
 $uiIds=[];
 foreach(['student','teacher','nurse'] as $uiRole){$db->prepare("INSERT INTO users(username,email,password_hash,first_name,last_name,role,status,email_verified,self_service_only) VALUES (?,?,?,? ,?,?,'active',1,0)")->execute(['ui_'.$uiRole,$uiRole.'_ui@example.invalid',password_hash('FixturePass!42',PASSWORD_DEFAULT),str_repeat('Alexandra',5),str_repeat('Longname',5),$uiRole]);$uiIds[$uiRole]=(int)$db->lastInsertId();}

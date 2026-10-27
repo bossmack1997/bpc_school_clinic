@@ -7,6 +7,9 @@ header('Content-Type: application/json');
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+if (($user['role']??'')==='nurse' && $_SERVER['REQUEST_METHOD']==='POST') {
+    require_once __DIR__.'/../includes/nursing_scope.php';enforce_nursing_documentation($_POST);
+}
 
 if ($action === 'get_student' || $action === 'get') {
     $id = (int)($_GET['id'] ?? $_GET['student_id'] ?? 0);
@@ -142,7 +145,7 @@ if ($action === 'walkin_start') {
     $teacherId = (int)($_POST['teacher_id'] ?? 0);
     $chiefComplaint = trim($_POST['chief_complaint'] ?? '');
     $diagnosis = trim($_POST['diagnosis'] ?? '');
-    $treatment = trim($_POST['treatment'] ?? '');
+    $treatment = trim($_POST['nursing_interventions'] ?? '');
     $prescription = trim($_POST['prescription'] ?? '');
     $remarks = trim($_POST['remarks'] ?? '');
     $followUp = $_POST['follow_up_date'] ?? null;

@@ -52,7 +52,7 @@ $pageTitle = 'Activity & Audit Logs';
         <div class="table-responsive">
           <table class="table table-hover align-middle" id="logsTable" style="width:100%">
             <thead><tr>
-              <th>User</th><th>Role</th><th>Action</th><th>Module</th><th>Details</th><th>IP Address</th><th>Date/Time</th>
+              <th>User</th><th>Role</th><th>Action</th><th>Module</th><th>Details</th><th>Date/Time</th>
             </tr></thead>
             <tbody></tbody>
           </table>

@@ -26,6 +26,8 @@ function account_settings_save(PDO $db, array $user, array $input): array {
     if($check->fetchColumn())throw new InvalidArgumentException('That email is already used by another account.');
     $owner=!$db->inTransaction();if($owner)$db->beginTransaction();
     try {
+        $emailCheck=$db->prepare('SELECT email FROM users WHERE id=? FOR UPDATE');$emailCheck->execute([$user['id']]);
+        if(strtolower($values['email'])!==strtolower((string)$emailCheck->fetchColumn()))throw new InvalidArgumentException('Official email changes require MIS verification. Your current verified email was preserved.');
         $check=$db->prepare("SELECT id FROM $table WHERE user_id=?");$check->execute([$user['id']]);
         if(!$check->fetchColumn())throw new InvalidArgumentException('Your role profile is unavailable. Contact support.');
         $db->prepare('UPDATE users SET first_name=?,last_name=?,email=?,phone=? WHERE id=?')->execute([$values['first_name'],$values['last_name'],$values['email'],$values['phone'],$user['id']]);

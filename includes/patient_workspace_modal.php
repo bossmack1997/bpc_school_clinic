@@ -195,12 +195,8 @@
                   </div>
                   <div class="row g-2 mb-2">
                     <div class="col-md-6">
-                      <label class="form-label fw-semibold small">Diagnosis</label>
-                      <input type="text" class="form-control form-control-sm" name="diagnosis" placeholder="e.g. Tension Headache, Upper Respiratory Infection">
-                    </div>
-                    <div class="col-md-6">
-                      <label class="form-label fw-semibold small">Treatment Given</label>
-                      <input type="text" class="form-control form-control-sm" name="treatment" placeholder="e.g. Rest, oral medication, hydration">
+                      <label class="form-label fw-semibold small">Authorized nursing interventions</label>
+                      <input type="text" class="form-control form-control-sm" name="nursing_interventions" placeholder="e.g. Rest, oral medication, hydration">
                     </div>
                   </div>
                   <div class="mb-2">
@@ -218,10 +214,7 @@
                         </label>
                       </div>
                       <div id="pwCertFieldsDiv" style="display: none;" class="mt-2">
-                        <select class="form-select form-select-sm mb-1" name="certificate_type">
-                          <option value="Clinic Visit Pass">Clinic Visit Clearance Pass</option>
-                          <option value="Medical Certificate">Medical Certificate / Fit to Class</option>
-                        </select>
+                        <select class="form-select form-select-sm mb-1" name="certificate_type"><option value="Clinic Visit Confirmation">Clinic Visit Confirmation (attendance only)</option></select>
                         <input type="text" class="form-control form-control-sm" name="certificate_purpose" placeholder="Purpose (e.g. Excused from PE class)">
                       </div>
                     </div>

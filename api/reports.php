@@ -13,6 +13,9 @@ if ($action === 'generate') {
     $type = $_POST['type'] ?? 'consultations';
     $from = $_POST['from_date'] ?? date('Y-m-01');
     $to   = $_POST['to_date'] ?? date('Y-m-d');
+    if(!is_string($type)||!in_array($type,['consultations','inventory','health','certificates','emergencies','walkin_stats','qr_scan_logs','daily_checkins'],true)){http_response_code(422);json_response(false,[],'Choose a supported report.');}
+    foreach([$from,$to] as $reportDate){if(!is_string($reportDate)||!($parsed=DateTimeImmutable::createFromFormat('!Y-m-d',$reportDate))||$parsed->format('Y-m-d')!==$reportDate){http_response_code(422);json_response(false,[],'Choose valid report dates.');}}
+    if($from>$to){http_response_code(422);json_response(false,[],'The start date must not follow the end date.');}
 
     $data = [];
     $title = '';

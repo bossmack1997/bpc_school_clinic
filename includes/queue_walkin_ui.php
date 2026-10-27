@@ -89,8 +89,7 @@
   <h6 class="fw-semibold mb-3"><i class="bi bi-heart-pulse me-1"></i> Initial Consultation</h6>
   <div class="row g-2">
     <div class="col-md-6"><label class="form-label small">Assessment</label><textarea class="form-control" name="assessment" rows="2"></textarea></div>
-    <div class="col-md-6"><label class="form-label small">Diagnosis</label><input class="form-control" name="diagnosis" placeholder="Initial diagnosis"></div>
-    <div class="col-md-6"><label class="form-label small">Treatment</label><textarea class="form-control" name="treatment" rows="2"></textarea></div>
+    <div class="col-md-6"><label class="form-label small">Authorized nursing interventions</label><textarea class="form-control" name="nursing_interventions" rows="2"></textarea></div>
     <div class="col-md-6"><label class="form-label small">Recommendation</label><textarea class="form-control" name="recommendation" rows="2" placeholder="Rest, hydration..."></textarea></div>
     <div class="col-md-6">
       <div class="form-check mt-2">

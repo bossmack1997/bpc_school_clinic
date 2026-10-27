@@ -6,6 +6,11 @@ header('Content-Type: application/json');
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+if($user['role']==='teacher'){
+    if($action==='list')json_response(true,['data'=>[]],'No Teacher certificate workflow is configured.');
+    admin_access_denied('Student certificates are restricted to their owner and authorized clinical staff.');
+}
+if($action==='delete'){http_response_code(410);json_response(false,[],'Clinical certificates are retained as historical records. Contact the attending Doctor about a correction.');}
 
 if ($action === 'list') {
     if ($user['role'] === 'student') {
@@ -68,6 +73,7 @@ if ($action === 'issue') {
 
     $studentId = (int)($_POST['student_id'] ?? 0);
     $certType = trim($_POST['certificate_type'] ?? 'Medical Certificate');
+    if($user['role']==='nurse'&&$certType!=='Clinic Visit Confirmation')admin_access_denied('Physician medical certificates and fitness decisions require the Doctor workflow. Nurses may issue a Clinic Visit Confirmation.');
     $purpose = trim($_POST['purpose'] ?? '');
     $remarks = trim($_POST['remarks'] ?? '');
     $dateIssued = $_POST['date_issued'] ?? date('Y-m-d');

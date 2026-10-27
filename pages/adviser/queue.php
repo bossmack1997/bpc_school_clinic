@@ -58,6 +58,7 @@ $pageTitle = 'Faculty Clinic Queue';
       </div>
 
       <!-- Active Ticket Section -->
+      <div id="queueAvailabilityNotice" class="alert alert-info" role="status"><?=e($clinicAvailability['reason'].' Clinic hours: '.$clinicAvailability['hours'].'. Use SOS for emergencies.')?></div>
       <div id="activeTicketContainer">
         <div class="card p-5 text-center shadow-sm border-0 mb-4" id="ticketLoadingState">
           <div class="spinner-border text-success mb-3" role="status"></div>
@@ -133,19 +134,19 @@ $pageTitle = 'Faculty Clinic Queue';
 
           <div class="mb-3">
             <label class="form-label fw-semibold">Purpose of Visit / Chief Complaint <span class="text-danger">*</span></label>
-            <textarea class="form-control" name="chief_complaint" rows="3" required placeholder="e.g. Blood pressure check, headache, first aid, medication request..."></textarea>
+            <textarea class="form-control" name="chief_complaint" rows="3" maxlength="220" required placeholder="e.g. Blood pressure check, headache, first aid, medication request..."></textarea>
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-semibold">Urgency Level</label>
+            <label class="form-label fw-semibold">Urgency Level</label><p class="small text-muted">Patient urgency is preliminary; a Nurse confirms clinical priority. Use SOS immediately for emergencies.</p><div class="form-check"><input class="form-check-input" type="radio" name="priority" id="patientEmergencyWarning" value="emergency"><label class="form-check-label" for="patientEmergencyWarning">Emergency Warning</label></div>
             <div class="d-flex gap-2">
               <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="priority" id="tPrioNormal" value="normal" checked>
-                <label class="form-check-label text-success fw-bold" for="tPrioNormal">Standard</label>
+                <label class="form-check-label text-success fw-bold" for="tPrioNormal">Routine</label>
               </div>
               <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="priority" id="tPrioUrgent" value="urgent">
-                <label class="form-check-label text-warning fw-bold" for="tPrioUrgent">Urgent</label>
+                <label class="form-check-label text-warning fw-bold" for="tPrioUrgent">Priority Review</label>
               </div>
             </div>
           </div>
@@ -176,6 +177,9 @@ $pageTitle = 'Faculty Clinic Queue';
       if (!json.success) return;
 
       const d = json.data;
+      window.patientQueueAvailability = d.availability;
+      const notice = document.getElementById('queueAvailabilityNotice');
+      if (notice && d.availability) notice.textContent = `${d.availability.reason} Clinic hours: ${d.availability.hours}. Use SOS for emergencies.`;
       document.getElementById('overviewNowServing').innerText = d.now_serving ? d.now_serving.queue_number : 'None';
       document.getElementById('overviewWaiting').innerText = d.total_waiting || 0;
       renderTeacherTicket(d.my_ticket);
@@ -201,7 +205,7 @@ $pageTitle = 'Faculty Clinic Queue';
             Visiting the clinic today? You can join the queue directly from your portal or scan your Staff QR Pass at the clinic desk.
           </p>
           <div class="d-flex justify-content-center gap-2 flex-wrap">
-            <button class="btn btn-success btn-lg px-4 fw-bold" data-bs-toggle="modal" data-bs-target="#teacherCheckinModal">
+            <button class="btn btn-success btn-lg px-4 fw-bold" data-bs-toggle="modal" data-bs-target="#teacherCheckinModal" ${window.patientQueueAvailability?.is_open ? '' : 'disabled'}>
               <i class="bi bi-plus-circle-fill me-1"></i> Join Queue / Check In
             </button>
             <a href="my_qr.php" class="btn btn-outline-success btn-lg px-4">

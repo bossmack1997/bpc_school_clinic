@@ -15,6 +15,10 @@ if (!headers_sent()) {
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? 'get_status';
+if (($user['role']??'')==='nurse' && $_SERVER['REQUEST_METHOD']==='POST') {
+    require_once __DIR__.'/../includes/nursing_scope.php';enforce_nursing_documentation($_POST);
+    if(!empty($_POST['issue_certificate'])&&($_POST['certificate_type']??'')!=='Clinic Visit Confirmation')admin_access_denied('Nurses may confirm clinic attendance. Medical clearance and fitness decisions require a Doctor.');
+}
 
 // Helper: Response formatting
 function q_json($success, $data = [], $message = '') {
@@ -93,7 +97,7 @@ if ($action === 'public_display') {
         'total_waiting'      => $totalWaiting,
         'total_served'       => $totalServed,
         'estimated_wait_min' => $avgWait,
-        'clinic_open'        => true,
+        'clinic_open'        => (static function()use($db){require_once __DIR__.'/../includes/clinic_availability.php';return clinic_availability($db)['is_open'];})(),
         'announcement'       => 'Please prepare your Student ID or QR Pass when called.',
     ]);
 }
@@ -102,6 +106,7 @@ if ($action === 'public_display') {
 // ACTION: get_status (For Student / Teacher / Nurse / Public Widget)
 // =====================================================================
 if ($action === 'get_status') {
+    require_login();
     // Current serving (direct indexed user joins)
     $stmt = $db->query("
         SELECT q.id, q.queue_number, q.status, q.patient_type, q.priority, q.called_at, q.served_at,
@@ -204,8 +209,11 @@ if ($action === 'get_status') {
         }
     }
 
+    require_once __DIR__.'/../includes/clinic_availability.php';
+    $queueAvailability=clinic_availability($db);
     q_json(true, [
         'now_serving'     => $nowServing,
+        'availability'   => $queueAvailability,
         'next_in_line'    => $nextInLine,
         'total_waiting'   => $totalWaiting,
         'total_completed' => $totalCompleted,
@@ -217,6 +225,8 @@ if ($action === 'get_status') {
 // ACTION: checkin (Self-Checkin or Nurse Desk Checkin)
 // =====================================================================
 if ($action === 'checkin') {
+    require_login();
+    if(!in_array($user['role']??'',['student','teacher','nurse'],true)||(($user['role']??'')==='nurse'&&!has_permission('clinic_monitor',$user,$db)))admin_access_denied('Queue check-in requires an authenticated patient or clinically authorized Nurse.');
     if (!$user) {
         q_json(false, [], 'Authentication required to check in.');
     }
@@ -226,8 +236,15 @@ if ($action === 'checkin') {
     // Rate-limiting / Cooldown
     $patientType = $_POST['patient_type'] ?? ($user['role'] === 'teacher' ? 'teacher' : 'student');
     $priority = in_array($_POST['priority'] ?? '', ['normal', 'urgent', 'emergency'], true) ? $_POST['priority'] : 'normal';
+    $reportedUrgency=$priority;
+    // Patient urgency is a symptom report, never a confirmed clinical priority.
+    if(in_array($user['role'],['student','teacher'],true))$priority='normal';
     $visitType = in_array($_POST['visit_type'] ?? '', ['walk-in', 'appointment', 'emergency'], true) ? $_POST['visit_type'] : 'walk-in';
+    if(!is_string($_POST['chief_complaint']??''))q_json(false,[],'Describe your symptoms using text.');
     $complaint = trim($_POST['chief_complaint'] ?? '');
+    if(in_array($user['role'],['student','teacher'],true)&&mb_strlen($complaint)<3)q_json(false,[],'Please describe the purpose of your clinic visit.');
+    if(mb_strlen($complaint)>220)q_json(false,[],'Limit the visit reason to 220 characters.');
+    if(in_array($user['role'],['student','teacher'],true))$complaint='[Patient urgency: '.$reportedUrgency.'] '.$complaint;
 
     $studentId = null;
     $teacherId = null;
@@ -289,7 +306,7 @@ if ($action === 'checkin') {
     }
 
     // 2. Generate new ticket
-    $queueNumber = generate_queue_number($db);
+    try{$queueNumber = generate_queue_number($db,$identityId,$patientType);}catch(DomainException $e){if($lockName)$db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);http_response_code(409);q_json(false,[],$e->getMessage());}
     $waitingCount = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
     $estimatedWait = calculate_queue_wait_time($db, $waitingCount);
 
@@ -886,10 +903,10 @@ if ($action === 'complete_consultation_full') {
 
     $symptoms = trim($_POST['symptoms'] ?? '');
     $assessment = trim($_POST['assessment'] ?? '');
-    $diagnosis = trim($_POST['diagnosis'] ?? '');
-    $treatment = trim($_POST['treatment'] ?? '');
+    $diagnosis = '';
+    $treatment = trim($_POST['nursing_interventions'] ?? '');
     $recommendation = trim($_POST['recommendation'] ?? '');
-    if ($assessment === '' || $diagnosis === '' || $treatment === '') q_json(false, [], 'Assessment, diagnosis, and treatment are required before completing a consultation.');
+    if ($assessment === '') q_json(false, [], 'Nursing assessment is required before completing nursing care.');
     $needFollowUp = !empty($_POST['need_follow_up']) ? 1 : 0;
     $followUpDate = !empty($_POST['follow_up_date']) ? $_POST['follow_up_date'] : null;
 
@@ -940,6 +957,7 @@ if ($action === 'complete_consultation_full') {
         $lockedVisit = queue_consultation_visit($db, $ticket, (int)$user['id']);
         queue_consultation_check_version($lockedVisit);
         queue_consultation_save($db, (int)$lockedVisit['id'], $_POST);
+        $ticket['priority']=$_POST['clinical_priority']??$ticket['priority'];
         // 1. Create or Update walk_in_visits
         $wStmt = $db->prepare("SELECT id FROM walk_in_visits WHERE queue_id = ? LIMIT 1");
         $wStmt->execute([$ticketId]);
@@ -952,7 +970,7 @@ if ($action === 'complete_consultation_full') {
                     temperature = ?, blood_pressure_systolic = ?, blood_pressure_diastolic = ?,
                     heart_rate = ?, respiratory_rate = ?, oxygen_saturation = ?,
                     height_cm = ?, weight_kg = ?, bmi = ?, bmi_status = ?,
-                    symptoms = ?, assessment = ?, diagnosis = ?, treatment = ?, recommendation = ?,
+                    symptoms = ?, assessment = ?, diagnosis = diagnosis, treatment = ?, recommendation = ?,
                     need_follow_up = ?, follow_up_date = ?, attended_by = ?,
                     status = 'completed',
                     consultation_started_at = COALESCE(consultation_started_at, NOW()),
@@ -964,7 +982,7 @@ if ($action === 'complete_consultation_full') {
                 $temperature, $bpSystolic, $bpDiastolic,
                 $heartRate, $respRate, $o2Sat,
                 $heightCm, $weightKg, $bmi, $bmiStatus,
-                $symptoms, $assessment, $diagnosis, $treatment, $recommendation,
+                $symptoms, $assessment, $treatment, $recommendation,
                 $needFollowUp, $followUpDate, $user['id'],
                 $walkInId
             ]);
@@ -1133,7 +1151,7 @@ if ($action === 'complete_consultation_full') {
                 (int)$patientUserId,
                 'clinic',
                 'Clinic Visit Completed',
-                "Your clinic consultation has been completed. Diagnosis: {$diagnosis}.",
+                "Your nursing clinic visit has been completed. See your clinical record for care instructions.",
                 ($ticket['patient_type'] === 'teacher' ? APP_URL . '/pages/adviser/consultations.php' : APP_URL . '/pages/student/medical_record.php'),
                 null,
                 'medium'
@@ -1149,7 +1167,7 @@ if ($action === 'complete_consultation_full') {
             $tName=$db->query("SELECT CONCAT(u.first_name,' ',u.last_name) FROM teachers t JOIN users u ON u.id=t.user_id WHERE t.id=".(int)$ticket['teacher_id'])->fetchColumn();
             if($tName)$patientName=$tName;
         }
-        log_activity($user['id'], 'Completed Consultation', 'clinic', "Completed consultation for {$patientName}. Diagnosis: {$diagnosis}");
+        log_activity($user['id'], 'Completed nursing care', 'clinic', 'Consultation #'.$consultationId.'; clinical contents remain in the authorized record.');
 
         $db->commit();
         unset($_SESSION['queue_consultation_drafts'][$ticketId]);

@@ -25,12 +25,7 @@ $pageTitle = 'Medical Certificates';
               <input type="hidden" name="student_id" id="student_id">
               <div class="alert alert-success py-2 small" id="selectedStudent"></div>
               <div class="mb-2"><label class="form-label small">Certificate Type</label>
-                <select class="form-select" name="certificate_type">
-                  <option>Medical Certificate</option>
-                  <option>Health Clearance</option>
-                  <option>Fit to Return</option>
-                  <option>Other</option>
-                </select>
+                <select class="form-select" name="certificate_type"><option value="Clinic Visit Confirmation">Clinic Visit Confirmation (attendance only)</option></select>
               </div>
               <div class="mb-2"><label class="form-label small">Purpose</label><input class="form-control" name="purpose"></div>
               <div class="mb-2"><label class="form-label small">Date Issued</label><input type="date" class="form-control" name="date_issued" value="<?= date('Y-m-d') ?>"></div>

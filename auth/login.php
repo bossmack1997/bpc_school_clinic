@@ -166,13 +166,7 @@ $pageTitle = 'Login';
           <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
         </button>
         <div class="text-center mt-3 pt-2 border-top">
-          <p class="small text-muted mb-2">Don't have an account?</p>
-          <div class="d-flex justify-content-center gap-2 flex-wrap mb-2">
-            <a href="register.php?role=student" class="btn btn-sm btn-outline-primary"><i class="bi bi-mortarboard me-1"></i> Student</a>
-            <a href="register.php?role=teacher" class="btn btn-sm btn-outline-info"><i class="bi bi-person-workspace me-1"></i> Teacher</a>
-            <a href="register.php?role=nurse" class="btn btn-sm btn-outline-success"><i class="bi bi-person-badge-fill me-1"></i> Nurse</a>
-          </div>
-          <p class="small text-muted mb-0"><a href="register.php" class="text-secondary text-decoration-none fw-medium"><i class="bi bi-person-plus-fill me-1"></i>Create New Account</a></p>
+          <p class="small text-muted mb-0">Need an account? Contact MIS for a secure account activation email.</p>
         </div>
       </form>
     </div>

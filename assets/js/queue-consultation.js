@@ -64,11 +64,12 @@ async function openIntegratedConsultation(ticketId, start) {
     document.getElementById('pBloodType').textContent = medical?.blood_type || 'Unknown';
     document.getElementById('pAllergiesBadge').textContent = `Allergies: ${medical?.allergies || 'None recorded'}`;
     document.getElementById('pAllergiesBadge').className = medical?.allergies && !['None', 'N/A'].includes(medical.allergies) ? 'badge bg-danger' : 'badge bg-success';
-    for (const field of ['chief_complaint', 'symptoms', 'assessment', 'diagnosis', 'treatment', 'recommendation', 'digital_signature', 'follow_up_date']) {
-      consultationForm.elements[field].value = visit?.[field] || (field === 'chief_complaint' ? p.initial_complaint || '' : '');
+    for (const field of ['chief_complaint', 'symptoms', 'assessment', 'nursing_interventions', 'recommendation', 'follow_up_date']) {
+      consultationForm.elements[field].value = (field === 'nursing_interventions' ? visit?.treatment : visit?.[field]) || (field === 'chief_complaint' ? p.initial_complaint || '' : '');
     }
     consultationForm.elements.ai_summary.value = visit?.ai_summary_edited ?? visit?.ai_summary ?? '';
     consultationForm.elements.need_follow_up.checked = Number(visit?.need_follow_up) === 1;
+    consultationForm.elements.clinical_priority.value = visit?.priority_level || 'normal';
     const vitals = visit || latest || {};
     for (const field of ['temperature', 'oxygen_saturation', 'heart_rate', 'respiratory_rate', 'height_cm', 'weight_kg', 'blood_pressure_systolic', 'blood_pressure_diastolic']) {
       consultationForm.elements[field].value = vitals[field] ?? '';

@@ -15,6 +15,9 @@ header('Content-Type: application/json');
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+if ($_SERVER['REQUEST_METHOD']==='POST') {
+    require_once __DIR__.'/../includes/nursing_scope.php';enforce_nursing_documentation($_POST);
+}
 require_once __DIR__ . '/../includes/queue_consultation.php';
 
 // ================================================================
@@ -153,7 +156,7 @@ if ($action === 'save_visit') {
         $visitNumber = generateVisitNumber($db);
         
         // Use unified queue API to generate queue number
-        $queueNumber = generate_queue_number($db);
+        $queueNumber = generate_queue_number($db,$studentId,'student');
         $waitingCount = (int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() AND status = 'waiting'")->fetchColumn();
         $estimatedWait = calculate_queue_wait_time($db, $waitingCount);
         
@@ -232,7 +235,7 @@ if ($action === 'save_visit') {
             trim($_POST['symptoms'] ?? ''),
             trim($_POST['assessment'] ?? ''),
             trim($_POST['diagnosis'] ?? ''),
-            trim($_POST['treatment'] ?? ''),
+            trim($_POST['nursing_interventions'] ?? ''),
             trim($_POST['recommendation'] ?? ''),
             !empty($_POST['need_follow_up']) ? 1 : 0,
             $_POST['follow_up_date'] ?? null,
@@ -280,7 +283,7 @@ if ($action === 'update_consultation') {
     $symptoms = trim($_POST['symptoms'] ?? '');
     $assessment = trim($_POST['assessment'] ?? '');
     $diagnosis = trim($_POST['diagnosis'] ?? '');
-    $treatment = trim($_POST['treatment'] ?? '');
+    $treatment = trim($_POST['nursing_interventions'] ?? '');
     $recommendation = trim($_POST['recommendation'] ?? '');
     $needFollowUp = !empty($_POST['need_follow_up']) ? 1 : 0;
     $followUpDate = $_POST['follow_up_date'] ?? null;
@@ -297,17 +300,17 @@ if ($action === 'update_consultation') {
 
         $stmt = $db->prepare("
             UPDATE walk_in_visits SET
-                symptoms = ?, assessment = ?, diagnosis = ?, treatment = ?, recommendation = ?,
+                symptoms = ?, assessment = ?, diagnosis = diagnosis, treatment = ?, recommendation = ?,
                 need_follow_up = ?, follow_up_date = ?,
                 ai_summary_edited = ?,
-                digital_signature = ?,
+                digital_signature = digital_signature,
                 consultation_started_at = CASE WHEN consultation_started_at IS NULL THEN NOW() ELSE consultation_started_at END,
                 status = CASE WHEN status = 'waiting' THEN 'in_consultation' ELSE status END
             WHERE id = ?
         ");
-        $stmt->execute([$symptoms, $assessment, $diagnosis, $treatment, $recommendation,
+        $stmt->execute([$symptoms, $assessment, $treatment, $recommendation,
             $needFollowUp, $followUpDate,
-            $aiSummary, $digitalSignature, $id]);
+            $aiSummary, $id]);
         
         // Update queue status
         if ($visit['queue_id']) {
@@ -315,7 +318,7 @@ if ($action === 'update_consultation') {
                ->execute([$visit['queue_id']]);
         }
         
-        logVisitAction($db, $id, 'consultation_updated', "Diagnosis: $diagnosis, Treatment: $treatment", $user['id']);
+        logVisitAction($db, $id, 'consultation_updated', 'Nursing documentation saved; clinical contents remain in the authorized record.', $user['id']);
         log_activity($user['id'], 'Updated consultation', 'walkin', "Visit #{$visit['visit_number']}");
         
         $db->commit();
@@ -445,7 +448,7 @@ if ($action === 'complete_visit') {
             ")->execute([
                 $visit['student_id'], $nurseId,
                 $visit['chief_complaint'],
-                $visit['diagnosis'],
+                '',
                 $visit['treatment'],
                 $visit['recommendation'],
                 $visit['follow_up_date']

@@ -1,0 +1,46 @@
+<?php
+require_once __DIR__.'/../../config/config.php';require_permission('manage_users');
+if(permission_profile()!=='mis')admin_access_denied('MIS account provisioning required.');
+require_once __DIR__.'/../../includes/account_provisioning_service.php';require_once __DIR__.'/../../includes/mail.php';
+$pageTitle='Provision Accounts';$service=new AccountProvisioningService(getDB());$error='';$preview=[];$result=null;
+if(($_GET['download']??'')==='template'){
+ if(($_GET['format']??'csv')==='xlsx'){
+  require_once __DIR__.'/../../includes/report_export_service.php';$file=ReportExportService::xlsx(['headers'=>AccountProvisioningService::COLUMNS,'rows'=>[]]);try{header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');header('Content-Disposition: attachment; filename="clinic-account-import-template.xlsx"');readfile($file);}finally{unlink($file);}exit;
+ }
+ header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="clinic-account-import-template.csv"');echo "\xEF\xBB\xBF";$f=fopen('php://output','w');fputcsv($f,AccountProvisioningService::COLUMNS,',','"','');fclose($f);exit;
+}
+if($_SERVER['REQUEST_METHOD']==='POST'){
+ csrf_verify_or_die();
+ try{
+  $action=$_POST['action']??'';
+  if($action==='preview_single'||$action==='preview_csv'){
+   unset($_SESSION['account_provision_preview']);
+   if($action==='preview_csv'){
+    $file=$_FILES['accounts_csv']??[];
+    if(($file['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK||($file['size']??0)>1048576||!is_string($file['tmp_name']??null)||!is_string($file['name']??null)||!is_uploaded_file($file['tmp_name']))throw new InvalidArgumentException('Upload a UTF-8 CSV or Excel .xlsx file up to 1 MB.');
+    $ext=strtolower(pathinfo($file['name'],PATHINFO_EXTENSION));
+    if(!in_array($ext,['csv','xlsx'],true))throw new InvalidArgumentException('Choose a CSV or .xlsx workbook.');
+    $rows=$ext==='xlsx'?AccountProvisioningService::readXlsx($file['tmp_name']):AccountProvisioningService::readCsv($file['tmp_name']);
+   }else{$row=[];foreach(AccountProvisioningService::COLUMNS as $key)$row[$key]=$_POST[$key]??'';$rows=[$row];}
+   $preview=$service->preview($rows);$valid=true;foreach($preview as $row)if($row['errors'])$valid=false;
+   if($valid)$_SESSION['account_provision_preview']=['rows'=>array_column($preview,'account'),'nonce'=>bin2hex(random_bytes(24)),'expires'=>time()+900];
+  }elseif($action==='create'){
+   $pending=$_SESSION['account_provision_preview']??null;
+   if(!$pending||$pending['expires']<time()||!is_string($_POST['nonce']??null)||!hash_equals($pending['nonce'],$_POST['nonce']))throw new InvalidArgumentException('Preview expired or already submitted. Preview the accounts again.');
+   unset($_SESSION['account_provision_preview']);$result=$service->create((int)current_user()['id'],$pending['rows']);
+  }elseif($action==='resend'){
+   $id=filter_var($_POST['user_id']??null,FILTER_VALIDATE_INT);if(!$id||$id<1)throw new InvalidArgumentException('Enter a valid pending account ID.');
+   $result=[['user_id'=>$id,'delivery_status'=>$service->resend((int)current_user()['id'],$id)]];
+  }else throw new InvalidArgumentException('Choose an account provisioning action.');
+ }catch(InvalidArgumentException|RuntimeException $e){http_response_code($e instanceof PDOException?503:422);$error=$e instanceof PDOException?'Account provisioning is unavailable. Verify its migration and retry. No partial batch was saved.':$e->getMessage();}
+}
+?>
+<!doctype html><html lang="en"><head><?php include __DIR__.'/../../includes/head.php'; ?></head><body><div class="app-wrapper"><?php include __DIR__.'/../../components/sidebar.php'; ?><div class="main-content"><?php include __DIR__.'/../../components/navbar.php'; ?><main class="content-area" id="mainContent"><h1 class="h4">Provision clinic accounts</h1><p>MIS provisions Student, Teacher and Nurse accounts. Recipients verify their email and choose a private password using a single-use link valid for 24 hours. Nurses remain restricted until Doctor authorization.</p><p><a href="admin_accounts.php">Use privileged Doctor invitations for physician appointments</a>.</p>
+<?php if($error): ?><div class="alert alert-danger" role="alert"><?=e($error)?></div><?php endif; ?>
+<?php if($result!==null): ?><section class="card p-3 mb-3"><h2 class="h6">Import / invitation summary</h2><p><?=count($result)?> account invitation(s) processed. Email acceptance does not confirm receipt. Failed delivery leaves the account pending; use resend after checking SMTP.</p><ul><?php foreach($result as $row): ?><li>Account #<?=(int)$row['user_id']?> — <?=e($row['delivery_status'])?></li><?php endforeach; ?></ul></section><?php endif; ?>
+<?php if($preview): ?><section class="card p-3 mb-3"><h2 class="h6">Review before creating accounts</h2><div class="table-responsive"><table class="table"><thead><tr><th>CSV row</th><th>Identity</th><th>Role / institutional ID</th><th>Email</th><th>Validation</th></tr></thead><tbody><?php foreach($preview as $row):$p=$row['account']; ?><tr><td><?=$row['row']?></td><td><?=e($p['first_name'].' '.$p['last_name'].' / '.$p['username'])?></td><td><?=e($p['role'].' / '.$p['institutional_id'])?></td><td><?=e($p['email'])?></td><td><?=e($row['errors']?implode(' ',$row['errors']):'Ready')?></td></tr><?php endforeach; ?></tbody></table></div><?php if(isset($_SESSION['account_provision_preview'])): ?><form method="post"><?=csrf_field()?><input type="hidden" name="action" value="create"><input type="hidden" name="nonce" value="<?=e($_SESSION['account_provision_preview']['nonce'])?>"><button class="btn btn-success">Create reviewed accounts and email activation links</button></form><?php else: ?><p class="text-danger">Correct the errors and preview again. No accounts were created.</p><?php endif; ?></section><?php endif; ?>
+<section class="card p-3 mb-3"><h2 class="h6">Single account</h2><form method="post" class="row g-3"><?=csrf_field()?><input type="hidden" name="action" value="preview_single"><div class="col-12 col-md-4"><label class="form-label" for="provision-role">Role</label><select class="form-select" name="role" id="provision-role"><?php foreach(['student','teacher','nurse'] as $role): ?><option value="<?=$role?>"><?=ucfirst($role)?></option><?php endforeach; ?></select></div>
+<?php foreach(['first_name'=>'First name','last_name'=>'Last name','username'=>'Username','institutional_id'=>'Official institutional ID','email'=>'Official email'] as $key=>$label): ?><div class="col-12 col-md-4"><label class="form-label" for="provision-<?=$key?>"><?=$label?></label><input class="form-control" id="provision-<?=$key?>" name="<?=$key?>" type="<?=$key==='email'?'email':'text'?>" maxlength="<?=$key==='email'?120:($key==='username'?50:($key==='institutional_id'?30:80))?>" required <?=$key==='email'?'aria-describedby="provision-email-state"':''?>><?php if($key==='email'): ?><small id="provision-email-state" role="status" aria-live="polite"></small><?php endif; ?></div><?php endforeach; ?><div class="col-12"><button class="btn btn-outline-success">Validate and preview account</button></div></form></section>
+<section class="card p-3 mb-3"><h2 class="h6">Bulk import from CSV / Excel</h2><p>Download a template and fill it in Excel. Upload a single-sheet .xlsx workbook or UTF-8 CSV with plain values. Up to 100 accounts and 1 MB per batch. All rows must pass validation; existing accounts are never overwritten.</p><div class="d-flex gap-3 mb-3"><a href="?download=template">CSV template</a><a href="?download=template&amp;format=xlsx">Excel template</a></div><form method="post" enctype="multipart/form-data"><?=csrf_field()?><input type="hidden" name="action" value="preview_csv"><label class="form-label" for="accounts-csv">CSV or Excel file</label><input class="form-control mb-3" id="accounts-csv" type="file" name="accounts_csv" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required><button class="btn btn-outline-success">Validate and preview import</button></form></section>
+<section class="card p-3"><h2 class="h6">Resend activation</h2><p>Resending invalidates all previous links. Pending accounts only; wait one minute between successful sends.</p><form method="post"><?=csrf_field()?><input type="hidden" name="action" value="resend"><label class="form-label" for="resend-account">Account ID from People Directory</label><input class="form-control mb-3" id="resend-account" type="number" name="user_id" min="1" required><button class="btn btn-outline-success">Resend secure activation email</button></form></section>
+</main></div></div><?php include __DIR__.'/../../components/footer.php'; ?><script src="<?=e(asset_url('js/account-provisioning.js',true))?>"></script></body></html>

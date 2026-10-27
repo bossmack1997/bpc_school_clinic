@@ -77,7 +77,7 @@ $pageTitle = 'My Profile';
                 </div>
                 <div class="col-md-6">
                   <label class="form-label small fw-semibold">Email Address *</label>
-                  <input type="email" class="form-control" name="email" required value="<?= e($userRecord['email']) ?>">
+                  <input type="email" class="form-control" name="email" readonly title="Official email changes require MIS verification" required value="<?= e($userRecord['email']) ?>">
                 </div>
                 <div class="col-md-6">
                   <label class="form-label small fw-semibold">Contact Number</label>

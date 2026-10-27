@@ -11,6 +11,7 @@
  * ------------------------------------------------------------------
  */
 require_once __DIR__ . '/../config/config.php';
+require __DIR__.'/../includes/public_registration_closed.php';
 require_once __DIR__ . '/../includes/ai/MICARegistrationValidator.php';
 require_once __DIR__ . '/../includes/mail.php';
 require_once __DIR__ . '/../includes/account_monitoring.php';

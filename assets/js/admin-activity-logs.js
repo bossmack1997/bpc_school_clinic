@@ -30,13 +30,12 @@ const rows = res.data.map(l => [
       escapeLog(l.action),
       escapeLog(l.module || '—'),
       escapeLog(l.details || '—'),
-      escapeLog(l.ip_address || '—'),
       escapeLog(l.created_at)
     ]);
     const tbody = $('#logsTable tbody');
     tbody.empty();
     if (!rows || rows.length === 0) {
-      tbody.append('<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-clock-history fs-3 d-block mb-1"></i>No audit activity yet.</td></tr>');
+      tbody.append('<tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-clock-history fs-3 d-block mb-1"></i>No audit activity yet.</td></tr>');
     } else {
       rows.forEach(function(r) {
         tbody.append('<tr>' + r.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>');

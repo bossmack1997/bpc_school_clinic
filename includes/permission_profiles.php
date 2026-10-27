@@ -22,7 +22,7 @@ function has_permission(string $permission,?array $user=null,?PDO $db=null): boo
     $clinical=['clinic_monitor','clinical_records_read','consultations_manage','inventory_oversight','view_emergencies','view_reports','clinical_messages'];
     if($p==='mis')return in_array($permission,$technical,true);
     if($p==='doctor')return in_array($permission,$clinical,true);
-    if($p==='nurse')return in_array($permission,array_merge($clinical,['inventory_manage','emergencies_respond']),true);
+    if($p==='nurse')return in_array($permission,array_merge(array_diff($clinical,['consultations_manage']),['inventory_manage','emergencies_respond']),true);
     if($p==='legacy' && ($user['role']??'')==='admin'){
         // Retain explicitly assigned old oversight grants, never infer Doctor privileges.
         if(in_array($permission,['clinical_records_read','consultations_manage','roles_assign','backups_manage'],true))return false;
@@ -37,7 +37,7 @@ function enforce_profile_route(): void {
     // login cookie. Match the executed file, never a query parameter or basename.
     // This grants no session or MIS permissions; setup validates/consumes its token.
     $executed = realpath($_SERVER['SCRIPT_FILENAME'] ?? '');
-    foreach(['setup_account.php','login.php','logout.php','register.php','register_hub.php','verify_registration.php','forgot_password.php','reset_password.php'] as $publicAuthFile) {
+    foreach(['setup_account.php','activate_account.php','login.php','logout.php','register.php','register_hub.php','verify_registration.php','forgot_password.php','reset_password.php'] as $publicAuthFile) {
         if($executed!==false&&$executed===realpath(__DIR__.'/../auth/'.$publicAuthFile))return;
     }
     if(empty($_SESSION['user']['id']))return;

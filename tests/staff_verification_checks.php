@@ -3,14 +3,17 @@
 if (!isset($database) || !preg_match('/^bpc_mis_test_[a-f0-9]{10}$/D',$database) || $db->query('SELECT DATABASE()')->fetchColumn()!==$database) throw new RuntimeException('Disposable fixture required.');
 foreach(['clinical_authorization_status'=>"VARCHAR(30) NOT NULL DEFAULT 'pending'",'clinical_reviewed_by'=>'INT NULL','clinical_reviewed_at'=>'DATETIME NULL','clinical_review_notes'=>'TEXT NULL'] as $column=>$definition) $db->exec("ALTER TABLE nurses ADD COLUMN `$column` $definition");
 $db->exec("CREATE TABLE nurse_clinical_reviews(id INT AUTO_INCREMENT PRIMARY KEY,nurse_user_id INT NOT NULL,doctor_user_id INT NOT NULL,action ENUM('authorize','request_info','reject','revoke') NOT NULL,previous_status VARCHAR(30) NOT NULL,new_status VARCHAR(30) NOT NULL,notes TEXT,created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+$db->exec(file_get_contents(__DIR__.'/../database/migration_nurse_credential_correction_20261024.sql'));
 $db->prepare("INSERT INTO users(username,email,password_hash,first_name,last_name,role,status,email_verified,self_service_only,credential_version) VALUES ('staff_pending','staff@example.invalid',?,'Pending','Nurse','nurse','active',1,1,1)")->execute([password_hash('FixturePass!42',PASSWORD_DEFAULT)]);
 $staffId=(int)$db->lastInsertId();
-$db->prepare("INSERT INTO nurses(user_id,employee_id,license_number,position,valid_id_path) VALUES (?,'FIXTURE-NURSE','FIXTURE-PRC','School Nurse','storage/registration_documents/fixture.pdf')")->execute([$staffId]);
+$staffFixtureDocument='storage/registration_documents/'.$database.'_credential.pdf';
+file_put_contents(__DIR__.'/../'.$staffFixtureDocument,"%PDF-1.4\nSynthetic credential fixture\n%%EOF");
+$db->prepare("INSERT INTO nurses(user_id,employee_id,license_number,position,valid_id_path) VALUES (?,'FIXTURE-NURSE','FIXTURE-PRC-01','School Nurse',?)")->execute([$staffId,$staffFixtureDocument]);
 $pendingClient=misClient();$login=misRequest($pendingClient,'/auth/login.php');misRequest($pendingClient,'/auth/login.php',['csrf_token'=>misField($login,'csrf_token'),'identifier'=>'staff_pending','password'=>'FixturePass!42']);
 checkMis(misRequest($pendingClient,'/pages/nurse/account.php')['status']===200,'Pending Nurse account renders');
 checkMis(misRequest($pendingClient,'/api/inventory.php?action=list',null,true)['status']===403,'Pending Nurse clinical API denied');
 $review=misRequest($invitee,'/pages/doctor/nurse_verification.php?view='.$staffId);
-checkMis($review['status']===200 && str_contains($review['body'],'FIXTURE-PRC'),'Doctor sees actual credential application');
+checkMis($review['status']===200 && str_contains($review['body'],'FIXTURE-PRC-01'),'Doctor sees actual credential application');
 $decision=['institutional_verified'=>'1','action'=>'authorize','nurse_id'=>$staffId,'notes'=>'PRC and school appointment checked: FIXTURE-REF','review_password'=>'FixturePass!42','review_version'=>1,'csrf_token'=>misField($review,'csrf_token')];
 $bad=$decision;$bad['csrf_token']='invalid';checkMis(misRequest($invitee,'/pages/doctor/nurse_verification.php',$bad)['status']===403,'Credential decision rejects invalid CSRF');
 $bad=$decision;$bad['review_password']='wrong';$r=misRequest($invitee,'/pages/doctor/nurse_verification.php',$bad);checkMis(str_contains($r['body'],'reauthentication failed') && (int)$db->query('SELECT self_service_only FROM users WHERE id='.$staffId)->fetchColumn()===1,'Incorrect Doctor password grants no access');
@@ -44,8 +47,8 @@ checkMis(str_contains($workflow->handleNaturalLanguageQuery('Show pending Nurse 
 $workflow=new MICAWorkflowService($db,$db->query('SELECT * FROM users WHERE id='.$staffId)->fetch());
 checkMis($workflow->handleNaturalLanguageQuery('Show pending Nurse verifications')['type']==='access_denied','MICA staff review denied to Nurse');
 $login=misRequest($pendingClient,'/auth/login.php');misRequest($pendingClient,'/auth/login.php',['csrf_token'=>misField($login,'csrf_token'),'identifier'=>'staff_pending','password'=>'FixturePass!42']);
-$account=misRequest($pendingClient,'/pages/nurse/account.php');
-$resubmitted=misRequest($pendingClient,'/pages/nurse/account.php',['csrf_token'=>misField($account,'csrf_token'),'license_number'=>'FIXTURE-PRC-UPDATED','position'=>'School Nurse']);
+$account=misRequest($pendingClient,'/pages/nurse/credentials.php');
+$resubmitted=misRequest($pendingClient,'/pages/nurse/credentials.php',['csrf_token'=>misField($account,'csrf_token'),'intent'=>'submit','license_number'=>'FIXTURE-PRC-02','employee_id'=>'FIXTURE-NURSE','position'=>'School Nurse']);
 checkMis($resubmitted['status']===302 && $db->query('SELECT clinical_authorization_status FROM nurses WHERE user_id='.$staffId)->fetchColumn()==='pending','Restricted Nurse resubmits credentials for a new review');
 checkMis((int)$db->query("SELECT COUNT(*) FROM notifications WHERE user_id=$doctor AND title='Nurse credentials awaiting review'")->fetchColumn()===1,'Credential submission notifies Doctor');
 $decision['review_version']=5;$decision['action']='authorize';misRequest($invitee,'/pages/doctor/nurse_verification.php',$decision);
@@ -53,19 +56,19 @@ checkMis((int)$db->query('SELECT self_service_only FROM users WHERE id='.$staffI
 $credentialReader=new NurseVerificationService($db,$db->query('SELECT * FROM users WHERE id='.$staffId)->fetch());
 $deniedCredential=false;try { $credentialReader->getNurse($doctor); } catch(RuntimeException $e) { $deniedCredential=true; }checkMis($deniedCredential,'Cross-account credential access rejected');
 $login=misRequest($pendingClient,'/auth/login.php');misRequest($pendingClient,'/auth/login.php',['csrf_token'=>misField($login,'csrf_token'),'identifier'=>'staff_pending','password'=>'FixturePass!42']);
-$account=misRequest($pendingClient,'/pages/nurse/account.php');$credentialFile=tempnam(__DIR__.'/../scratch','credential_');$credentialStored=null;
+$account=misRequest($pendingClient,'/pages/nurse/credentials.php');$credentialFile=tempnam(__DIR__.'/../scratch','credential_');$credentialStored=null;
 try {
     file_put_contents($credentialFile,'Not a PDF');
-    $upload=['csrf_token'=>misField($account,'csrf_token'),'license_number'=>'FIXTURE-UPLOAD','position'=>'School Nurse','credential_document'=>new CURLFile($credentialFile,'application/pdf','credential.pdf')];
-    curl_setopt_array($pendingClient,[CURLOPT_URL=>$base.'/pages/nurse/account.php',CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$upload]);$body=curl_exec($pendingClient);
-    checkMis(str_contains($body,'Use a PDF, JPEG, PNG or WebP credential.'),'Credential upload rejects MIME spoofing');
+    $upload=['csrf_token'=>misField($account,'csrf_token'),'intent'=>'submit','license_number'=>'FIXTURE-UPLOAD-03','employee_id'=>'FIXTURE-NURSE','position'=>'School Nurse','credential_document'=>new CURLFile($credentialFile,'application/pdf','credential.pdf')];
+    curl_setopt_array($pendingClient,[CURLOPT_URL=>$base.'/pages/nurse/credentials.php',CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$upload]);$body=curl_exec($pendingClient);
+    checkMis(str_contains($body,'Only PDF, JPG and PNG documents are accepted.'),'Credential upload rejects MIME spoofing');
     file_put_contents($credentialFile,base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aE1sAAAAASUVORK5CYII='));
     $upload['credential_document']=new CURLFile($credentialFile,'image/png','credential.png');curl_setopt($pendingClient,CURLOPT_POSTFIELDS,$upload);curl_exec($pendingClient);
     $credentialStored=$db->query('SELECT valid_id_path FROM nurses WHERE user_id='.$staffId)->fetchColumn();
     checkMis(curl_getinfo($pendingClient,CURLINFO_RESPONSE_CODE)===302 && str_starts_with($credentialStored,'storage/registration_documents/credential_') && is_file(__DIR__.'/../'.$credentialStored),'Nurse supporting credential uploads to private storage');
 } finally {
     unlink($credentialFile);
-    if($credentialStored && preg_match('#^storage/registration_documents/credential_[a-f0-9]{32}\.png$#D',$credentialStored))unlink(__DIR__.'/../'.$credentialStored);
+    // Keep the synthetic current document through subsequent browser eligibility checks.
 }
 $db->prepare("INSERT INTO conversations(conversation_type,title,created_by) VALUES ('doctor_consultation','Legacy physician patient thread',?)")->execute([$doctor]);$legacyConversation=(int)$db->lastInsertId();
 $db->prepare('INSERT INTO conversation_participants(conversation_id,user_id) VALUES (?,?),(?,?)')->execute([$legacyConversation,$doctor,$legacyConversation,$messagePatient]);

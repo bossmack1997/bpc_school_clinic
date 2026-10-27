@@ -7,6 +7,9 @@ $db = getDB();
 $user = current_user();
 if($user['role']==='admin')admin_access_denied('Clinical records and dispensing are restricted to authorized clinic staff.');
 $action = $_REQUEST['action'] ?? '';
+if (($user['role']??'')==='nurse' && $_SERVER['REQUEST_METHOD']==='POST') {
+    require_once __DIR__.'/../includes/nursing_scope.php';enforce_nursing_documentation($_POST);
+}
 
 if ($action === 'search_medicines') {
     if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
@@ -49,7 +52,7 @@ if ($action === 'dispense') {
 
         // Insert a dispensing record into consultations (visit_type = 'dispensing') so it
         // appears in the student's Medical Record and Clinic Visit History.
-        $diagnosisText = $diagnosis ?: $purpose;
+        $diagnosisText = '';
         $treatmentText = 'Dispensed ' . $quantity . ' ' . $medicine['unit'] . ' of ' . $medicine['medicine_name'] . ($remarks ? '. ' . $remarks : '');
         $db->prepare("
             INSERT INTO consultations (student_id, nurse_id, visit_type, consultation_date, chief_complaint, diagnosis, treatment, prescription, remarks)
@@ -64,7 +67,7 @@ if ($action === 'dispense') {
             $purpose,
             $diagnosisText,
             $treatmentText,
-            $medicine['medicine_name'] . ' ' . $quantity . ' ' . $medicine['unit'],
+            null,
             $remarks
         ]);
 

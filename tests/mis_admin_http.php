@@ -61,8 +61,11 @@ try{
  if(in_array('--staff-verification',$argv,true))require __DIR__.'/staff_verification_checks.php';
  if(in_array('--doctor-three-pages',$argv,true))require __DIR__.'/doctor_three_page_checks.php';
  if(in_array('--global-mica',$argv,true))require __DIR__.'/global_mica_checks.php';
+ if(in_array('--provisioning',$argv,true))require __DIR__.'/account_provisioning_checks.php';
+ if(in_array('--exports',$argv,true))require __DIR__.'/report_export_checks.php';
  if(in_array('--student-ui',$argv,true))require __DIR__.'/student_ui_checks.php';
  if(in_array('--reauthentication',$argv,true))require __DIR__.'/reauthentication_checks.php';
+ if(in_array('--final-browser',$argv,true)){putenv('FINAL_CLINICAL_BASE='.$base);passthru('node '.escapeshellarg(__DIR__.'/final_clinical_browser.cjs'),$finalBrowserExit);checkMis($finalBrowserExit===0,'Modified provisioning nursing queue and patient browser workflows');}
  if(!preg_match('/name="csrf-token" content="([^"]+)"/',$settings['body'],$settingsMatch))throw new RuntimeException('Settings CSRF metadata missing');$settingsToken=html_entity_decode($settingsMatch[1]);
  $saved=misRequest($invitee,'/api/profile.php',['action'=>'update_info','csrf_token'=>$settingsToken,'first_name'=>'Doctor','middle_name'=>'','last_name'=>'Updated','email'=>'accept@example.invalid','phone'=>'09123456789'],true);
  checkMis(json_decode($saved['body'],true)['success']??false,'Doctor saves allowed personal settings');
@@ -122,4 +125,4 @@ try{
    passthru('node '.escapeshellarg(__DIR__.'/invitation_browser.cjs'),$browserExit);checkMis($browserExit===0,'Fresh mobile and desktop browser invitation workflows');
  }
  echo "$checks MIS HTTP checks passed.\n";
-}finally{if(is_resource($server)){proc_terminate($server);proc_close($server);}$admin->exec("DROP DATABASE IF EXISTS `$database`");}
+}finally{if(isset($credentialStored)&&preg_match('#^storage/registration_documents/credential_[a-f0-9]{32}\.png$#D',$credentialStored)&&is_file(__DIR__.'/../'.$credentialStored))unlink(__DIR__.'/../'.$credentialStored);if(isset($staffFixtureDocument)&&is_file(__DIR__.'/../'.$staffFixtureDocument))unlink(__DIR__.'/../'.$staffFixtureDocument);if(is_resource($server)){proc_terminate($server);proc_close($server);}$admin->exec("DROP DATABASE IF EXISTS `$database`");}

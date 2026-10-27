@@ -128,9 +128,11 @@ function require_login() {
         $script = str_replace('\\', '/', $_SERVER['SCRIPT_FILENAME'] ?? '');
         $basicPages = [
             realpath(BASE_PATH . '/pages/nurse/account.php'),
+            realpath(BASE_PATH . '/pages/nurse/credentials.php'),
             realpath(BASE_PATH . '/pages/nurse/profile.php'),
             realpath(BASE_PATH . '/pages/nurse/settings.php'),
             realpath(BASE_PATH . '/api/nurse_documents.php'),
+            realpath(BASE_PATH . '/api/profile.php'),
             realpath(BASE_PATH . '/auth/logout.php')
         ];
         if (!in_array(realpath($script), array_filter($basicPages), true)) {

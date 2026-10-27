@@ -2,6 +2,13 @@
 /** Included only by the disposable mis_admin_http fixture. Never run on live data. */
 if(!isset($database)||!preg_match('/^bpc_mis_test_[a-f0-9]{10}$/D',$database)||$db->query('SELECT DATABASE()')->fetchColumn()!==$database)throw new RuntimeException('Disposable fixture required.');
 $clinicalUsers=[];
+// Missing physician migration must produce a safe unavailable state, never zero.
+$beforeHandoff=misRequest($invitee,'/pages/doctor/queue.php');
+file_put_contents(__DIR__.'/../scratch/physician-unmigrated.html',$beforeHandoff['body']);
+checkMis($beforeHandoff['status']===503&&str_contains($beforeHandoff['body'],'Missing data is not an empty queue'),'Unmigrated physician queue fails safely');
+$handoffSql=file_get_contents(__DIR__.'/../database/migration_physician_queue_20261028.sql');
+$db->exec($handoffSql);$db->exec($handoffSql);
+checkMis(true,'Additive physician queue migration runs twice');
 foreach(['student','teacher','nurse'] as $role){$db->prepare("INSERT INTO users(username,email,password_hash,first_name,last_name,role,status,email_verified,self_service_only) VALUES (?,?,?,'Clinical',? ,?,'active',1,0)")->execute(['clinical_'.$role,$role.'_clinical@example.invalid',password_hash('FixturePass!42',PASSWORD_DEFAULT),ucfirst($role),$role]);$clinicalUsers[$role]=(int)$db->lastInsertId();}
 $db->prepare("INSERT INTO students(user_id,student_number,allergies) VALUES (?,'CLIN-ST-01','Recorded student allergy')")->execute([$clinicalUsers['student']]);$studentId=(int)$db->lastInsertId();
 $syntheticQr=ensure_student_qr($db,$studentId,$doctor);$resolvedQr=resolve_patient_qr($db,$syntheticQr['qr_token']);
@@ -67,4 +74,6 @@ $nurse=misClient();$r=misRequest($nurse,'/auth/login.php');misRequest($nurse,'/a
 $db->exec('ALTER TABLE admin_profiles CHANGE COLUMN official_designation doctor_fixture_designation VARCHAR(150) NULL');
 try{$failure=misRequest($invitee,'/pages/doctor/profile.php');checkMis($failure['status']===503&&str_contains($failure['body'],'Clinical workspace temporarily unavailable')&&str_contains($failure['body'],'<html')&&!str_contains($failure['body'],'SQLSTATE'),'Uncaught Doctor profile query failure produces safe recovery HTML');}finally{$db->exec('ALTER TABLE admin_profiles CHANGE COLUMN doctor_fixture_designation official_designation VARCHAR(150) NULL');}
 checkMis(misRequest($nurse,'/api/clinical.php?action=records&patient_user_id='.$clinicalUsers['student'])['status']===403,'Doctor-only API stays closed to Nurse role');
+require __DIR__.'/physician_queue_checks.php';
+require __DIR__.'/queue_policy_checks.php';
 if(in_array('--doctor-browser',$argv,true)){putenv('DOCTOR_TEST_BASE='.$base);putenv('DOCTOR_TEST_USER=accept_http');putenv('DOCTOR_TEST_PATIENT='.(string)$clinicalUsers['teacher']);passthru('node '.escapeshellarg(__DIR__.'/doctor_browser.cjs'),$browserExit);checkMis($browserExit===0,'Doctor mobile tablet desktop browser workflows');}

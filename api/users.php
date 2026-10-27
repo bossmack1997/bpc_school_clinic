@@ -49,9 +49,9 @@ $blockedCreations = [
 ];
 if (in_array($action, $blockedCreations, true)) {
     if ($action === 'create_doctor' || $action === 'add_doctor') {
-        json_response(false, [], 'The doctor role has been retired. Create or approve a Nurse account instead.');
+        json_response(false, [], 'Use the separately controlled Doctor invitation process in Admin Accounts.');
     }
-    json_response(false, [], 'Manual account creation is disabled. Users must register through the dedicated institutional self-registration portal and undergo verification.');
+    json_response(false, [], 'Use MIS Provision Accounts to validate identity and send a secure activation invitation. Public registration is closed.');
 }
 
 if ($action === 'create_admin_account') {

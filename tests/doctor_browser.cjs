@@ -23,7 +23,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   await sleep(800);fs.mkdirSync('scratch/doctor-browser',{recursive:true});
   for(const width of [320,360,375,390,430,768,1024,1440]){
    await call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});
-   for(const path of ['/pages/doctor/dashboard.php','/pages/doctor/patients.php?patient='+patient+'&tab=consultations','/pages/doctor/inventory.php','/pages/doctor/emergencies.php','/pages/doctor/reports.php','/pages/doctor/profile.php','/pages/doctor/settings.php','/pages/doctor_messages.php']){
+   for(const path of ['/pages/doctor/dashboard.php','/pages/doctor/queue.php','/pages/doctor/patients.php?patient='+patient+'&tab=consultations','/pages/doctor/inventory.php','/pages/doctor/emergencies.php','/pages/doctor/reports.php','/pages/doctor/profile.php','/pages/doctor/settings.php','/pages/doctor_messages.php']){
     await navigate(path);
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),width+'px no horizontal overflow '+path.split('?')[0]);
     assert(await evaluate(`!document.querySelector('.page-loader')||getComputedStyle(document.querySelector('.page-loader')).visibility==='hidden'`),width+'px content is not blocked by loader');

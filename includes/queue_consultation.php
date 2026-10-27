@@ -50,12 +50,22 @@ function queue_consultation_check_version(array $visit): void {
 }
 
 function queue_consultation_save(PDO $db, int $visitId, array $input): void {
+    require_once __DIR__.'/nursing_scope.php';
+    enforce_nursing_documentation($input);
+    if(isset($input['clinical_priority'])){
+        if(!in_array($input['clinical_priority'],['normal','urgent','emergency'],true))throw new DomainException('Select a valid Nurse-confirmed clinical priority.');
+        $db->prepare('UPDATE walk_in_visits SET priority_level=? WHERE id=?')->execute([$input['clinical_priority'],$visitId]);
+        $db->prepare('UPDATE queue_numbers SET priority=? WHERE id=(SELECT queue_id FROM walk_in_visits WHERE id=?)')->execute([$input['clinical_priority'],$visitId]);
+    }
     $values = [];
     $sets = [];
-    foreach (['chief_complaint', 'symptoms', 'assessment', 'diagnosis', 'treatment', 'recommendation', 'digital_signature'] as $field) {
+    foreach (['chief_complaint', 'symptoms', 'assessment', 'recommendation'] as $field) {
         $sets[] = "$field = ?";
         $values[] = trim((string)($input[$field] ?? ''));
     }
+    // The legacy treatment column stores nursing interventions on nursing visits.
+    // Existing diagnosis/signature fields are never erased by a nursing draft.
+    $sets[] = 'treatment = ?';$values[] = trim($input['nursing_interventions']??'');
     foreach (['temperature', 'blood_pressure_systolic', 'blood_pressure_diastolic', 'heart_rate',
         'respiratory_rate', 'oxygen_saturation', 'height_cm', 'weight_kg'] as $field) {
         $value = $input[$field] ?? '';

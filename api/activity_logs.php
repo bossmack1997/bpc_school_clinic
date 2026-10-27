@@ -30,7 +30,7 @@ if ($action === 'list') {
     $pages=max(1,(int)ceil($total/$limit));$page=min($page,$pages);$offset=($page-1)*$limit;
 
     $stmt = $db->prepare("
-        SELECT al.*, u.first_name, u.last_name, u.role
+        SELECT al.id,al.user_id,al.action,al.module,al.details,al.created_at, u.first_name, u.last_name, u.role
         FROM activity_logs al
         LEFT JOIN users u ON u.id = al.user_id
         $where

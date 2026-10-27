@@ -6,6 +6,9 @@ header('Content-Type: application/json');
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+if($_SERVER['REQUEST_METHOD']==='POST'&&in_array($action,['save_account_settings','update_info','update_personal_info'],true)&&isset($_POST['email'])){
+    if(!is_string($_POST['email'])||($_POST['email']!==''&&strtolower(trim($_POST['email']))!==strtolower($user['email']??''))){http_response_code(422);json_response(false,[],'Official email changes require MIS verification. Your current verified email was preserved.');}
+}
 
 if ($action === 'save_account_settings' || $action === 'change_password') {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); json_response(false, [], 'Use POST.'); }

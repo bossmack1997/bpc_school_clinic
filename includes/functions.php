@@ -682,12 +682,32 @@ function verify_dynamic_qr($db, $payload) {
  * Example: A-001, A-002, ...
  * Resets daily.
  */
-function generate_queue_number($db) {
+function generate_queue_number($db, $patientId=null, $patientType='student') {
+    // One database-scoped admission lock covers every normal ticket creation path.
+    // Hold through insertion/commit; the request shutdown releases it on all exits.
+    static $admissionLocks=[];
+    $schema=$db->query('SELECT DATABASE()')->fetchColumn();$lockName='bpc_queue_admit_'.substr(hash('sha256',$schema),0,32);
+    if(!isset($admissionLocks[$lockName])){
+        $lock=$db->prepare('SELECT GET_LOCK(?,5)');$lock->execute([$lockName]);
+        if((int)$lock->fetchColumn()!==1)throw new DomainException('Queue admission is busy. Please retry.');
+        $admissionLocks[$lockName]=true;
+        register_shutdown_function(static function()use($db,$lockName){try{$db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);}catch(Throwable $e){}});
+    }
+    require_once __DIR__.'/clinic_availability.php';$availability=clinic_availability($db);
+    if(!$availability['is_open'])throw new DomainException($availability['reason'].' Clinic hours: '.$availability['hours'].'. Emergency alerts remain available through SOS.');
+    $active=(int)$db->query("SELECT COUNT(*) FROM queue_numbers WHERE status IN ('waiting','called','serving') FOR UPDATE")->fetchColumn();
+    if($active>=$availability['capacity'])throw new DomainException('The clinic queue is at capacity. Contact clinic staff; SOS remains available for emergencies.');
+    if($patientId){
+        $field=$patientType==='teacher'?'teacher_id':'student_id';
+        $duplicate=$db->prepare("SELECT id FROM queue_numbers WHERE $field=? AND status IN ('waiting','called','serving') LIMIT 1 FOR UPDATE");$duplicate->execute([$patientId]);
+        if($duplicate->fetchColumn())throw new DomainException('This patient already has an active queue ticket. Refresh to view it.');
+    }
     $prefix = get_qr_setting($db, 'queue_prefix', 'A');
-    $stmt = $db->prepare("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE()");
+    $stmt = $db->prepare("SELECT COUNT(*) FROM queue_numbers WHERE DATE(created_at) = CURDATE() FOR UPDATE");
     $stmt->execute();
     $count = (int)$stmt->fetchColumn();
-    return $prefix . '-' . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
+    $prefix=substr(preg_replace('/[^A-Za-z0-9]/','',$prefix),0,6)?:'A';
+    return $prefix . '-'.date('Ymd').'-' . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
 }
 
 /**

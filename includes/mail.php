@@ -25,6 +25,21 @@ require_once BASE_PATH . '/vendor/autoload.php';
  *
  * @return bool  true on successful SMTP delivery, false on failure
  */
+function send_account_activation_email(string $email,string $name,string $link): bool {
+    $mailer=new PHPMailer(true);
+    try {
+        $mailer->isSMTP();$mailer->Timeout=15;$mailer->getSMTPInstance()->Timelimit=20;
+        $mailer->Host=getenv('MAIL_HOST')?:'smtp.gmail.com';$mailer->SMTPAuth=true;
+        $mailer->Username=getenv('MAIL_USERNAME')?:'';$mailer->Password=getenv('MAIL_PASSWORD')?:'';
+        $mailer->SMTPSecure=getenv('MAIL_ENCRYPTION')?:PHPMailer::ENCRYPTION_SMTPS;$mailer->Port=(int)(getenv('MAIL_PORT')?:587);
+        $mailer->setFrom(getenv('MAIL_FROM_ADDRESS')?:getenv('MAIL_USERNAME')?:'no-reply@bpc-clinic.local',getenv('MAIL_FROM_NAME')?:APP_NAME);
+        $mailer->addAddress($email,$name);$mailer->isHTML(true);$mailer->Subject='BPC School Clinic — activate your account';
+        $mailer->Body='<p>Hello '.htmlspecialchars($name,ENT_QUOTES,'UTF-8').',</p><p>MIS provisioned your school clinic account. <a href="'.htmlspecialchars($link,ENT_QUOTES,'UTF-8').'">Verify your email and choose your private password</a>.</p><p>This single-use link expires in 24 hours. Nurse clinical access requires separate Doctor authorization. If you did not expect this account, contact MIS.</p>';
+        $mailer->AltBody="MIS provisioned your school clinic account. Verify your email and choose your private password: $link\nSingle use; expires in 24 hours. Contact MIS if unexpected.";
+        return $mailer->send();
+    }catch(Throwable $e){error_log('Provisioned account activation transport failed; no recipient or token logged.');return false;}
+}
+
 function send_password_reset_email($toEmail, $resetLink, $subject = '', $bodyHtml = '') {
     $mailer = new PHPMailer(true);
 

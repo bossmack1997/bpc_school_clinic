@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../config/config.php';
+require_login();
 header('Content-Type: application/json');
 
 // API endpoints must return JSON on auth failure instead of redirecting.
@@ -485,7 +486,7 @@ if ($action === 'check_in') {
             log_qr_scan($db, null, $qrToken, 'check_in', $user['id'], 'duplicate', $location, null, null, $scanMethod);
             json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
         }
-        $queueNumber = generate_queue_number($db);
+        try{$queueNumber = generate_queue_number($db,$teacherId,'teacher');}catch(DomainException $e){if($db->inTransaction())$db->rollBack();http_response_code(409);json_response(false,[],$e->getMessage());}
         try {
             $db->beginTransaction();
             $stmt = $db->prepare("
@@ -560,7 +561,7 @@ if ($action === 'check_in') {
         json_response(false, [], 'Duplicate scan detected. Please wait 30 seconds before scanning again.');
     }
 
-    $queueNumber = generate_queue_number($db);
+    try{$queueNumber = generate_queue_number($db,$studentId,'student');}catch(DomainException $e){if($db->inTransaction())$db->rollBack();http_response_code(409);json_response(false,[],$e->getMessage());}
 
     try {
         $db->beginTransaction();
@@ -1210,7 +1211,7 @@ if ($action === 'smart_scan') {
             log_qr_scan($db, null, $qrToken, 'smart_scan', $user['id'], 'success', $location, null, ['scan_intent' => 'walk_in'], $scanMethod, $teacherId);
             json_response(true, ['student' => $studentPayload, 'workflow' => ['scenario' => 'walk_in'], 'purpose' => 'smart_scan']);
         }
-        $queueNumber = generate_queue_number($db);
+        try{$queueNumber = generate_queue_number($db,$teacherId,'teacher');}catch(DomainException $e){if($db->inTransaction())$db->rollBack();http_response_code(409);json_response(false,[],$e->getMessage());}
         try {
             $db->beginTransaction();
             $stmt = $db->prepare("INSERT INTO queue_numbers (teacher_id, patient_type, queue_number, visit_type, qr_token, status, created_at) VALUES (?, 'teacher', ?, 'walk-in', ?, 'waiting', NOW())");
@@ -1290,7 +1291,7 @@ if ($action === 'smart_scan') {
     }
 
     // 5. Perform the check-in transaction
-    $queueNumber = generate_queue_number($db);
+    try{$queueNumber = generate_queue_number($db,$studentId,'student');}catch(DomainException $e){if($db->inTransaction())$db->rollBack();http_response_code(409);json_response(false,[],$e->getMessage());}
     $scanIntent = $workflow['scenario'];
 
     try {

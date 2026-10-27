@@ -99,7 +99,7 @@ $('#exportCsvBtn').on('click', function () {
   if (!currentReportData.length) { toastError('Generate a report first.'); return; }
   const rows = currentReportData;
   const headers = Object.keys(rows[0]);
-  const esc = v => String(v ?? '').replace(/"/g, '""');
+  const esc = v => { const text = String(v ?? ''); return (/^[\s\x00-\x1F]*[=+\-@]/.test(text) ? "'" + text : text).replace(/"/g, '""'); };
   let csv = headers.map(h => '"' + esc(h) + '"').join(',') + '\n';
   rows.forEach(function (r) {
     csv += headers.map(h => '"' + esc(r[h]) + '"').join(',') + '\n';

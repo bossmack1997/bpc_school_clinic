@@ -48,6 +48,7 @@ $sbNav = [
             ],
             'Clinic Operations' => [
                 ['list', 'Clinic Queue', 'queue.php'],
+                ['file-medical', 'Report Exports', '../report_exports.php'],
                 ['megaphone', 'Clinic Announcements', 'announcements.php'],
             ],
             'Communication' => [
@@ -116,6 +117,8 @@ if($sbProfile==='mis')$sbNav['admin']=['brand'=>'MIS / System Administrator','se
  'System Administration'=>[
      ['dashboard','Dashboard','dashboard.php'],
      ['users','People Management','users.php'],
+     ['user','Provision Accounts','provision_accounts.php'],
+     ['file-medical','Account Exports','../report_exports.php'],
      ['shield-lock','Administrator Management','admin_accounts.php'],
      ['activity','System Monitoring','system_monitoring.php'],
      ['shield-check','Security Center','security.php'],
@@ -133,13 +136,15 @@ if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Adminis
      ['dashboard','Dashboard','dashboard.php'],
  ],
  'Patient Care'=>[
+     ['users','Clinical Queue','queue.php'],
      ['file-medical','Patient & Consultation Records','patients.php'],
  ],
- 'Clinical Supervision'=>[
+ 'Clinical Oversight'=>[
      ['shield-check','Clinical Staff Verification','nurse_verification.php'],
      ['pill','Medicine Oversight','inventory.php'],
      ['alert-triangle','Emergency Oversight','emergencies.php'],
-     ['file-medical','Clinical Reports','reports.php']
+     ['file-medical','Clinical Reports','reports.php'],
+     ['file-medical','Report Exports','../report_exports.php']
  ],
  'Communication'=>[
      ['chat','Messages','messages.php']
@@ -166,6 +171,7 @@ if ($sbRole === 'admin' && $sbProfile!=='doctor') {
     $settingsVisible=is_primary_admin($sbUser)||has_admin_permission('manage_settings',$sbUser)||has_admin_permission('manage_security',$sbUser)||has_admin_permission('view_audit_logs',$sbUser);
     $rules=[
         'users.php'=>has_admin_permission('manage_users',$sbUser)||has_admin_permission('approve_users',$sbUser),
+        'provision_accounts.php'=>permission_profile($sbUser)==='mis'&&has_permission('manage_users',$sbUser),
         'admin_accounts.php'=>is_primary_admin($sbUser),
         'system_monitoring.php'=>has_admin_permission('system_manage',$sbUser),
         'emergencies.php'=>has_admin_permission('view_emergencies',$sbUser),
@@ -221,7 +227,7 @@ if ($sbRole === 'teacher' && !empty($sbUser['self_service_only'])) {
 
         $sbActive = false;
         if($sbProfile==='doctor' && $sbFileBase==='patients.php' && in_array($sbCur,['patients.php','consultations.php'],true))$sbActive=true;
-        if ($sbFileBase && $sbCur === $sbFileBase) {
+        if ($sbFileBase && $sbCur === basename($sbFileBase)) {
             if ($sbTabQuery !== null) {
                 $sbActive = ((string)$sbTabs === $sbTabQuery);
             } else {
