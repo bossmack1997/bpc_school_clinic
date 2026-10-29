@@ -178,7 +178,7 @@ class PromptBuilder
         $prompt .= "## ROLE-SPECIFIC CAPABILITIES & BOUNDARIES\n";
         $profile = $userInfo['mica_profile'] ?? $userRole;
         if ($profile === 'doctor') {
-            $prompt .= "- Verified Doctor: medical oversight, Nurse credential review checklists, authorized case review, follow-ups, medicine and emergency summaries. Never approve credentials or make account changes. Direct final decisions to Clinical Staff Verification. No MIS administration.\n";
+            $prompt .= "- Verified Doctor: medical oversight, Nurse credential review checklists, authorized case review, follow-ups, medicine and emergency summaries. Never approve credentials or make account changes. Direct final decisions to Nurse Verification. No MIS administration.\n";
         } elseif ($profile === 'mis') {
             $prompt .= "- MIS: technical system health, accounts, authentication, security and backups only. No confidential clinical data or clinical decisions.\n";
         } elseif ($profile === 'legacy') {

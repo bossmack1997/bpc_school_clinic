@@ -79,7 +79,7 @@ final class AccountProvisioningService
         if(count($rows)<1||count($rows)>100)throw new InvalidArgumentException('Provide between 1 and 100 accounts.');
         $seen=[];$out=[];
         foreach($rows as $index=>$row){
-            $p=[];$errors=[];
+            $p=[];$errors=[];$duplicate=false;
             foreach(self::COLUMNS as $key){$v=$row[$key]??'';if(!is_string($v)||!mb_check_encoding($v,'UTF-8'))throw new InvalidArgumentException('Account fields must be valid UTF-8 text.');$p[$key]=trim($v);}
             $p['email']=strtolower($p['email']);
             if(!in_array($p['role'],['student','teacher','nurse'],true))$errors[]='Role must be Student, Teacher or Nurse. Use the privileged Doctor invitation process for Doctors.';
@@ -88,15 +88,15 @@ final class AccountProvisioningService
             foreach(['first_name','last_name'] as $key)if($p[$key]===''||mb_strlen($p[$key])>80||preg_match('/[\x00-\x1F<>]/',$p[$key]))$errors[]='First and last names are required (maximum 80 characters).';
             if(!preg_match('/^[A-Za-z0-9][A-Za-z0-9._\/-]{0,29}$/D',$p['institutional_id']))$errors[]='Institutional ID must contain 1–30 letters, numbers or . _ / -.';
             foreach(['email'=>$p['email'],'username'=>strtolower($p['username']),'identifier'=>$p['role'].':'.strtolower($p['institutional_id'])] as $key=>$value){
-                if(isset($seen[$key][$value]))$errors[]='Duplicate '.$key.' within this batch.';$seen[$key][$value]=true;
+                if(isset($seen[$key][$value])){$errors[]='Duplicate '.$key.' within this batch.';$duplicate=true;}$seen[$key][$value]=true;
             }
             $q=$this->db->prepare('SELECT id FROM users WHERE email=? OR username=? LIMIT 1');$q->execute([$p['email'],$p['username']]);
-            if($q->fetch())$errors[]='Email or username already exists.';
+            if($q->fetch()){$errors[]='Email or username already exists.';$duplicate=true;}
             if(in_array($p['role'],['student','teacher','nurse'],true)){
                 $table=['student'=>'students','teacher'=>'teachers','nurse'=>'nurses'][$p['role']];$field=$p['role']==='student'?'student_number':'employee_id';
-                $q=$this->db->prepare("SELECT id FROM $table WHERE $field=? LIMIT 1");$q->execute([$p['institutional_id']]);if($q->fetch())$errors[]='Institutional ID already exists for this role.';
+                $q=$this->db->prepare("SELECT id FROM $table WHERE $field=? LIMIT 1");$q->execute([$p['institutional_id']]);if($q->fetch()){$errors[]='Institutional ID already exists for this role.';$duplicate=true;}
             }
-            $out[]=['row'=>$index+2,'account'=>$p,'errors'=>array_values(array_unique($errors))];
+            $out[]=['row'=>$index+2,'account'=>$p,'errors'=>array_values(array_unique($errors)),'status'=>$duplicate?'duplicate':($errors?'invalid':'ready')];
         }
         return $out;
     }

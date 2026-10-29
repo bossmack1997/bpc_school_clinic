@@ -18,7 +18,7 @@ $service = new NurseVerificationService($db, $doctor);
 
 if (!$service->ready()) {
     http_response_code(503);
-    $pageTitle='Clinical Staff Verification';
+    $pageTitle='Nurse Verification';
     ?>
     <!doctype html><html lang="en"><head><?php include __DIR__.'/../../includes/head.php'; ?></head><body>
     <div class="app-wrapper">
@@ -26,7 +26,7 @@ if (!$service->ready()) {
       <div class="main-content">
         <?php include __DIR__.'/../../components/navbar.php'; ?>
         <main id="mainContent" class="content-area">
-          <h1 class="h4">Clinical Staff Verification</h1>
+          <h1 class="h4">Nurse Verification</h1>
           <div class="alert alert-warning" role="alert">Clinical verification setup is incomplete. Reviews are temporarily unavailable. Ask the system administrator to apply and verify the reviewed clinical authorization schema. No approval or access change has been made.</div>
           <p>Doctors review professional credentials and authorize clinical access. Routine clinical approval does not require MIS approval. Email-verified Nurses retain basic account access while their application is pending.</p>
           <a class="btn btn-outline-success" href="dashboard.php">Clinical Command Center</a>
@@ -559,7 +559,7 @@ $pageTitle = 'Nurse Clinical Verification';
                 <th scope="col">Employee ID</th>
                 <th scope="col">Email Status</th>
                 <th scope="col">Eligibility</th>
-                <th scope="col">Clinical Authorization</th>
+                <th scope="col">Nurse Authorization</th>
                 <th scope="col">Registered</th>
                 <th scope="col" class="text-end">Action</th>
               </tr>

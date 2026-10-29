@@ -19,6 +19,7 @@ $pageTitle='Nurse Dashboard';$pageDescription='Clinic activity, queue and patien
 <?php include __DIR__.'/../../components/sidebar.php'; ?>
 <div class="main-content"><?php include __DIR__.'/../../components/navbar.php'; ?>
 <main class="content-area adm-page nurse-dashboard adm-page-enter" id="nurseDashboard" data-endpoint="<?= e(APP_URL.'/api/nurse_dashboard.php') ?>">
+<nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Clinic tools"><a class="btn btn-outline-success" href="announcements.php">Clinic Announcements</a><a class="btn btn-outline-success" href="../report_exports.php">Report Exports</a></nav>
   <?= dbg_welcome_banner(['name' => $nurseName, 'clinic' => $clinic]) ?>
   <p id="nurseDashboardStatus" class="text-danger small" role="status" <?= $dashboardError ? '' : 'hidden' ?>><?= e($dashboardError) ?></p>
   <div class="adm-dashboard-panels">

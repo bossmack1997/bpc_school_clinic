@@ -463,7 +463,7 @@ class DatabaseContext
 
         // Active queue number
         $stmt = $this->db->prepare("
-            SELECT queue_number, visit_type, status, created_at, estimated_wait_minutes
+            SELECT queue_number, visit_type, status, created_at
             FROM queue_numbers
             WHERE student_id = ? AND status IN ('waiting', 'called', 'serving')
             ORDER BY created_at DESC LIMIT 1

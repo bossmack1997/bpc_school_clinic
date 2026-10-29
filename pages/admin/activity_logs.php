@@ -2,7 +2,7 @@
 /**
  * pages/admin/activity_logs.php
  * =====================================================================
- * Activity & Audit Logs — Central historical system events.
+ * Activity History — Central historical system events.
  * =====================================================================
  */
 
@@ -11,7 +11,7 @@ require_admin_permission('view_audit_logs');
 $db = getDB();
 $u = current_user();
 $loadMisAdminStyles=true;
-$pageTitle = 'Activity & Audit Logs';
+$pageTitle = 'Activity History';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -34,7 +34,7 @@ $pageTitle = 'Activity & Audit Logs';
       <div class="app-page-head d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
           <h5 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
-            <i class="bi bi-clock-history text-success"></i> Activity &amp; Audit Logs
+            <i class="bi bi-clock-history text-success"></i> Activity History
           </h5>
           <p class="text-muted small mb-0">Central historical record of administrative actions, account events, and security operations.</p>
         </div>
@@ -43,8 +43,8 @@ $pageTitle = 'Activity & Audit Logs';
       <p class="small text-muted">Technical administrative events only. Times use Asia/Manila. Clinical audit records remain preserved in the database.</p>
       <div class="logs-toolbar"><label class="visually-hidden" for="logModule">Module filter</label><select id="logModule" class="form-select w-auto"><option value="">All modules</option><?php foreach(['auth','security','admin','account_security','admin_profiles','backups','settings'] as $module): ?><option><?=e($module)?></option><?php endforeach; ?></select><label for="logFrom" class="small">From</label><input id="logFrom" type="date" class="form-control w-auto"><label for="logTo" class="small">To</label><input id="logTo" type="date" class="form-control w-auto">
         <div class="input-group logs-search">
-          <input type="text" id="searchInput" class="form-control" placeholder="Search logs by user, action, module, or details...">
-          <button class="btn btn-outline-primary" type="button" id="searchLogsButton" aria-label="Search logs"><i class="bi bi-search"></i></button>
+          <input type="text" id="searchInput" class="form-control" placeholder="Search activity by user or action...">
+          <button class="btn btn-outline-primary" type="button" id="searchLogsButton" aria-label="Search activity"><i class="bi bi-search"></i></button>
         </div>
       </div>
 

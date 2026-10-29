@@ -14,7 +14,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   fs.mkdirSync('scratch/final-clinical-20261028/browser', { recursive: true });
   try {
     for (const [user, paths] of [
-      ['mis_fixture', ['/pages/admin/provision_accounts.php', '/pages/report_exports.php']],
+      ['mis_fixture', ['/pages/admin/provision_accounts.php', '/pages/admin/settings.php', '/pages/admin/activity_logs.php', '/pages/report_exports.php']],
+      ['accept_http', ['/pages/doctor/dashboard.php', '/pages/doctor/queue.php', '/pages/doctor/patients.php', '/pages/doctor/consultations.php?tab=consultations', '/pages/doctor/nurse_verification.php']],
       ['ui_nurse', ['/pages/nurse/queue.php', '/pages/report_exports.php']],
       ['ui_student', ['/pages/student/queue.php']],
       ['ui_teacher', ['/pages/adviser/queue.php']]
@@ -37,7 +38,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         for (const width of [320, 390, 768, 1440]) {
           await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 768 });
           for (const path of paths) {
-            await navigate(path);
+            await navigate(path, '.content-area');
             assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),`${user} ${width}px no overflow ${path}`);
             if (path.includes('provision_accounts')) {
               await evaluate(`var e=document.getElementById('provision-email');e.value='invalid';e.dispatchEvent(new Event('input'))`);
@@ -53,7 +54,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
               assert(await evaluate(`document.body.textContent.includes('preliminary')&&!!document.querySelector('[name="priority"][value="emergency"]')&&!!document.getElementById('queueAvailabilityNotice')`),`${user} ${width}px urgency and availability explained`);
             }
             const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-            fs.writeFileSync(`scratch/final-clinical-20261028/browser/${user}-${width}-${path.includes('report_exports') ? 'exports' : 'workflow'}.png`, Buffer.from(screenshot.data, 'base64'));
+            fs.writeFileSync(`scratch/final-clinical-20261028/browser/${user}-${width}-${path.split('/').pop().split('?')[0].replace('.php','')}.png`, Buffer.from(screenshot.data, 'base64'));
           }
         }
         assert(errors.length === 0, user + ' modified pages have no uncaught JavaScript errors');

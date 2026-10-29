@@ -14,7 +14,7 @@ checkMis(misRequest($invitee,'/api/account_provisioning.php?action=email_check&e
 checkMis(misRequest($invitee,'/pages/admin/provision_accounts.php')['status']===403,'Doctor cannot provision routine accounts');
 $page=misRequest($c,'/pages/admin/provision_accounts.php');$provisionToken=misField($page,'csrf_token');
 checkMis($page['status']===200&&str_contains($page['body'],'Single account')&&str_contains($page['body'],'UTF-8 CSV'),'MIS account and import forms render');
-checkMis(str_contains($page['body'],'>Provision Accounts</span>')||str_contains($page['body'],'>Provision Accounts</a>')||str_contains($page['body'],'href="'.app_url('pages/admin/provision_accounts.php').'"'),'MIS navigation links to account provisioning');
+checkMis(str_contains($page['body'],'>Create Accounts</span>')||str_contains($page['body'],'>Create Accounts</a>')||str_contains($page['body'],'href="'.app_url('pages/admin/provision_accounts.php').'"'),'MIS navigation links to account provisioning');
 $template=misRequest($c,'/pages/admin/provision_accounts.php?download=template');checkMis($template['status']===200&&str_starts_with($template['body'],"\xEF\xBB\xBFrole,username,email,first_name,last_name,institutional_id"),'Import template supplies exact UTF-8 CSV headers');
 $duplicate=misRequest($c,'/api/account_provisioning.php?action=email_check&email=mis@example.invalid');checkMis((json_decode($duplicate['body'],true)['available']??true)===false,'MIS duplicate check reflects actual database');
 $links=[];$provision=new AccountProvisioningService($db,function($email,$name,$link)use(&$links){$links[$email]=$link;return true;});

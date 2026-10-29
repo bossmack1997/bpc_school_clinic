@@ -43,7 +43,7 @@ checkMis($db->query('SELECT clinical_authorization_status FROM nurses WHERE user
 checkMis((int)$db->query("SELECT COUNT(*) FROM notifications WHERE user_id=$staffId AND type='clinical_review'")->fetchColumn()===4,'Every committed decision notifies Nurse once');
 require_once __DIR__.'/../includes/ai/MICAWorkflowService.php';
 $workflow=new MICAWorkflowService($db,$db->query('SELECT * FROM users WHERE id='.$doctor)->fetch());
-checkMis(str_contains($workflow->handleNaturalLanguageQuery('Show pending Nurse verifications')['reply'],'Clinical Staff Verification'),'MICA provides grounded staff status and navigation');
+checkMis(str_contains($workflow->handleNaturalLanguageQuery('Show pending Nurse verifications')['reply'],'Nurse Verification'),'MICA provides grounded staff status and navigation');
 $workflow=new MICAWorkflowService($db,$db->query('SELECT * FROM users WHERE id='.$staffId)->fetch());
 checkMis($workflow->handleNaturalLanguageQuery('Show pending Nurse verifications')['type']==='access_denied','MICA staff review denied to Nurse');
 $login=misRequest($pendingClient,'/auth/login.php');misRequest($pendingClient,'/auth/login.php',['csrf_token'=>misField($login,'csrf_token'),'identifier'=>'staff_pending','password'=>'FixturePass!42']);

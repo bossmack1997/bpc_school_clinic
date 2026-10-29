@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__.'/../../includes/doctor_page.php';
 require_once __DIR__.'/../../includes/physician_queue_service.php';
-$pageTitle='Clinical Queue';$error='';$rows=null;$service=new PhysicianQueueService(getDB(),current_user());
+$pageTitle='Clinic Queue';$error='';$rows=null;$service=new PhysicianQueueService(getDB(),current_user());
 try {
     if ($_SERVER['REQUEST_METHOD']==='POST') {
         csrf_verify_or_die();$action=$_POST['action']??'';
@@ -15,7 +15,7 @@ catch (InvalidArgumentException|RuntimeException $e) {http_response_code(422);$e
 <!doctype html><html lang="en"><head><?php include __DIR__.'/../../includes/head.php'; ?></head><body><div class="app-wrapper">
 <?php include __DIR__.'/../../components/sidebar.php'; ?><div class="main-content"><?php include __DIR__.'/../../components/navbar.php'; ?>
 <main class="content-area clinical-workspace" id="mainContent">
-<header class="clinical-hero"><span class="clinical-kicker">Physician assessment</span><h1 class="h3 mt-2">Clinical Queue</h1><p>Nurse-reviewed referrals for Student and Teacher patients, ordered by clinical priority. Start an assessment to claim it before documenting the physician decision.</p></header>
+<header class="clinical-hero"><span class="clinical-kicker">Physician assessment</span><h1 class="h3 mt-2">Clinic Queue</h1><p>Nurse-reviewed referrals for Student and Teacher patients, ordered by clinical priority. Start an assessment to claim it before documenting the physician decision.</p></header>
 <?php if($error): ?><div class="alert alert-danger" role="alert"><?=e($error)?></div><?php endif; ?>
 <?php if($rows===[]): ?><section class="clinical-panel"><p class="mb-0">No patients are awaiting physician assessment.</p></section><?php endif; ?>
 <?php foreach($rows??[] as $row): $own=(int)$row['assigned_doctor_id']===(int)current_user()['id']; ?>

@@ -154,7 +154,7 @@ $pageTitle = 'Faculty Clinic Queue';
         <div class="modal-footer bg-light">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
           <button type="submit" class="btn btn-success fw-bold">
-            <i class="bi bi-check2-circle me-1"></i> Get Queue Ticket
+            <i class="bi bi-check2-circle me-1"></i> Join Queue
           </button>
         </div>
       </form>
@@ -206,7 +206,7 @@ $pageTitle = 'Faculty Clinic Queue';
           </p>
           <div class="d-flex justify-content-center gap-2 flex-wrap">
             <button class="btn btn-success btn-lg px-4 fw-bold" data-bs-toggle="modal" data-bs-target="#teacherCheckinModal" ${window.patientQueueAvailability?.is_open ? '' : 'disabled'}>
-              <i class="bi bi-plus-circle-fill me-1"></i> Join Queue / Check In
+              <i class="bi bi-plus-circle-fill me-1"></i> Join Queue
             </button>
             <a href="my_qr.php" class="btn btn-outline-success btn-lg px-4">
               <i class="bi bi-qr-code-scan me-1"></i> View Staff QR
@@ -264,8 +264,8 @@ $pageTitle = 'Faculty Clinic Queue';
               </div>
               <div class="col-6">
                 <div class="p-3 rounded" style="background: rgba(255,255,255,0.12);">
-                  <div class="fs-3 fw-bold">~${ticket.estimated_wait_minutes ?? 0}m</div>
-                  <div class="small opacity-75">Est. Wait Time</div>
+                  <div class="fw-bold text-break ${Number.isFinite(ticket.estimated_wait_minutes) ? 'fs-3' : 'small'}">${Number.isFinite(ticket.estimated_wait_minutes) ? '~' + ticket.estimated_wait_minutes + 'm' : 'Unavailable'}</div>
+                  <div class="small opacity-75">Estimated wait</div>
                 </div>
               </div>
             </div>

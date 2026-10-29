@@ -2,7 +2,7 @@
 if (!defined('APP_URL')) { http_response_code(404); exit; }
 ?>
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h6 class="section-title mb-0"><i class="bi bi-clock-history text-success me-1"></i> System Activity Logs</h6>
+        <h6 class="section-title mb-0"><i class="bi bi-clock-history text-success me-1"></i> Activity History</h6>
         <div class="input-group" style="width:280px;max-width:100%;">
           <input type="text" id="searchInput" class="form-control" placeholder="Search logs...">
           <button class="btn btn-outline-primary" type="button" id="searchLogsButton" aria-label="Search logs"><i class="bi bi-search"></i></button>

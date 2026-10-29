@@ -15,7 +15,7 @@ require_admin_permission('manage_security');
 $db = getDB();
 $u = current_user();
 $loadMisAdminStyles=true;
-$pageTitle = 'Security Center';
+$pageTitle = 'Security';
 
 $exceptionError = '';
 $exceptionSuccess = '';
@@ -144,7 +144,7 @@ $selectableAccounts = $db->query("
       <div class="app-page-head d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
           <h5 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
-            <i class="bi bi-shield-lock-fill text-success"></i> Security Center
+            <i class="bi bi-shield-lock-fill text-success"></i> Security
           </h5>
           <p class="text-muted small mb-0">Security monitoring, authentication incidents, and documented account security exceptions.</p>
         </div>

@@ -51,7 +51,7 @@ if (in_array($action, $blockedCreations, true)) {
     if ($action === 'create_doctor' || $action === 'add_doctor') {
         json_response(false, [], 'Use the separately controlled Doctor invitation process in Admin Accounts.');
     }
-    json_response(false, [], 'Use MIS Provision Accounts to validate identity and send a secure activation invitation. Public registration is closed.');
+    json_response(false, [], 'Use MIS Create Accounts to validate identity and send a secure activation invitation. Public registration is closed.');
 }
 
 if ($action === 'create_admin_account') {

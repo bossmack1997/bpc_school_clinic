@@ -65,6 +65,7 @@ try{
  if(in_array('--exports',$argv,true))require __DIR__.'/report_export_checks.php';
  if(in_array('--student-ui',$argv,true))require __DIR__.'/student_ui_checks.php';
  if(in_array('--reauthentication',$argv,true))require __DIR__.'/reauthentication_checks.php';
+ if(in_array('--workflow-simplification',$argv,true))require __DIR__.'/workflow_simplification_checks.php';
  if(in_array('--final-browser',$argv,true)){putenv('FINAL_CLINICAL_BASE='.$base);passthru('node '.escapeshellarg(__DIR__.'/final_clinical_browser.cjs'),$finalBrowserExit);checkMis($finalBrowserExit===0,'Modified provisioning nursing queue and patient browser workflows');}
  if(!preg_match('/name="csrf-token" content="([^"]+)"/',$settings['body'],$settingsMatch))throw new RuntimeException('Settings CSRF metadata missing');$settingsToken=html_entity_decode($settingsMatch[1]);
  $saved=misRequest($invitee,'/api/profile.php',['action'=>'update_info','csrf_token'=>$settingsToken,'first_name'=>'Doctor','middle_name'=>'','last_name'=>'Updated','email'=>'accept@example.invalid','phone'=>'09123456789'],true);
