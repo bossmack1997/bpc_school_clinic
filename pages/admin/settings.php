@@ -33,6 +33,17 @@ $settingsAccess = [
     'integrations' => has_admin_permission('manage_settings', $u, $db),
     'maintenance'  => is_primary_admin($u),
 ];
+$adminTools = [];
+foreach ([
+    ['manage_security', 'security.php', 'Security', 'Review login protection, active sessions and account security.'],
+    ['system_manage', 'system_monitoring.php', 'System Monitoring', 'Check system health and technical issues.'],
+    ['view_audit_logs', 'activity_logs.php', 'Activity History', 'Review who did what and when.'],
+    ['backups_manage', 'backups.php', 'Database Backups', 'Create database backups and restore to a separate recovery database.'],
+] as [$permission, $url, $label, $description]) {
+    if (permission_profile($u, $db) === 'mis' && has_admin_permission($permission, $u, $db)) {
+        $adminTools[] = compact('url', 'label', 'description');
+    }
+}
 if (!array_filter($settingsAccess)) {
     admin_access_denied();
 }
@@ -444,7 +455,7 @@ $lastBackup = $db->query("SELECT status, filename, created_at FROM system_backup
                   <div class="col-md-6">
                     <div class="alert alert-info small border-0 shadow-sm">
                       <i class="bi bi-info-circle me-1"></i>
-                      Backup creation and restoration are managed through the Security Center. Configuration values here are read-only.
+                      Database backups are separate from CSV and Excel report exports. Use Database Backups below to create or recover a backup.
                     </div>
                   </div>
                 </div>
@@ -454,6 +465,20 @@ $lastBackup = $db->query("SELECT status, filename, created_at FROM system_backup
         </details>
         <?php endif; ?>
       </div>
+
+      <?php if ($adminTools): ?>
+      <section class="card p-3 mt-3" aria-labelledby="admin-tools-heading">
+        <h2 class="h6" id="admin-tools-heading">Security and Maintenance</h2>
+        <div class="row g-3">
+          <?php foreach ($adminTools as $tool): ?>
+          <div class="col-12 col-md-6">
+            <a class="fw-semibold" href="<?=e($tool['url'])?>"><?=e($tool['label'])?></a>
+            <p class="small text-muted mb-0"><?=e($tool['description'])?></p>
+          </div>
+          <?php endforeach; ?>
+        </div>
+      </section>
+      <?php endif; ?>
 
     </div>
   </div>

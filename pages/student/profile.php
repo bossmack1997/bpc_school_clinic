@@ -4,18 +4,25 @@ require_role('student');
 $db = getDB();
 $u = current_user();
 
-$stmt = $db->prepare("SELECT * FROM students WHERE user_id = ?");
-$stmt->execute([$u['id']]);
-$student = $stmt->fetch();
-
-if (!$student) {
-    die('Student record not found. Please contact the clinic.');
+$student = null;
+$userRecord = $u;
+$profileError = '';
+try {
+    // Only session identity can select this profile; URL and form IDs are ignored.
+    $stmt = $db->prepare('SELECT * FROM students WHERE user_id = ? LIMIT 1');
+    $stmt->execute([(int)$u['id']]);
+    $student = $stmt->fetch() ?: null;
+    $userStmt = $db->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+    $userStmt->execute([(int)$u['id']]);
+    $userRecord = $userStmt->fetch() ?: $u;
+    if (!$student) {
+        $profileError = 'Your student profile is not linked to your account. Please contact MIS to check your school record.';
+    }
+} catch (PDOException $e) {
+    http_response_code(503);
+    error_log('Student profile read failed for account #'.(int)$u['id']);
+    $profileError = 'Your profile could not be loaded. Please try again. Contact MIS if this continues.';
 }
-
-// Fresh user record
-$userStmt = $db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
-$userStmt->execute([$u['id']]);
-$userRecord = $userStmt->fetch() ?: $u;
 
 $pageTitle = 'My Profile';
 ?>
@@ -33,6 +40,13 @@ $pageTitle = 'My Profile';
 
       <h6 class="section-title mb-3"><i class="bi bi-person-circle text-success me-1"></i> My Profile</h6>
 
+      <?php if ($profileError): ?>
+      <div class="alert alert-warning" role="alert">
+        <p><?=e($profileError)?></p>
+        <a class="btn btn-outline-primary" href="profile.php">Try again</a>
+      </div>
+      <?php else: ?>
+
       <!-- Profile Header Summary Card -->
       <div class="card p-3 mb-3">
         <div class="row g-3 align-items-center">
@@ -44,7 +58,7 @@ $pageTitle = 'My Profile';
             <input type="file" id="pictureInput" class="d-none" accept="image/*">
           </div>
           <div class="col">
-            <h5 class="fw-bold mb-1"><?= e($userRecord['first_name'] . ($userRecord['middle_name'] ? ' ' . $userRecord['middle_name'] : '') . ' ' . $userRecord['last_name']) ?></h5>
+            <h5 class="fw-bold mb-1"><?= e($userRecord['first_name'] . (!empty($userRecord['middle_name']) ? ' ' . $userRecord['middle_name'] : '') . ' ' . $userRecord['last_name']) ?></h5>
             <p class="text-muted small mb-1"><i class="bi bi-envelope me-1"></i> <?= e($userRecord['email']) ?></p>
             <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
               <span class="badge bg-success"><i class="bi bi-mortarboard-fill me-1"></i> Student</span>
@@ -75,14 +89,6 @@ $pageTitle = 'My Profile';
                   <label class="form-label small fw-semibold">Last Name *</label>
                   <input type="text" class="form-control" name="last_name" required value="<?= e($userRecord['last_name']) ?>">
                 </div>
-                <div class="col-md-6">
-                  <label class="form-label small fw-semibold">Email Address *</label>
-                  <input type="email" class="form-control" name="email" readonly title="Official email changes require MIS verification" required value="<?= e($userRecord['email']) ?>">
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label small fw-semibold">Contact Number</label>
-                  <input type="text" class="form-control" name="phone" value="<?= e($userRecord['phone'] ?? '') ?>" placeholder="e.g. 09123456789">
-                </div>
                 <div class="col-md-4">
                   <label class="form-label small fw-semibold">Gender</label>
                   <select class="form-select" name="gender">
@@ -96,17 +102,18 @@ $pageTitle = 'My Profile';
                   <label class="form-label small fw-semibold">Birthdate</label>
                   <input type="date" class="form-control" name="birthdate" max="<?= date('Y-m-d') ?>" value="<?= e($student['birthdate'] ?? '') ?>">
                 </div>
-                <div class="col-md-4">
-                  <label class="form-label small fw-semibold">Blood Type</label>
-                  <input type="text" class="form-control" name="blood_type" placeholder="e.g. O+, A+" value="<?= e($student['blood_type'] ?? '') ?>">
+                <div class="col-12"><h2 class="h6 mt-3">Contact Information</h2></div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">Email Address *</label>
+                  <input type="email" class="form-control" name="email" readonly title="Official email changes require MIS verification" required value="<?= e($userRecord['email']) ?>">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">Contact Number</label>
+                  <input type="text" class="form-control" name="phone" value="<?= e($userRecord['phone'] ?? '') ?>" placeholder="e.g. 09123456789">
                 </div>
                 <div class="col-12">
                   <label class="form-label small fw-semibold">Home Address</label>
                   <input type="text" class="form-control" name="address" placeholder="Complete address" value="<?= e($student['address'] ?? '') ?>">
-                </div>
-                <div class="col-12">
-                  <label class="form-label small fw-semibold">Allergies &amp; Medical Conditions</label>
-                  <textarea class="form-control" name="allergies" rows="2" placeholder="List any known allergies, asthma, or chronic conditions..."><?= e($student['allergies'] ?? '') ?></textarea>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label small fw-semibold">Guardian Name</label>
@@ -123,6 +130,15 @@ $pageTitle = 'My Profile';
                 <div class="col-md-6">
                   <label class="form-label small fw-semibold">Emergency Contact Number</label>
                   <input type="text" class="form-control" name="emergency_contact_number" value="<?= e($student['emergency_contact_number'] ?? '') ?>">
+                </div>
+                <div class="col-12"><h2 class="h6 mt-3">Health Information</h2></div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-semibold">Blood Type</label>
+                  <input type="text" class="form-control" name="blood_type" placeholder="e.g. O+, A+" value="<?= e($student['blood_type'] ?? '') ?>">
+                </div>
+                <div class="col-12">
+                  <label class="form-label small fw-semibold">Allergies &amp; Medical Conditions</label>
+                  <textarea class="form-control" name="allergies" rows="2" placeholder="List any known allergies, asthma, or chronic conditions..."><?= e($student['allergies'] ?? '') ?></textarea>
                 </div>
               </div>
               <button class="btn btn-primary mt-3 w-100 fw-semibold" type="submit" id="saveInfoBtn">
@@ -160,7 +176,7 @@ $pageTitle = 'My Profile';
         <div class="col-lg-5">
           <!-- Academic Information Card -->
           <div class="card p-3 mb-3">
-            <h6 class="section-title mb-3"><i class="bi bi-book-fill text-success me-1"></i> Academic Information</h6>
+            <h6 class="section-title mb-3"><i class="bi bi-book-fill text-success me-1"></i> School Information</h6>
             <div class="row g-2 small">
               <div class="col-6"><div class="text-muted">Student Number</div><div class="fw-bold text-dark"><?= e($student['student_number']) ?></div></div>
               <div class="col-6"><div class="text-muted">Role</div><div class="fw-bold text-success">Student</div></div>
@@ -189,6 +205,7 @@ $pageTitle = 'My Profile';
           </div>
         </div>
       </div>
+      <?php endif; ?>
 
     </div>
   </div>

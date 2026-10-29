@@ -123,7 +123,7 @@ $pageTitle = 'Clinic Queue Tracker';
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 shadow">
       <div class="modal-header bg-success text-white">
-        <h5 id="selfCheckinModalTitle" class="modal-title fw-bold"><i class="bi bi-ticket-detailed-fill me-2"></i> Get Queue Ticket</h5>
+        <h5 id="selfCheckinModalTitle" class="modal-title fw-bold"><i class="bi bi-ticket-detailed-fill me-2"></i> Join Queue</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form id="studentCheckinForm" onsubmit="submitStudentCheckin(event)">
@@ -237,7 +237,7 @@ $pageTitle = 'Clinic Queue Tracker';
           </p>
           <div class="d-flex justify-content-center gap-2 flex-wrap">
             <button class="btn btn-success btn-lg px-4 fw-bold" data-bs-toggle="modal" data-bs-target="#selfCheckinModal" ${window.patientQueueAvailability?.is_open ? '' : 'disabled'}>
-              <i class="bi bi-plus-circle-fill me-1"></i> Join Queue / Check In
+              <i class="bi bi-plus-circle-fill me-1"></i> Join Queue
             </button>
             <a href="my_qr.php" class="btn btn-outline-success btn-lg px-4">
               <i class="bi bi-qr-code-scan me-1"></i> Scan Clinic QR
@@ -300,13 +300,13 @@ $pageTitle = 'Clinic Queue Tracker';
               <div class="col-6">
                 <div class="p-3 rounded" style="background: rgba(255,255,255,0.12);">
                   <div class="fs-3 fw-bold">${ticket.patients_ahead ?? 0}</div>
-                  <div class="small opacity-75">Students Ahead</div>
+                  <div class="small opacity-75">Patients Ahead</div>
                 </div>
               </div>
               <div class="col-6">
                 <div class="p-3 rounded" style="background: rgba(255,255,255,0.12);">
-                  <div class="fs-3 fw-bold">~${ticket.estimated_wait_minutes ?? 0}m</div>
-                  <div class="small opacity-75">Est. Wait Time</div>
+                  <div class="fw-bold text-break ${Number.isFinite(ticket.estimated_wait_minutes) ? 'fs-3' : 'small'}">${Number.isFinite(ticket.estimated_wait_minutes) ? '~' + ticket.estimated_wait_minutes + 'm' : 'Unavailable'}</div>
+                  <div class="small opacity-75">Estimated wait</div>
                 </div>
               </div>
             </div>

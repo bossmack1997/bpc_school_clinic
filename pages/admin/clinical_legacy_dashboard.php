@@ -4,7 +4,7 @@
  * Alert, queue and chart data use the existing clinic services and schema.
  */
 require_once __DIR__ . '/../../config/config.php';
-require_role('admin');
+require_doctor();
 require_once __DIR__ . '/../../includes/clinic_availability.php';
 
 $db = getDB();

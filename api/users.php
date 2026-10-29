@@ -42,7 +42,7 @@ if(!in_array($action,['get_user','list_admins'],true) && $_SERVER['REQUEST_METHO
 }
 
 // Obsolete manual user-creation endpoints must be strictly blocked.
-// All users (Student, Nurse, Teacher, Admin) must use institutional self-registration.
+// Account creation uses role-scoped invitations; public registration is closed.
 $blockedCreations = [
     'create_doctor', 'create_nurse', 'create_student', 'create_teacher',
     'create_admin', 'create_user', 'add_nurse', 'add_doctor', 'add_teacher', 'add_student'
@@ -51,7 +51,8 @@ if (in_array($action, $blockedCreations, true)) {
     if ($action === 'create_doctor' || $action === 'add_doctor') {
         json_response(false, [], 'Use the separately controlled Doctor invitation process in Admin Accounts.');
     }
-    json_response(false, [], 'Use MIS Provision Accounts to validate identity and send a secure activation invitation. Public registration is closed.');
+    if(in_array($action,['create_nurse','add_nurse'],true))json_response(false,[],'Doctors invite Nurses through Manage Nurses.');
+    json_response(false, [], 'Use MIS Create Accounts to validate identity and send a secure activation invitation. Public registration is closed.');
 }
 
 if ($action === 'create_admin_account') {

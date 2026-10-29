@@ -28,7 +28,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),width+'px no horizontal overflow '+path.split('?')[0]);
     assert(await evaluate(`!document.querySelector('.page-loader')||getComputedStyle(document.querySelector('.page-loader')).visibility==='hidden'`),width+'px content is not blocked by loader');
     if(path.includes('dashboard')){
-     assert(await evaluate(`document.body.textContent.includes('Clinical Command Center')&&document.querySelector('.role-badge').textContent.includes('Doctor')`),width+'px clinical identity and command center');
+     assert(await evaluate(`document.body.textContent.includes('Doctor Dashboard')&&document.querySelector('.role-badge').textContent.includes('Doctor')`),width+'px clinical identity and command center');
      assert(await evaluate(`!Array.from(document.querySelectorAll('.sidebar a')).some(a=>/MICA|ai_assistant/.test(a.textContent+' '+a.getAttribute('href')))`),width+'px no MICA sidebar item');
      assert(await evaluate(`!!document.querySelector('#mica-assistant')`),width+'px floating MICA retained');
      assert(await evaluate(`window.MICA_USER.profile==='doctor'`),width+'px MICA uses verified Doctor profile');

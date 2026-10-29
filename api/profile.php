@@ -56,10 +56,19 @@ if ($action === 'update_info') {
 }
 
 if ($action === 'update_personal_info') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); json_response(false, [], 'Use POST.'); }
+    if ($user['role'] !== 'student') { http_response_code(403); json_response(false, [], 'Student profile access required.'); }
     csrf_verify_or_die();
+
+    foreach (['first_name','middle_name','last_name','phone','email','gender','address','blood_type','allergies','guardian_name','guardian_contact','emergency_contact_name','emergency_contact_number','birthdate','date_of_birth'] as $field) {
+        if (isset($_POST[$field]) && !is_string($_POST[$field])) {
+            http_response_code(422); json_response(false, [], 'Enter valid profile information.');
+        }
+    }
 
     $userFields = [
         'first_name' => trim($_POST['first_name'] ?? ''),
+        'middle_name' => trim($_POST['middle_name'] ?? ''),
         'last_name'  => trim($_POST['last_name'] ?? ''),
         'phone'      => trim($_POST['phone'] ?? ''),
     ];
@@ -72,6 +81,11 @@ if ($action === 'update_personal_info') {
     // Require at least first_name or last_name
     if ($userFields['first_name'] === '' && $userFields['last_name'] === '') {
         json_response(false, [], 'Please provide a valid name.');
+    }
+    foreach (['first_name','middle_name','last_name'] as $field) {
+        if (array_key_exists($field, $_POST) && (mb_strlen($userFields[$field]) > 60 || ($field !== 'middle_name' && $userFields[$field] === ''))) {
+            http_response_code(422); json_response(false, [], 'First and last names are required. Names must be at most 60 characters.');
+        }
     }
 
     if ($email !== '') {
@@ -97,6 +111,13 @@ if ($action === 'update_personal_info') {
 
     try {
         $db->beginTransaction();
+        $linked = $db->prepare('SELECT id FROM students WHERE user_id=? FOR UPDATE');
+        $linked->execute([(int)$user['id']]);
+        if (!$linked->fetchColumn()) {
+            $db->rollBack();
+            http_response_code(409);
+            json_response(false, [], 'Your student profile is not linked to your account. Please contact MIS.');
+        }
 
         // --- Dynamic UPDATE for users table ---
         $setParts = [];

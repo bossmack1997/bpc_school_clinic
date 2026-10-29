@@ -954,20 +954,9 @@ if ($action === 'student_health_pass') {
         LIMIT 1
     ", [$studentId], null);
 
-    // Estimated waiting time (from queue settings or dynamic calculation)
+    // Historical stored estimates and configured defaults are not current evidence.
     $estimatedWait = null;
-    if ($currentQueue && !empty($currentQueue['estimated_wait_minutes'])) {
-        $estimatedWait = $currentQueue['estimated_wait_minutes'];
-    } elseif ($currentQueue && ($currentQueue['status'] ?? '') === 'waiting') {
-        // Calculate position in queue
-        $position = (int)safe_fetch_column($db, "
-            SELECT COUNT(*) FROM queue_numbers
-            WHERE status IN ('waiting','serving') AND created_at <= ?
-            AND visit_type = ?
-        ", [$currentQueue['created_at'], $currentQueue['visit_type'] ?? ''], 0);
-        $avgServiceTime = (int)get_qr_setting($db, 'avg_service_time', 5);
-        $estimatedWait = $position * $avgServiceTime;
-    }
+    if ($currentQueue) $currentQueue['estimated_wait_minutes'] = null;
 
     // Last 3 consultations
     $recentVisits = safe_fetch_all($db, "

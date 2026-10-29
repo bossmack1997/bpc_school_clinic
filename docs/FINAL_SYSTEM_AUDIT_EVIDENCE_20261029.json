@@ -1,0 +1,64 @@
+{
+  "scope": "Local read-only schema aggregates and disposable synthetic HTTP observations; no identities or medical contents.",
+  "application_base": "73a5d24",
+  "observations": {
+    "teacher_unassigned_vaccination_read": {
+      "expected": "403 or authorized scoped result without unrelated records",
+      "http_status": 200,
+      "unrelated_synthetic_record_returned": true
+    },
+    "vaccination_delete_history": {
+      "expected": "preserved clinical history plus server audit",
+      "http_status": 200,
+      "record_preserved": false,
+      "activity_rows_added": 0
+    },
+    "own_account_activity": {
+      "expected": "scoped own account activity endpoint",
+      "technical_history_http_status": 403,
+      "note": "403 protects technical history; no own account activity action exists here. Existing patient timeline is a different clinical view."
+    },
+    "mis_legacy_clinical_dashboard": {
+      "expected": "403 or redirect to technical dashboard",
+      "http_status": 200,
+      "clinical_activity_content": true
+    },
+    "mica_static_operating_claim": {
+      "unverified_24_hour_monitoring_claim": true,
+      "fixed_weekday_schedule": true
+    }
+  },
+  "schema_summary": {
+    "tables": 67,
+    "declared_fk_columns": 65,
+    "non_innodb_tables": 0,
+    "fk_columns_with_orphans": 0,
+    "profile_integrity": {
+      "student": {
+        "missing_profile": 1,
+        "duplicate_account_mappings": 0,
+        "wrong_role_mappings": 0
+      },
+      "teacher": {
+        "missing_profile": 0,
+        "duplicate_account_mappings": 0,
+        "wrong_role_mappings": 1
+      },
+      "nurse": {
+        "missing_profile": 0,
+        "duplicate_account_mappings": 0,
+        "wrong_role_mappings": 0
+      }
+    },
+    "activity_columns": [
+      "id",
+      "user_id",
+      "action",
+      "module",
+      "details",
+      "ip_address",
+      "created_at"
+    ]
+  },
+  "interpretation": "Known permission/history defects are observations, not passed security requirements. No production repair was performed."
+}

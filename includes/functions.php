@@ -730,29 +730,32 @@ function get_active_patient_queue_ticket($db, $patientId, $patientType = 'studen
 }
 
 /**
- * Calculate dynamic estimated wait time in minutes (Optimized with request cache & index range)
+ * Estimate wait minutes from recent observed service durations, or return null.
  */
 function calculate_queue_wait_time($db, $studentsAhead = 0) {
-    if ($studentsAhead <= 0) return 0;
-    static $cachedMinPerPatient = null;
-    if ($cachedMinPerPatient === null) {
-        try {
-            $stmt = $db->query("
-                SELECT AVG(TIMESTAMPDIFF(MINUTE, served_at, completed_at)) as avg_min
-                FROM queue_numbers
-                WHERE created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
-                  AND status = 'completed'
-                  AND served_at IS NOT NULL
-                  AND completed_at IS NOT NULL
-                  AND TIMESTAMPDIFF(MINUTE, served_at, completed_at) BETWEEN 1 AND 60
-            ");
-            $avg = (float)$stmt->fetchColumn();
-            $cachedMinPerPatient = ($avg >= 2 && $avg <= 20) ? round($avg) : 5;
-        } catch (Throwable $e) {
-            $cachedMinPerPatient = 5;
-        }
+    // An estimate needs recent, reasonably consistent observations. Never turn
+    // missing observations or a database failure into an invented five-minute visit.
+    if ($studentsAhead <= 0) return null;
+    try {
+        $stmt = $db->query("
+            SELECT COUNT(*) AS samples,
+                   AVG(TIMESTAMPDIFF(MINUTE, served_at, completed_at)) AS avg_min,
+                   STDDEV_POP(TIMESTAMPDIFF(MINUTE, served_at, completed_at)) AS spread
+            FROM queue_numbers
+            WHERE created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
+              AND status = 'completed'
+              AND served_at IS NOT NULL
+              AND completed_at IS NOT NULL
+              AND completed_at BETWEEN NOW() - INTERVAL 2 HOUR AND NOW()
+              AND TIMESTAMPDIFF(MINUTE, served_at, completed_at) BETWEEN 1 AND 60
+        ");
+        $sample = $stmt->fetch(PDO::FETCH_ASSOC);
+        $avg = (float)($sample['avg_min'] ?? 0);
+        if ((int)($sample['samples'] ?? 0) < 5 || $avg <= 0 || (float)$sample['spread'] > $avg * 0.75) return null;
+        return max(1, (int)round($studentsAhead * $avg));
+    } catch (Throwable $e) {
+        return null;
     }
-    return max(1, (int)($studentsAhead * $cachedMinPerPatient));
 }
 
 // ================================================================

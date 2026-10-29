@@ -34,7 +34,7 @@ class MICAWorkflowService
             if($profile!=='doctor')return ['handled'=>true,'type'=>'access_denied','reply'=>'Nurse credential reviews require a verified Doctor profile.'];
             require_once __DIR__.'/../nurse_verification_service.php';
             $staff=new NurseVerificationService($this->db,$this->user);
-            $reply='Clinical Staff Verification is temporarily unavailable; ask MIS to check the reviewed migration.';
+            $reply='Manage Nurses is temporarily unavailable; ask MIS to check the reviewed migration.';
             if($staff->ready()) {
                 $counts=$staff->summaryCounts();
                 $reply='Recorded Nurse applications pending review: '.$counts['pending'].'. More information required: '.$counts['needs_information'].'. As of '.date('c').'.';
@@ -43,7 +43,7 @@ class MICAWorkflowService
                     $reply.="\nPending applicants (latest 10 at most):";
                     foreach($rows as $row)$reply.="\n- ".trim($row['first_name'].' '.$row['last_name']).' | '.$row['email'].' | Registered '.$row['registered_at'].' | Pending clinical review';
                 }
-                $reply.=' Open Clinical Staff Verification: '.app_url('pages/doctor/nurse_verification.php').'. A Doctor must review supporting credentials and appointment authorization and confirm their password. MICA cannot approve credentials.';
+                $reply.=' Open Manage Nurses: '.app_url('pages/doctor/nurse_verification.php').'. A Doctor must review supporting credentials and appointment authorization and confirm their password. MICA cannot approve credentials.';
                 $this->auditLookup('MICA staff review lookup','Read pending Nurse summary; no credential decision.');
             }
             return ['handled'=>true,'type'=>'staff_verification_grounded','reply'=>$reply];
@@ -58,7 +58,7 @@ class MICAWorkflowService
         if($profile==='doctor'&&preg_match('/(pending.*doctor|doctor.*consultation|physician queue|clinical queue)/i',$message)){
             require_once __DIR__.'/../doctor_clinical_service.php';$facts=(new DoctorClinicalService($this->db,$this->user))->commandCenter();
             $this->auditLookup('MICA physician queue lookup','Verified aggregate handoff status; no clinical changes.');
-            return ['handled'=>true,'type'=>'clinical_draft','reply'=>'Verified physician handoffs awaiting a Doctor: '.($facts['awaiting_doctor']??'Unavailable').'. Unresolved urgent physician cases: '.($facts['urgent_cases']??'Unavailable').'. As of '.$facts['generated_at'].'. Open Clinical Queue: '.app_url('pages/doctor/queue.php').'. A Doctor must explicitly claim and complete assessments; MICA cannot diagnose, prescribe or finalize care.'];
+            return ['handled'=>true,'type'=>'clinical_draft','reply'=>'Verified physician handoffs awaiting a Doctor: '.($facts['awaiting_doctor']??'Unavailable').'. Unresolved urgent physician cases: '.($facts['urgent_cases']??'Unavailable').'. As of '.$facts['generated_at'].'. Open Clinic Queue: '.app_url('pages/doctor/queue.php').'. A Doctor must explicitly claim and complete assessments; MICA cannot diagnose, prescribe or finalize care.'];
         }
         if($profile==='doctor'&&preg_match('/(follow.?up|nurse escalation|clinical report|clinical priorit|clinical workflow|patient records)/i',$message)){
             require_once __DIR__.'/../doctor_clinical_service.php';$facts=(new DoctorClinicalService($this->db,$this->user))->commandCenter();

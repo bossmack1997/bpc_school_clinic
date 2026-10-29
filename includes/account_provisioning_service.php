@@ -1,5 +1,5 @@
 <?php
-/** MIS account setup. No generated passwords or raw activation tokens are returned. */
+/** Role-scoped account setup. No generated passwords or raw tokens are returned. */
 final class AccountProvisioningService
 {
     public const COLUMNS=['role','username','email','first_name','last_name','institutional_id'];
@@ -9,10 +9,14 @@ final class AccountProvisioningService
         $this->send=$send??'send_account_activation_email';
     }
 
-    private function authorize(int $actor): void
+    private function authorize(int $actor): string
     {
         $q=$this->db->prepare('SELECT * FROM users WHERE id=? FOR UPDATE');$q->execute([$actor]);$u=$q->fetch();
-        if(!$u||$u['status']!=='active'||permission_profile($u,$this->db)!=='mis'||!has_permission('manage_users',$u,$this->db))throw new RuntimeException('MIS account provisioning permission required.');
+        if(!$u||$u['status']!=='active')throw new RuntimeException('Account creation access required.');
+        $profile=permission_profile($u,$this->db);
+        if($profile==='mis'&&has_permission('manage_users',$u,$this->db))return $profile;
+        if($profile==='doctor'&&has_permission('nurse_accounts_manage',$u,$this->db))return $profile;
+        throw new RuntimeException('Account creation access required.');
     }
 
     public static function readCsv(string $path): array
@@ -79,7 +83,7 @@ final class AccountProvisioningService
         if(count($rows)<1||count($rows)>100)throw new InvalidArgumentException('Provide between 1 and 100 accounts.');
         $seen=[];$out=[];
         foreach($rows as $index=>$row){
-            $p=[];$errors=[];
+            $p=[];$errors=[];$duplicate=false;
             foreach(self::COLUMNS as $key){$v=$row[$key]??'';if(!is_string($v)||!mb_check_encoding($v,'UTF-8'))throw new InvalidArgumentException('Account fields must be valid UTF-8 text.');$p[$key]=trim($v);}
             $p['email']=strtolower($p['email']);
             if(!in_array($p['role'],['student','teacher','nurse'],true))$errors[]='Role must be Student, Teacher or Nurse. Use the privileged Doctor invitation process for Doctors.';
@@ -88,15 +92,15 @@ final class AccountProvisioningService
             foreach(['first_name','last_name'] as $key)if($p[$key]===''||mb_strlen($p[$key])>80||preg_match('/[\x00-\x1F<>]/',$p[$key]))$errors[]='First and last names are required (maximum 80 characters).';
             if(!preg_match('/^[A-Za-z0-9][A-Za-z0-9._\/-]{0,29}$/D',$p['institutional_id']))$errors[]='Institutional ID must contain 1–30 letters, numbers or . _ / -.';
             foreach(['email'=>$p['email'],'username'=>strtolower($p['username']),'identifier'=>$p['role'].':'.strtolower($p['institutional_id'])] as $key=>$value){
-                if(isset($seen[$key][$value]))$errors[]='Duplicate '.$key.' within this batch.';$seen[$key][$value]=true;
+                if(isset($seen[$key][$value])){$errors[]='Duplicate '.$key.' within this batch.';$duplicate=true;}$seen[$key][$value]=true;
             }
             $q=$this->db->prepare('SELECT id FROM users WHERE email=? OR username=? LIMIT 1');$q->execute([$p['email'],$p['username']]);
-            if($q->fetch())$errors[]='Email or username already exists.';
+            if($q->fetch()){$errors[]='Email or username already exists.';$duplicate=true;}
             if(in_array($p['role'],['student','teacher','nurse'],true)){
                 $table=['student'=>'students','teacher'=>'teachers','nurse'=>'nurses'][$p['role']];$field=$p['role']==='student'?'student_number':'employee_id';
-                $q=$this->db->prepare("SELECT id FROM $table WHERE $field=? LIMIT 1");$q->execute([$p['institutional_id']]);if($q->fetch())$errors[]='Institutional ID already exists for this role.';
+                $q=$this->db->prepare("SELECT id FROM $table WHERE $field=? LIMIT 1");$q->execute([$p['institutional_id']]);if($q->fetch()){$errors[]='Institutional ID already exists for this role.';$duplicate=true;}
             }
-            $out[]=['row'=>$index+2,'account'=>$p,'errors'=>array_values(array_unique($errors))];
+            $out[]=['row'=>$index+2,'account'=>$p,'errors'=>array_values(array_unique($errors)),'status'=>$duplicate?'duplicate':($errors?'invalid':'ready')];
         }
         return $out;
     }
@@ -130,7 +134,9 @@ final class AccountProvisioningService
         }
         $pending=[];$this->db->beginTransaction();
         try {
-            $this->authorize($actor);
+            $profile=$this->authorize($actor);
+            if($profile==='doctor'&&(count($rows)!==1||($rows[0]['role']??null)!=='nurse'))throw new InvalidArgumentException('Doctors may create one Nurse account at a time.');
+            if($profile==='mis')foreach($rows as $row)if(!in_array($row['role']??null,['student','teacher'],true))throw new InvalidArgumentException('MIS creates Student and Teacher accounts. Use Manage Nurses for Nurse invitations.');
             $lock=$this->db->query('SELECT id FROM account_provisioning_lock WHERE id=1 FOR UPDATE')->fetchColumn();
             if(!$lock)throw new RuntimeException('Account provisioning migration is incomplete.');
             $preview=$this->preview($rows);
@@ -143,7 +149,7 @@ final class AccountProvisioningService
                 else $this->db->prepare("INSERT INTO nurses(user_id,employee_id,clinical_authorization_status) VALUES (?,?,'pending')")->execute([$id,$p['institutional_id']]);
                 $pending[]=['user_id'=>$id,'person'=>$p,'challenge'=>$this->challenge($id,$actor)];
             }
-            $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Provisioned account batch','users',?)")->execute([$actor,count($pending).' pending accounts; private setup required; no credentials logged.']);
+            $this->db->prepare('INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,?,?,?)')->execute([$actor,$profile==='doctor'?'Invited Nurse account':'Provisioned account batch',$profile==='doctor'?'nurse_accounts':'users',count($pending).' pending accounts; private setup required; account references: '.implode(',',array_column($pending,'user_id'))]);
             $this->db->commit();
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
         $result=[];foreach($pending as $row)$result[]=['user_id'=>$row['user_id'],'delivery_status'=>$this->deliver($row['challenge'],$row['person'])];return $result;
@@ -153,14 +159,15 @@ final class AccountProvisioningService
     {
         $this->db->beginTransaction();
         try{
-            $this->authorize($actor);
+            $profile=$this->authorize($actor);
             $q=$this->db->prepare("SELECT u.* FROM users u WHERE u.id=? AND u.role IN ('student','teacher','nurse') AND u.status='pending' AND u.registration_status='approved' FOR UPDATE");$q->execute([$id]);$person=$q->fetch();
             $q=$this->db->prepare('SELECT MAX(created_at) FROM account_activation_invitations WHERE user_id=? AND delivery_status<>\'failed\'');$q->execute([$id]);$last=$q->fetchColumn();
             if(!$person)throw new InvalidArgumentException('Select a pending provisioned account.');
+            if($profile==='doctor'&&$person['role']!=='nurse')throw new RuntimeException('Doctors may resend Nurse invitations only.');
             if($last&&strtotime($last)>time()-60)throw new InvalidArgumentException('Wait one minute before resending.');
             $this->db->prepare('UPDATE account_activation_invitations SET used_at=COALESCE(used_at,NOW()) WHERE user_id=?')->execute([$id]);
             $challenge=$this->challenge($id,$actor);
-            $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Resent account activation','users',?)")->execute([$actor,'Account #'.$id.'; previous links invalidated.']);$this->db->commit();
+            $this->db->prepare('INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,?,?,?)')->execute([$actor,'Resent account activation',$profile==='doctor'?'nurse_accounts':'users','Account #'.$id.'; previous links invalidated.']);$this->db->commit();
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
         return $this->deliver($challenge,$person);
     }
@@ -176,7 +183,7 @@ final class AccountProvisioningService
         if(strlen($password)>72)throw new InvalidArgumentException('Password must be at most 72 bytes.');
         $errors=validate_password_strength($password);if($password!==$confirmation)$errors[]='Passwords do not match.';
         if($errors)throw new InvalidArgumentException(implode(' ',$errors));
-        $invite=$this->inspect($token);if(!$invite)throw new InvalidArgumentException('The activation link is invalid, expired or already used. Ask MIS for a new link.');
+        $invite=$this->inspect($token);if(!$invite)throw new InvalidArgumentException('The activation link is invalid, expired or already used. Ask the person who invited you for a new link.');
         $this->db->beginTransaction();
         try{
             $q=$this->db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE');$q->execute([$invite['user_id']]);

@@ -778,7 +778,7 @@ $db = getDB();
         renderRecentCompleted(d.recent_completed);
 
         document.getElementById('metricWaiting').innerText = d.total_waiting ?? 0;
-        document.getElementById('metricWaitTime').innerText = (d.estimated_wait_min ?? 0) + 'm';
+        document.getElementById('metricWaitTime').innerText = Number.isFinite(d.estimated_wait_min) ? '~' + d.estimated_wait_min + 'm' : 'Unavailable';
         document.getElementById('metricServed').innerText = d.total_served ?? 0;
       } catch (err) {
         console.error('Queue poll error:', err);

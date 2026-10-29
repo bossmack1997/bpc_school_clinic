@@ -18,7 +18,7 @@ $service = new NurseVerificationService($db, $doctor);
 
 if (!$service->ready()) {
     http_response_code(503);
-    $pageTitle='Clinical Staff Verification';
+    $pageTitle='Manage Nurses';
     ?>
     <!doctype html><html lang="en"><head><?php include __DIR__.'/../../includes/head.php'; ?></head><body>
     <div class="app-wrapper">
@@ -26,10 +26,10 @@ if (!$service->ready()) {
       <div class="main-content">
         <?php include __DIR__.'/../../components/navbar.php'; ?>
         <main id="mainContent" class="content-area">
-          <h1 class="h4">Clinical Staff Verification</h1>
+          <h1 class="h4">Manage Nurses</h1><a class="btn btn-success mb-3" href="create_nurse.php">Invite Nurse</a>
           <div class="alert alert-warning" role="alert">Clinical verification setup is incomplete. Reviews are temporarily unavailable. Ask the system administrator to apply and verify the reviewed clinical authorization schema. No approval or access change has been made.</div>
           <p>Doctors review professional credentials and authorize clinical access. Routine clinical approval does not require MIS approval. Email-verified Nurses retain basic account access while their application is pending.</p>
-          <a class="btn btn-outline-success" href="dashboard.php">Clinical Command Center</a>
+          <a class="btn btn-outline-success" href="dashboard.php">Doctor Dashboard</a>
         </main>
       </div>
     </div>
@@ -111,7 +111,7 @@ if ($viewId > 0) {
     $lastSubmission = $selectedNurse ? $service->lastSubmission($viewId) : null;
 }
 
-$pageTitle = 'Nurse Clinical Verification';
+$pageTitle = 'Manage Nurses';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -140,10 +140,11 @@ $pageTitle = 'Nurse Clinical Verification';
       
       <div class="app-page-head d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
         <div>
-          <h1 class="h4 mb-1">Nurse Clinical Verification</h1>
-          <p class="small text-muted mb-0">Professional credential review and clinical authorization for school clinic operations.</p>
+          <h1 class="h4 mb-1">Manage Nurses</h1>
+          <p class="small text-muted mb-0">Invite Nurses, review their documents and manage clinical access.</p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex flex-wrap gap-2">
+          <a href="create_nurse.php" class="btn btn-sm btn-success">Invite Nurse</a>
           <a href="dashboard.php" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i>Clinical Dashboard
           </a>
@@ -559,7 +560,7 @@ $pageTitle = 'Nurse Clinical Verification';
                 <th scope="col">Employee ID</th>
                 <th scope="col">Email Status</th>
                 <th scope="col">Eligibility</th>
-                <th scope="col">Clinical Authorization</th>
+                <th scope="col">Nurse Authorization</th>
                 <th scope="col">Registered</th>
                 <th scope="col" class="text-end">Action</th>
               </tr>

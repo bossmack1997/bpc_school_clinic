@@ -130,7 +130,7 @@ $pageTitle = 'Nurse Account Dashboard';
               <div class="d-flex gap-2">
                 <i class="bi bi-x-octagon-fill fs-4 text-danger"></i>
                 <div>
-                  <h3 class="h6 fw-bold mb-1">Clinical Authorization Not Approved</h3>
+                  <h3 class="h6 fw-bold mb-1">Nurse Authorization Not Approved</h3>
                   <p class="small mb-1">Reason: <?= e($reviewNotes ?: 'Credentials could not be verified with school clinic assignment.') ?></p>
                   <p class="small text-muted mb-0">Your basic personal account remains active for personal clinic services, but clinical staff permissions are not granted.</p>
                 </div>
