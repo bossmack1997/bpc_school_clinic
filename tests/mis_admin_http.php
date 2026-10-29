@@ -57,7 +57,7 @@ try{
  checkMis($unavailableReview['status']===503,'Nurse review requires its schema migration');
  checkMis(str_contains($unavailableReview['body'],'sidebar-nav')&&str_contains($unavailableReview['body'],'id="mainContent"')&&str_contains($unavailableReview['body'],'does not require MIS approval'),'Unavailable verification retains Doctor navigation and explains clinical authority');
  $doctorHome=misRequest($invitee,'/pages/doctor/dashboard.php');
- checkMis(substr_count($doctorHome['body'],'href="nurse_verification.php"')>=2,'Doctor dashboard exposes a prominent review action alongside pending applications');
+ checkMis(str_contains($doctorHome['body'],'Nurses to Review')&&str_contains($doctorHome['body'],'href="nurse_verification.php"'),'Doctor dashboard links Nurses to Review without duplicate actions');
  if(in_array('--staff-verification',$argv,true))require __DIR__.'/staff_verification_checks.php';
  if(in_array('--doctor-three-pages',$argv,true))require __DIR__.'/doctor_three_page_checks.php';
  if(in_array('--global-mica',$argv,true))require __DIR__.'/global_mica_checks.php';
@@ -67,7 +67,21 @@ try{
  if(in_array('--reauthentication',$argv,true))require __DIR__.'/reauthentication_checks.php';
  if(in_array('--workflow-simplification',$argv,true))require __DIR__.'/workflow_simplification_checks.php';
  if(in_array('--final-system-audit',$argv,true))require __DIR__.'/final_system_audit_checks.php';
- if(in_array('--final-browser',$argv,true)){putenv('FINAL_CLINICAL_BASE='.$base);passthru('node '.escapeshellarg(__DIR__.'/final_clinical_browser.cjs'),$finalBrowserExit);checkMis($finalBrowserExit===0,'Modified provisioning nursing queue and patient browser workflows');}
+ if(in_array('--final-browser',$argv,true)){
+  require_once __DIR__.'/../includes/report_export_service.php';
+  $browserWorkbook=ReportExportService::xlsx(['headers'=>AccountProvisioningService::COLUMNS,'rows'=>[['student','browser_xlsx','browser_xlsx@example.invalid','Browser','Excel','BROWSER-XLSX'],['teacher','browser_xlsx_teacher','browser_xlsx_teacher@example.invalid','Browser','Teacher','BROWSER-XLSX-T']]]);
+  try {
+   putenv('VERIFICATION_XLSX='.realpath($browserWorkbook));putenv('FINAL_CLINICAL_BASE='.$base);
+   passthru('node '.escapeshellarg(__DIR__.'/final_clinical_browser.cjs'),$finalBrowserExit);checkMis($finalBrowserExit===0,'Modified provisioning nursing queue and patient browser workflows');
+   checkMis((int)$db->query("SELECT COUNT(*) FROM users WHERE username IN ('browser_student_390','browser_teacher_1440','browser_csv','browser_csv_teacher','browser_xlsx','browser_xlsx_teacher','browser_nurse_390','browser_nurse_1440') AND status='pending'")->fetchColumn()===8,'Browser-created individual and bulk accounts persist pending private activation');
+   $browserActivations=[];
+   $browserActivationService=new AccountProvisioningService($db,function($email,$name,$link)use(&$browserActivations){$browserActivations[]=['username'=>strstr($email,'@',true),'link'=>$link];return true;});
+   foreach($db->query("SELECT id FROM users WHERE username IN ('browser_student_390','browser_teacher_1440','browser_nurse_390','browser_nurse_1440')")->fetchAll() as $browserAccount)$browserActivationService->resend($actor,(int)$browserAccount['id']);
+   putenv('VERIFICATION_ACTIVATIONS='.json_encode($browserActivations));putenv('FINAL_ACTIVATION_ONLY=1');
+   passthru('node '.escapeshellarg(__DIR__.'/final_clinical_browser.cjs'),$activationBrowserExit);checkMis($activationBrowserExit===0,'Browser-created recipients activate and sign in with private passwords using captured test transport');
+   putenv('FINAL_ACTIVATION_ONLY');putenv('VERIFICATION_ACTIVATIONS');
+  } finally {if(is_file($browserWorkbook))unlink($browserWorkbook);}
+ }
  if(!preg_match('/name="csrf-token" content="([^"]+)"/',$settings['body'],$settingsMatch))throw new RuntimeException('Settings CSRF metadata missing');$settingsToken=html_entity_decode($settingsMatch[1]);
  $saved=misRequest($invitee,'/api/profile.php',['action'=>'update_info','csrf_token'=>$settingsToken,'first_name'=>'Doctor','middle_name'=>'','last_name'=>'Updated','email'=>'accept@example.invalid','phone'=>'09123456789'],true);
  checkMis(json_decode($saved['body'],true)['success']??false,'Doctor saves allowed personal settings');

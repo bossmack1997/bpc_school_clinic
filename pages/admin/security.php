@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 trim($_POST['reason'] ?? ''),
                 trim($_POST['evidence'] ?? '')
             );
-            $exceptionSuccess = 'Security exception recorded with audit history.';
+            $exceptionSuccess = 'Account review recorded.';
         } elseif ($action === 'resolve') {
             $service->resolve(
                 (int)$u['id'],
@@ -60,13 +60,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_POST['decision'] ?? '',
                 trim($_POST['notes'] ?? '')
             );
-            $exceptionSuccess = 'Exception disposition recorded with audit history.';
+            $exceptionSuccess = 'Account review completed.';
         } else {
             throw new InvalidArgumentException('Unsupported exception action.');
         }
     } catch (PDOException $e) {
         error_log('Security exception: ' . $e->getMessage());
-        $exceptionError = 'The exception could not be saved. No account change was committed.';
+        $exceptionError = 'The review could not be saved. No account change was made.';
     } catch (RuntimeException | InvalidArgumentException $e) {
         $exceptionError = $e->getMessage();
     }
@@ -86,7 +86,7 @@ $openExceptions = (int)$db->query("SELECT COUNT(*) FROM account_security_excepti
 $recentSuspicious = (new SecurityMonitoringService($db))->events();
 
 // -------------------------------------------------------------
-// Exception History
+// Account Recovery History
 // -------------------------------------------------------------
 $exceptionRows = $db->query("
     SELECT x.*, u.username AS account_username, u.role AS account_role,
@@ -297,7 +297,7 @@ $selectableAccounts = $db->query("
           <form method="post" class="card p-3 mb-4">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="open">
-            <h6 class="fw-bold text-dark mb-3">Open a Documented Exception</h6>
+            <h6 class="fw-bold text-dark mb-3">Review an Account</h6>
             <div class="row g-3">
               <div class="col-md-4">
                 <label class="form-label small fw-semibold">Select Account <span class="text-danger">*</span></label>
@@ -313,7 +313,7 @@ $selectableAccounts = $db->query("
                 <div class="form-text small">Primary administrators and your own account are protected.</div>
               </div>
               <div class="col-md-4">
-                <label class="form-label small fw-semibold">Exception Type <span class="text-danger">*</span></label>
+                <label class="form-label small fw-semibold">Review Type <span class="text-danger">*</span></label>
                 <select id="exception-type" name="exception_type" class="form-select form-select-sm" required>
                   <option value="identity_review">Identity Review</option>
                   <option value="security_suspension">Security Suspension</option>
@@ -332,16 +332,16 @@ $selectableAccounts = $db->query("
                 <div class="form-text small">5–255 characters. Case ticket or evidence reference only.</div>
               </div>
               <div class="col-12">
-                <button type="submit" class="btn btn-sm btn-primary align-self-start">Record Exception</button>
+                <button type="submit" class="btn btn-sm btn-primary align-self-start">Start Account Review</button>
               </div>
             </div>
           </form>
 
-          <!-- Exception History -->
-          <h6 class="fw-bold text-dark mb-2 mt-4">Exception History</h6>
+          <!-- Account Recovery History -->
+          <h6 class="fw-bold text-dark mb-2 mt-4">Account Recovery History</h6>
           <p class="small text-muted mb-3">Workflow: Open &rarr; Under Review &rarr; Resolved. All status changes are audit-logged.</p>
           <?php if (empty($exceptionRows)): ?>
-            <div class="empty-state"><i class="bi bi-shield-check fs-4 text-success d-block mb-2"></i>No documented security exceptions.</div>
+            <div class="empty-state"><i class="bi bi-shield-check fs-4 text-success d-block mb-2"></i>No account recovery reviews recorded.</div>
           <?php else: ?>
             <div class="table-responsive">
               <table class="table table-hover align-middle mb-0 small">
@@ -349,7 +349,7 @@ $selectableAccounts = $db->query("
                   <tr>
                     <th>Case Reference</th>
                     <th>Account</th>
-                    <th>Exception Type</th>
+                    <th>Review Type</th>
                     <th>Status</th>
                     <th>Opened By</th>
                     <th>Opened At</th>
@@ -397,7 +397,7 @@ $selectableAccounts = $db->query("
                   <input type="hidden" name="action" value="resolve">
                   <input type="hidden" name="exception_id" id="resolveExceptionId">
                   <div class="modal-header border-0">
-                    <h6 class="modal-title fw-semibold" id="resolveExceptionModalLabel">Resolve Exception</h6>
+                    <h6 class="modal-title fw-semibold" id="resolveExceptionModalLabel">Complete Account Review</h6>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                   </div>
                   <div class="modal-body">

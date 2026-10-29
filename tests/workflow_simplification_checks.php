@@ -21,7 +21,7 @@ foreach (['security.php', 'system_monitoring.php', 'activity_logs.php', 'backups
     checkMis(!str_contains($nav, $route) && str_contains($settings['body'], 'href="'.$route.'"'), 'MIS Settings owns protected tool '.$route);
 }
 $doctorNav = workflowNav(misRequest($invitee, '/pages/doctor/dashboard.php'));
-foreach (['Dashboard', 'Clinic Queue', 'Consultations', 'Patient Records', 'Nurse Verification', 'Messages', 'Settings'] as $label) {
+foreach (['Dashboard', 'Clinic Queue', 'Consultations', 'Patient Records', 'Manage Nurses', 'Reports', 'Messages', 'Settings'] as $label) {
     checkMis(str_contains($doctorNav, '<span>'.$label.'</span>'), 'Doctor navigation exposes '.$label);
 }
 checkMis(!str_contains($doctorNav, '/pages/admin/') && !str_contains($doctorNav, 'inventory.php'), 'Doctor main navigation stays focused on care');
@@ -85,4 +85,19 @@ try {
     $db->exec("UPDATE queue_numbers SET completed_at=NOW()-INTERVAL 3 HOUR, served_at=NOW()-INTERVAL 185 MINUTE");
     checkMis(calculate_queue_wait_time($db, 3) === null, 'Queue estimate rejects stale observations');
 } finally { $db->exec('DROP TEMPORARY TABLE queue_numbers'); }
+
+// Count all scheduled visits, independently of the ten-row dashboard list.
+require_once __DIR__.'/../includes/doctor_clinical_service.php';
+$doctorRecord=$db->query("SELECT * FROM users WHERE username='accept_http'")->fetch();
+$dashboardService=new DoctorClinicalService($db,$doctorRecord);
+$dashboard=$dashboardService->commandCenter();
+checkMis($dashboard['unavailable']===[],'All Doctor Dashboard sources resolve after prerequisite migrations');
+$db->beginTransaction();
+try {
+    $patientId=(int)$db->query('SELECT id FROM students WHERE user_id='.(int)$uiIds['student'])->fetchColumn();
+    $insert=$db->prepare("INSERT INTO consultations(student_id,patient_type,clinician_user_id,consultation_date,chief_complaint,follow_up_date) VALUES (?,'student',?,NOW(),'Synthetic dashboard count',CURDATE()+INTERVAL 2 DAY)");
+    for($i=0;$i<12;$i++)$insert->execute([$patientId,$doctorRecord['id']]);
+    $counted=$dashboardService->commandCenter();
+    checkMis($counted['followup_visits']===$dashboard['followup_visits']+12&&count($counted['followups'])===10,'Follow-up card counts every scheduled visit beyond limited display list');
+} finally { $db->rollBack(); }
 })();

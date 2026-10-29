@@ -34,7 +34,7 @@ class MICAWorkflowService
             if($profile!=='doctor')return ['handled'=>true,'type'=>'access_denied','reply'=>'Nurse credential reviews require a verified Doctor profile.'];
             require_once __DIR__.'/../nurse_verification_service.php';
             $staff=new NurseVerificationService($this->db,$this->user);
-            $reply='Nurse Verification is temporarily unavailable; ask MIS to check the reviewed migration.';
+            $reply='Manage Nurses is temporarily unavailable; ask MIS to check the reviewed migration.';
             if($staff->ready()) {
                 $counts=$staff->summaryCounts();
                 $reply='Recorded Nurse applications pending review: '.$counts['pending'].'. More information required: '.$counts['needs_information'].'. As of '.date('c').'.';
@@ -43,7 +43,7 @@ class MICAWorkflowService
                     $reply.="\nPending applicants (latest 10 at most):";
                     foreach($rows as $row)$reply.="\n- ".trim($row['first_name'].' '.$row['last_name']).' | '.$row['email'].' | Registered '.$row['registered_at'].' | Pending clinical review';
                 }
-                $reply.=' Open Nurse Verification: '.app_url('pages/doctor/nurse_verification.php').'. A Doctor must review supporting credentials and appointment authorization and confirm their password. MICA cannot approve credentials.';
+                $reply.=' Open Manage Nurses: '.app_url('pages/doctor/nurse_verification.php').'. A Doctor must review supporting credentials and appointment authorization and confirm their password. MICA cannot approve credentials.';
                 $this->auditLookup('MICA staff review lookup','Read pending Nurse summary; no credential decision.');
             }
             return ['handled'=>true,'type'=>'staff_verification_grounded','reply'=>$reply];

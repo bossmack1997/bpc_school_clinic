@@ -19,6 +19,7 @@ function has_permission(string $permission,?array $user=null,?PDO $db=null): boo
         } catch(PDOException $e) { return false; }
     }
     $technical=['system_manage','manage_users','roles_assign','manage_security','view_audit_logs','backups_manage','manage_settings','manage_sections','approve_users'];
+    if($permission==='nurse_accounts_manage')return $p==='doctor';
     $clinical=['clinic_monitor','clinical_records_read','consultations_manage','inventory_oversight','view_emergencies','view_reports','clinical_messages'];
     if($p==='mis')return in_array($permission,$technical,true);
     if($p==='doctor')return in_array($permission,$clinical,true);
