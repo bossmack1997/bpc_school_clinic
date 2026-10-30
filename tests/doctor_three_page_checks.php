@@ -55,3 +55,14 @@ try {
     $log=file_get_contents($diagnosticLog);
     checkMis(str_contains($log,'operation=doctor.patient.overview sqlstate=42S22 driver=1054')&&!str_contains($log,'missing_fixture_column')&&!str_contains($log,'Private diagnosis'),'Clinical diagnostic logs only operation, SQLSTATE and numeric driver code');
 }finally{ini_set('error_log',$previousLog);if(is_file($diagnosticLog))unlink($diagnosticLog);}
+
+// The read-only production diagnostic must survive a partially unavailable history.
+foreach(['medical_records'=>'documents','consultations'=>'consultations'] as $source=>$unavailableSource){
+ $db->exec('RENAME TABLE '.$source.' TO fixture_diagnostic_unavailable');
+ try{
+  $process=proc_open([PHP_BINARY,'-d','session.save_path='.__DIR__.'/../scratch',__DIR__.'/../tools/diagnose_doctor_clinical.php'],[1=>['pipe','w'],2=>['pipe','w']],$diagnosticPipes);
+  $output=stream_get_contents($diagnosticPipes[1]);$errors=stream_get_contents($diagnosticPipes[2]);fclose($diagnosticPipes[1]);fclose($diagnosticPipes[2]);$exitCode=proc_close($process);$diagnostic=json_decode($output,true);
+  foreach(['student','teacher'] as $patientRole){$overviewResult=$diagnostic[$patientRole.'_overview']['result']??[];checkMis($exitCode===0&&in_array($unavailableSource,$overviewResult['unavailable']??[],true)&&array_key_exists($unavailableSource.'_loaded_up_to_50',$overviewResult)&&$overviewResult[$unavailableSource.'_loaded_up_to_50']===null,'Read-only diagnostic preserves unavailable '.$patientRole.' '.$unavailableSource.' without count(null) failure');}
+  checkMis(!str_contains($output,'Nursing intake')&&!str_contains($output,'Clinical Teacher')&&!str_contains($output,'password_hash'),'Partial-source diagnostic returns no patient text or credentials');
+ }finally{$db->exec('RENAME TABLE fixture_diagnostic_unavailable TO '.$source);}
+}
