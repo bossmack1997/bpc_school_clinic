@@ -13,7 +13,7 @@ final class DoctorInvitationService
             if(!$q->fetchColumn())throw new RuntimeException('Phase 1 invitation uniqueness constraints are unavailable.');
         }
         // Validate write dependencies without reading account data or changing schema.
-        $this->db->query('SELECT credential_version,remember_token,password_hash FROM users LIMIT 0')->closeCursor();
+        $this->db->query('SELECT credential_version,remember_token,password_hash,self_service_only FROM users LIMIT 0')->closeCursor();
         $this->db->query('SELECT official_designation,appointment_reference,clinical_registration,verified_by,verified_at FROM admin_profiles LIMIT 0')->closeCursor();
         $this->db->query('SELECT token_hash,created_by,expires_at,used_at,delivery_status,delivery_error,created_at FROM admin_invitations LIMIT 0')->closeCursor();
     }
@@ -114,7 +114,7 @@ final class DoctorInvitationService
             if($error!=='')throw new DomainException($error);
             $consume=$this->db->prepare('UPDATE admin_invitations SET used_at=NOW() WHERE id=? AND used_at IS NULL AND expires_at>NOW()');$consume->execute([$locked['id']]);
             if($consume->rowCount()!==1)throw new DomainException('This invitation has expired or already been used.');
-            $activate=$this->db->prepare("UPDATE users SET password_hash=?,status='active',email_verified=1,credential_version=COALESCE(credential_version,0)+1,remember_token=NULL WHERE id=? AND status='pending' AND registration_status='approved'");
+            $activate=$this->db->prepare("UPDATE users SET password_hash=?,status='active',email_verified=1,self_service_only=0,credential_version=COALESCE(credential_version,0)+1,remember_token=NULL WHERE id=? AND status='pending' AND registration_status='approved'");
             $activate->execute([$hash,$locked['user_id']]);
             if($activate->rowCount()!==1)throw new DomainException('This account is no longer eligible for activation.');
             $this->db->prepare('UPDATE admin_invitations SET used_at=COALESCE(used_at,NOW()) WHERE user_id=? AND id<>? AND used_at IS NULL')->execute([$locked['user_id'],$locked['id']]);

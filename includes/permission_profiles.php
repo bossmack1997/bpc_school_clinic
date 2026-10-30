@@ -6,6 +6,10 @@ function permission_profile(?array $user=null,?PDO $db=null): string {
     try{$q=($db??getDB())->prepare('SELECT profile FROM admin_profiles WHERE user_id=?');$q->execute([(int)$user['id']]);$p=$q->fetchColumn();if(in_array($p,['mis','doctor','legacy'],true))return $p;}catch(PDOException $e){/* Backward-compatible, no clinical grant on missing schema. */}
     return ($user['admin_type']??'')==='primary_admin'?'mis':'legacy';
 }
+/** Doctor verification is completed by the invitation, never by per-page MIS grants. */
+function account_requires_email_verification(array $user, ?PDO $db=null): bool {
+    return ($user['role']??'')!=='admin' || permission_profile($user,$db)==='doctor';
+}
 function has_permission(string $permission,?array $user=null,?PDO $db=null): bool {
     $user=$user??current_user();$p=permission_profile($user,$db);
     if(($user['role']??'')==='nurse' && !empty($user['self_service_only']))return false;
@@ -22,6 +26,8 @@ function has_permission(string $permission,?array $user=null,?PDO $db=null): boo
     if($permission==='nurse_accounts_manage')return $p==='doctor';
     $clinical=['clinic_monitor','clinical_records_read','consultations_manage','inventory_oversight','view_emergencies','view_reports','clinical_messages'];
     if($p==='mis')return in_array($permission,$technical,true);
+    // Assigned Doctor scope is automatic. Legacy admin_permissions, appointment
+    // metadata and Nurse authorization flags are not Doctor feature switches.
     if($p==='doctor')return in_array($permission,$clinical,true);
     if($p==='nurse')return in_array($permission,array_merge(array_diff($clinical,['consultations_manage']),['inventory_manage','emergencies_respond']),true);
     if($p==='legacy' && ($user['role']??'')==='admin'){
