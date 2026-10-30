@@ -24,7 +24,21 @@ require_once __DIR__.'/../includes/doctor_messaging_service.php';
 $physicianMessages=new DoctorMessagingService($db,$db->query('SELECT * FROM users WHERE id='.$doctor)->fetch());
 $conversation=$physicianMessages->start($staffId);$physicianMessages->send($conversation,'Synthetic clinical coordination');
 $nurseMessages=new DoctorMessagingService($db,$db->query('SELECT * FROM users WHERE id='.$staffId)->fetch());$nurseMessages->send($conversation,'Synthetic nursing reply');
+$threadSummary=$physicianMessages->threads()[0];
+checkMis($threadSummary['contact_name']==='Pending Nurse'&&$threadSummary['preview']==='Synthetic nursing reply'&&(int)$threadSummary['unread_count']===1,'Conversation preview identifies authorized contact and actual unread reply');
+$messagePage=misRequest($invitee,'/pages/doctor_messages.php?thread='.$conversation);
+checkMis($messagePage['status']===200&&str_contains($messagePage['body'],'Back to conversations')&&str_contains($messagePage['body'],'clinical-contact-search')&&str_contains($messagePage['body'],'Synthetic nursing reply'),'Physician conversation renders searchable contacts, mobile back navigation and saved reply');
 checkMis(count($physicianMessages->messages($conversation))===2,'Existing messaging tables support Nurse and Doctor coordination');
+$db->exec('RENAME TABLE admin_profiles TO fixture_unavailable_profiles');
+try {
+ $failed=false;try{$physicianMessages->threads();}catch(PDOException $e){$failed=true;}
+ checkMis($failed,'Conversation membership database failure propagates instead of becoming empty threads');
+} finally {$db->exec('RENAME TABLE fixture_unavailable_profiles TO admin_profiles');}
+$db->exec('RENAME TABLE messages TO fixture_unavailable_messages');
+try {
+ $failure=misRequest($invitee,'/pages/doctor_messages.php?thread='.$conversation);
+ checkMis($failure['status']===503&&str_contains($failure['body'],'Reload messages')&&!str_contains($failure['body'],'SQLSTATE')&&!str_contains($failure['body'],'No conversations available')&&!str_contains($failure['body'],'No messages yet'),'Message history database failure renders truthful recoverable HTTP 503');
+} finally {$db->exec('RENAME TABLE fixture_unavailable_messages TO messages');}
 $db->prepare("INSERT INTO users(username,email,password_hash,first_name,last_name,role,status,email_verified) VALUES ('message_patient','message_patient@example.invalid',?,'Message','Patient','student','active',1)")->execute([password_hash('FixturePass!42',PASSWORD_DEFAULT)]);$messagePatient=(int)$db->lastInsertId();
 try{$physicianMessages->start($messagePatient);checkMis(false,'Doctor to patient messaging denied');}catch(InvalidArgumentException $e){checkMis(true,'Doctor to patient messaging denied');}
 $deniedPatient=false;try{new DoctorMessagingService($db,$db->query('SELECT * FROM users WHERE id='.$messagePatient)->fetch());}catch(RuntimeException $e){$deniedPatient=true;}checkMis($deniedPatient,'Patient cannot read physician messages');

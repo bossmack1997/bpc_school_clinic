@@ -19,6 +19,6 @@ try {
     json_response(true,['id'=>$id],'Physician handoff saved and audited.');
 } catch (PDOException $e) {
     clinical_database_failure('physician_queue.'.$action,$e);http_response_code(503);
-    json_response(false,[],'Physician workflow unavailable. Ask MIS to verify the reviewed migration; no partial save was made.');
+    json_response(false,[],'Physician workflow temporarily unavailable. Reload the queue before retrying; contact system support if this continues.');
 } catch (InvalidArgumentException $e) {http_response_code(400);json_response(false,[],$e->getMessage());}
 catch (RuntimeException $e) {http_response_code(409);json_response(false,[],$e->getMessage());}
