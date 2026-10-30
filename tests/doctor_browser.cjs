@@ -27,6 +27,12 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     await navigate(path);
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),width+'px no horizontal overflow '+path.split('?')[0]);
     assert(await evaluate(`!document.querySelector('.page-loader')||getComputedStyle(document.querySelector('.page-loader')).visibility==='hidden'`),width+'px content is not blocked by loader');
+    if(path==='/pages/doctor/queue.php'){
+     assert(await evaluate(`document.querySelector('main').textContent.includes('Awaiting physician')&&!!document.querySelector('button[value="start"]')`),width+'px real referral status and claim action render');
+     await evaluate(`document.querySelector('main details').open=true`);
+     assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth+1`),width+'px expanded intake fits queue viewport');
+     const queueShot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync('scratch/doctor-browser/queue-'+width+'.png',Buffer.from(queueShot.data,'base64'));
+    }
     if(path.includes('dashboard')){
      assert(await evaluate(`document.body.textContent.includes('Doctor Dashboard')&&document.querySelector('.role-badge').textContent.includes('Doctor')`),width+'px clinical identity and command center');
      assert(await evaluate(`!Array.from(document.querySelectorAll('.sidebar a')).some(a=>/MICA|ai_assistant/.test(a.textContent+' '+a.getAttribute('href')))`),width+'px no MICA sidebar item');

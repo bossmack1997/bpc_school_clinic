@@ -34,6 +34,16 @@ actual QR download/print handlers, uploaded avatars and Nurse publishing.
 copied into it. `STUDENT_UI_WIDTHS=320,1440` optionally narrows a focused browser
 rerun; the default is all eight widths.
 
+Physician queue schema/HTTP repair checks run with `--doctor-clinical` in the
+disposable suite. They execute the guarded Hostinger preflight/migration/verify
+scripts, reject incomplete prerequisites, verify missing-table and missing-column
+503 responses, verify a genuine 200 empty state after migration, and exercise
+referral priority, claim/completion and record preservation. Add `--doctor-browser`
+to check queue intake expansion and capture queue screenshots at all eight widths.
+For a read-only deployment check use
+`php -d session.save_path=<private-path> tools/preflight_physician_queue.php --queue-only`:
+exit 0 = metadata passed, 1 = incompatible prerequisites, 2 = missing handoff table.
+
 Cleanup audits:
 
 - `python tools/audit_cleanup_sources.py`: offline inventory, candidate references,

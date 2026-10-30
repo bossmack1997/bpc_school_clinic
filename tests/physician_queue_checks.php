@@ -24,6 +24,13 @@ foreach(['student','teacher'] as $type){
  checkMis(misRequest($nurse,'/api/physician_queue.php',$referral)['status']===409,'Duplicate handoff prevented for '.$type);
 }
 $queuePage=misRequest($invitee,'/pages/doctor/queue.php');checkMis($queuePage['status']===200&&str_contains($queuePage['body'],'Nursing observation')&&str_contains($queuePage['body'],'37.2'),'Doctor queue displays actual intake and vital signs');
+$preservedHandoffs=$db->query('SELECT * FROM physician_queue ORDER BY id')->fetchAll();
+physicianSql($db,'migration_physician_queue_hostinger_20261030.sql');
+checkMis($db->query('SELECT * FROM physician_queue ORDER BY id')->fetchAll()===$preservedHandoffs,'Rerunning Hostinger migration preserves populated referrals and versions');
+$db->prepare("UPDATE physician_queue SET priority='emergency' WHERE id=?")->execute([$handoffs['teacher']]);
+$ordered=json_decode(misRequest($invitee,'/api/physician_queue.php?action=list',null,true)['body'],true);
+checkMis((int)$ordered['data'][0]['id']===$handoffs['teacher']&&$ordered['data'][0]['priority']==='emergency'&&$ordered['data'][0]['status']==='awaiting','Queue HTTP API orders emergency before urgent and returns actual referral status');
+$db->prepare("UPDATE physician_queue SET priority='urgent' WHERE id=?")->execute([$handoffs['teacher']]);
 $center=(new DoctorClinicalService($db,$doctorUser))->commandCenter();checkMis($center['awaiting_doctor']===2&&$center['urgent_cases']===2&&$center['patients_seen_today']===1,'Doctor cards count unique physician patients and explicit urgent handoffs');
 $handoff=$handoffs['teacher'];$transition=['action'=>'start','handoff_id'=>$handoff,'record_version'=>0,'csrf_token'=>$token];
 checkMis(misRequest($invitee,'/api/physician_queue.php?action=start&handoff_id='.$handoff.'&record_version=0')['status']===405,'Handoff mutation requires POST');
@@ -42,6 +49,7 @@ $countBefore=(int)$db->query('SELECT COUNT(*) FROM consultations')->fetchColumn(
 checkMis(misRequest($invitee,'/api/physician_queue.php',$completion)['status']===200,'Assigned Doctor completes physician encounter atomically');
 $completed=$db->query('SELECT p.*,c.teacher_id,c.student_id,c.clinician_user_id FROM physician_queue p JOIN consultations c ON c.id=p.consultation_id WHERE p.id='.$handoff)->fetch();
 checkMis($completed['status']==='completed'&&(int)$completed['teacher_id']===$teacherId&&$completed['student_id']===null&&(int)$completed['clinician_user_id']===$doctor,'Completion binds server-selected Teacher and physician author');
+checkMis($db->query('SELECT status FROM queue_numbers WHERE id='.(int)$completed['queue_id'])->fetchColumn()==='serving','Physician completion preserves Nurse operational ticket ownership and follow-up');
 $vitalSnapshot=json_decode($db->query('SELECT vital_signs FROM consultations WHERE id='.(int)$completed['consultation_id'])->fetchColumn(),true);
 checkMis((float)$vitalSnapshot['temperature']===37.2,'Physician encounter retains nurse-recorded vital signs');
 checkMis(misRequest($invitee,'/api/physician_queue.php',array_replace($completion,['record_version'=>2]))['status']===409&&(int)$db->query('SELECT COUNT(*) FROM consultations')->fetchColumn()===$countBefore+1,'Duplicate finalization creates no duplicate record');

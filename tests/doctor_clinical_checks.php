@@ -6,9 +6,7 @@ $clinicalUsers=[];
 $beforeHandoff=misRequest($invitee,'/pages/doctor/queue.php');
 file_put_contents(__DIR__.'/../scratch/physician-unmigrated.html',$beforeHandoff['body']);
 checkMis($beforeHandoff['status']===503&&str_contains($beforeHandoff['body'],'Missing data is not an empty queue'),'Unmigrated physician queue fails safely');
-$handoffSql=file_get_contents(__DIR__.'/../database/migration_physician_queue_20261028.sql');
-$db->exec($handoffSql);$db->exec($handoffSql);
-checkMis(true,'Additive physician queue migration runs twice');
+require __DIR__.'/physician_queue_schema_checks.php';
 foreach(['student','teacher','nurse'] as $role){$db->prepare("INSERT INTO users(username,email,password_hash,first_name,last_name,role,status,email_verified,self_service_only) VALUES (?,?,?,'Clinical',? ,?,'active',1,0)")->execute(['clinical_'.$role,$role.'_clinical@example.invalid',password_hash('FixturePass!42',PASSWORD_DEFAULT),ucfirst($role),$role]);$clinicalUsers[$role]=(int)$db->lastInsertId();}
 $db->prepare("INSERT INTO students(user_id,student_number,allergies) VALUES (?,'CLIN-ST-01','Recorded student allergy')")->execute([$clinicalUsers['student']]);$studentId=(int)$db->lastInsertId();
 $syntheticQr=ensure_student_qr($db,$studentId,$doctor);$resolvedQr=resolve_patient_qr($db,$syntheticQr['qr_token']);
