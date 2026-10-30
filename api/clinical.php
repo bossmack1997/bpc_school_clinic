@@ -16,6 +16,7 @@ try{
   if($_SERVER['REQUEST_METHOD']!=='GET'){http_response_code(405);json_response(false,[],'Use GET.');}
   $patient=filter_var($_GET['patient_user_id']??0,FILTER_VALIDATE_INT);$id=filter_var($_GET['id']??0,FILTER_VALIDATE_INT);
   $overview=$service->overview((int)$patient);
+  if($overview['documents']===null){http_response_code(503);json_response(false,[],'Clinical documents are temporarily unavailable. Please retry.');}
   if(!in_array((int)$id,array_map('intval',array_column($overview['documents'],'id')),true)){http_response_code(404);json_response(false,[],'Document unavailable for the selected patient.');}
   $query=getDB()->prepare('SELECT file_path FROM medical_records WHERE id=?');$query->execute([$id]);
   $directory=realpath(BASE_PATH.'/uploads/medical_records');$file=realpath(BASE_PATH.'/'.($query->fetchColumn()?:''));

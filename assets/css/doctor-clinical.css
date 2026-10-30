@@ -1,6 +1,7 @@
 .main-content{min-width:0}.content-area{padding-bottom:110px}
 .sidebar-nav .nav-link span{white-space:normal;line-height:1.35}
-.clinical-workspace{max-width:1440px;margin:0 auto;padding-bottom:100px;min-width:0}
+.main-content>.content-area{width:100%;max-width:1600px;margin-inline:auto;padding-inline:clamp(12px,2vw,28px);min-width:0}
+.clinical-workspace{width:100%;max-width:1600px;margin:0 auto;padding-bottom:100px;min-width:0}
 .clinical-hero{background:linear-gradient(120deg,#07583c,#107353);color:#fff;border-radius:20px;padding:26px;margin-bottom:22px}
 .clinical-hero p{color:#e1f1e9;max-width:760px}.clinical-kicker{font-size:.75rem;text-transform:uppercase;letter-spacing:.12em;font-weight:700}
 .clinical-hero h1{color:#fff!important}.clinical-hero small{color:#d5ede4!important}
@@ -15,3 +16,18 @@
 @media(max-width:359px){.clinical-grid{grid-template-columns:1fr}}
 .page-loader{animation:clinical-loader-fallback 0s 3s forwards}
 @keyframes clinical-loader-fallback{to{visibility:hidden;pointer-events:none}}
+
+/* Doctor pages reuse the shared shell, colors and controls. */
+.clinical-kpis{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:1fr;align-items:stretch}
+.clinical-kpis .clinical-panel{display:flex;flex-direction:column;min-height:130px}
+.clinical-kpis .clinical-metric{margin-top:auto}
+.clinical-work-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.clinical-work-grid>*{min-width:0}
+.clinical-workspace .app-page-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;align-items:center}
+.clinical-workspace :is(a,button,input,select,textarea,summary):focus-visible{outline:3px solid var(--bs-success,#198754);outline-offset:3px}
+.clinical-workspace summary{cursor:pointer;min-height:32px}
+.clinical-workspace .clinical-tabs a{min-height:44px;display:flex;align-items:center}
+@media(max-width:1199.98px){.clinical-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:767.98px){.clinical-work-grid{grid-template-columns:minmax(0,1fr)}.clinical-workspace .app-page-head{padding:16px}.clinical-workspace .app-page-head>.btn{min-height:44px}.clinical-panel{border-radius:var(--bs-border-radius-xl,16px)}}
+@media(max-width:359.98px){.clinical-kpis{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:359.98px){.topbar .page-title{font-size:.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}

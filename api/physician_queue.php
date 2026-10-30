@@ -12,7 +12,7 @@ if ($action==='refer') {
 } else { require_doctor(); }
 try {
     $service=new PhysicianQueueService(getDB(),$actor);
-    if ($action==='list' && $_SERVER['REQUEST_METHOD']==='GET') json_response(true,['data'=>$service->rows()]);
+    if ($action==='list' && $_SERVER['REQUEST_METHOD']==='GET') {if(!is_string($_GET['view']??'active'))throw new InvalidArgumentException('Choose a valid queue view.');json_response(true,['data'=>$service->rows($_GET['view']??'active')]);}
     if (!in_array($action,['refer','start','complete'],true)) {http_response_code(400);json_response(false,[],'Unsupported handoff operation.');}
     if ($_SERVER['REQUEST_METHOD']!=='POST') {http_response_code(405);header('Allow: POST');json_response(false,[],'Use POST.');}
     csrf_verify_or_die();

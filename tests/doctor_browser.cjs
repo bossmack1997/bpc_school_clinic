@@ -21,9 +21,11 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   await navigate('/auth/login.php','[name="identifier"]');
   await evaluate(`document.querySelector('[name="identifier"]').value='accept_http';document.querySelector('[name="password"]').value='FixturePass!42';document.querySelector('form').submit()`);
   await sleep(800);fs.mkdirSync('scratch/doctor-browser',{recursive:true});
-  for(const width of [320,360,375,390,430,768,1024,1440]){
+  const widths=(process.env.DOCTOR_UI_WIDTHS||'320,360,375,390,430,768,1024,1440').split(',').map(Number);
+  if(!widths.length||widths.some(width=>![320,360,375,390,430,768,1024,1440].includes(width)))throw Error('Unsupported Doctor viewport');
+  for(const width of widths){
    await call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});
-   for(const path of ['/pages/doctor/dashboard.php','/pages/doctor/queue.php','/pages/doctor/patients.php?patient='+patient+'&tab=consultations','/pages/doctor/inventory.php','/pages/doctor/emergencies.php','/pages/doctor/reports.php','/pages/doctor/profile.php','/pages/doctor/settings.php','/pages/doctor_messages.php']){
+   for(const path of ['/pages/doctor/dashboard.php','/pages/doctor/queue.php','/pages/doctor/patients.php?patient='+patient+'&tab=consultations','/pages/doctor/consultations.php?patient='+patient,'/pages/doctor/inventory.php','/pages/doctor/emergencies.php','/pages/doctor/reports.php','/pages/doctor/profile.php','/pages/doctor/settings.php','/pages/doctor_messages.php']){
     await navigate(path);
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),width+'px no horizontal overflow '+path.split('?')[0]);
     assert(await evaluate(`!document.querySelector('.page-loader')||getComputedStyle(document.querySelector('.page-loader')).visibility==='hidden'`),width+'px content is not blocked by loader');
@@ -34,6 +36,9 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
      const queueShot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync('scratch/doctor-browser/queue-'+width+'.png',Buffer.from(queueShot.data,'base64'));
     }
     if(path.includes('dashboard')){
+     assert(await evaluate(`(()=>{const cards=[...document.querySelectorAll('.clinical-kpis .clinical-panel')];return cards.length===4&&Math.max(...cards.map(c=>c.getBoundingClientRect().height))-Math.min(...cards.map(c=>c.getBoundingClientRect().height))<2;})()`),width+'px KPI cards have equal heights');
+     if(width===1440)assert(await evaluate(`getComputedStyle(document.querySelector('.clinical-kpis')).gridTemplateColumns.split(' ').length===4`),'Desktop uses four KPI columns');
+     assert(await evaluate(`(()=>{const content=document.getElementById('mainContent').getBoundingClientRect(),shell=document.querySelector('.main-content').getBoundingClientRect();return content.width>=shell.width-2;})()`),width+'px Doctor content uses available shell width');
      assert(await evaluate(`document.body.textContent.includes('Doctor Dashboard')&&document.querySelector('.role-badge').textContent.includes('Doctor')`),width+'px clinical identity and command center');
      assert(await evaluate(`!Array.from(document.querySelectorAll('.sidebar a')).some(a=>/MICA|ai_assistant/.test(a.textContent+' '+a.getAttribute('href')))`),width+'px no MICA sidebar item');
      assert(await evaluate(`!!document.querySelector('#mica-assistant')`),width+'px floating MICA retained');
@@ -56,7 +61,9 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
      const shot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync('scratch/doctor-browser/dashboard-'+width+'.png',Buffer.from(shot.data,'base64'));
     }
    }
-   await navigate('/pages/doctor/patients.php?patient='+patient+'&tab=notes');
+   await navigate('/pages/doctor/patients.php?patient='+patient+'&tab=vitals');
+   assert(await evaluate(`!document.querySelector('[name="chief_complaint"]')&&document.documentElement.scrollWidth<=innerWidth+1`),width+'px longitudinal vitals stay read-only and fit viewport');
+   await navigate('/pages/doctor/consultations.php?patient='+patient+'&tab=notes');
    assert(await evaluate(`!!document.querySelector('[name="chief_complaint"]')&&document.querySelector('#selectedPatient').dataset.patientId==='${patient}'`),width+'px patient-specific clinical notes form');
    await evaluate(`document.querySelector('[data-clinical-draft] button').click()`);
    for(let n=0;n<100;n++){if(await evaluate(`document.getElementById('clinicalDraft').textContent.includes('MICA DRAFT')`))break;await sleep(100);}

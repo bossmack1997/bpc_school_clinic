@@ -22,10 +22,13 @@ final class PhysicianQueueService
             ->execute([$this->user['id'], $action, 'Physician handoff #'.$id.'; clinical contents remain in the authorized record.']);
     }
 
-    public function rows(): array
+    public function rows(string $view='active'): array
     {
+        if(!in_array($view,['active','history'],true))throw new InvalidArgumentException('Choose an active queue or completed history.');
         $actor=$this->db->prepare('SELECT * FROM users WHERE id=?');$actor->execute([$this->user['id']]);
         $this->authority($actor->fetch()?:[]);
+        $where=$view==='history'?"p.status='completed'":"p.status IN ('awaiting','in_progress')";
+        $order=$view==='history'?'p.completed_at DESC,p.id DESC':"FIELD(p.priority,'emergency','urgent','normal'),p.created_at,p.id";
         return $this->db->query("SELECT p.*,q.queue_number,u.first_name,u.last_name,u.role,
             w.chief_complaint,w.symptoms,w.assessment,w.recommendation,
             w.temperature,w.blood_pressure_systolic,w.blood_pressure_diastolic,
@@ -33,7 +36,7 @@ final class PhysicianQueueService
             FROM physician_queue p JOIN queue_numbers q ON q.id=p.queue_id
             JOIN users u ON u.id=p.patient_user_id
             LEFT JOIN walk_in_visits w ON w.id=(SELECT MAX(v.id) FROM walk_in_visits v WHERE v.queue_id=p.queue_id)
-            WHERE p.status<>'completed' ORDER BY FIELD(p.priority,'emergency','urgent','normal'),p.created_at,p.id LIMIT 100")->fetchAll();
+            WHERE $where ORDER BY $order LIMIT 100")->fetchAll();
     }
 
     public function refer(array $input): int

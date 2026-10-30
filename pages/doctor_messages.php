@@ -22,7 +22,7 @@ try {
 </head><body class="clinic-messages-page"><div class="app-wrapper">
 <?php include __DIR__.'/../components/sidebar.php'; ?><div class="main-content"><?php include __DIR__.'/../components/navbar.php'; ?>
 <main id="mainContent" class="content-area clinical-chat-shell">
-<h1 class="h4">Clinical Messages</h1><p class="small text-muted">Private coordination between authorized Nurses and Physicians.</p>
+<header class="app-page-head mb-3"><div><h1 class="h3 mb-1">Clinical Messages</h1><p class="small text-muted mb-0">Private coordination between authorized Nurses and Physicians.</p></div></header>
 <?php if($u['role']==='nurse'): ?><nav class="d-flex gap-2 mb-3" aria-label="Messaging categories"><a class="btn btn-outline-success btn-sm" href="<?=e(app_url('pages/nurse/messages.php'))?>">Patients</a><a class="btn btn-success btn-sm" aria-current="page" href="<?=e(app_url('pages/doctor_messages.php'))?>">Physicians</a></nav><?php endif; ?>
 <?php if($error): ?><p class="alert alert-danger" role="alert"><?=e($error)?></p><?php endif; ?>
 <?php if($messagingUnavailable): ?><a class="btn btn-outline-success" href="<?=e(app_url('pages/doctor_messages.php'))?>">Reload messages</a><?php else: ?>

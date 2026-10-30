@@ -50,6 +50,15 @@ For a read-only deployment check use
 `php -d session.save_path=<private-path> tools/preflight_physician_queue.php --queue-only`:
 exit 0 = metadata passed, 1 = incompatible prerequisites, 2 = missing handoff table.
 
+Doctor workspace audit regressions are included with `--doctor-clinical`:
+independent patient-document/encounter outages, read-only history versus encounter
+editing, completed referral history and two simultaneous PHP/PDO referral claims.
+The claim worker refuses all databases except the guarded disposable fixture.
+`--doctor-browser` also checks equal KPI heights, four desktop KPI columns, full
+content width, the dedicated encounter editor and read-only vitals at all widths.
+`tools/preflight_doctor_workspace.php` performs read-only patient/schema probes
+without printing patient rows or credentials; exit 2 identifies missing sources.
+
 Cleanup audits:
 
 - `python tools/audit_cleanup_sources.py`: offline inventory, candidate references,

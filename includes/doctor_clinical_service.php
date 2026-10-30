@@ -26,11 +26,14 @@ final class DoctorClinicalService
  }
  public function overview(int $patient): array {
   $p=$this->patient($patient);$field=$p['role']==='student'?'student_id':'teacher_id';
-  $q=$this->db->prepare("SELECT id,consultation_id,file_type,description,uploaded_at FROM medical_records WHERE $field=? ORDER BY uploaded_at DESC,id DESC LIMIT 50");$q->execute([$p[$field]]);
-  return ['patient'=>$p,'consultations'=>$this->records($patient),'documents'=>$q->fetchAll()];
+  $data=['patient'=>$p,'consultations'=>null,'documents'=>null,'unavailable'=>[]];
+  try{$data['consultations']=$this->records($patient);}catch(PDOException $e){clinical_database_failure('doctor.patient.consultations',$e);$data['unavailable'][]='consultations';}
+  try{$q=$this->db->prepare("SELECT id,consultation_id,file_type,description,uploaded_at FROM medical_records WHERE $field=? ORDER BY uploaded_at DESC,id DESC LIMIT 50");$q->execute([$p[$field]]);$data['documents']=$q->fetchAll();}catch(PDOException $e){clinical_database_failure('doctor.patient.documents',$e);$data['unavailable'][]='documents';}
+  return $data;
  }
  public function draft(int $patient): string {
   $data=$this->overview($patient);$p=$data['patient'];
+  if($data['unavailable'])throw new RuntimeException('Patient history sources are unavailable. Reload the complete record before requesting a draft.');
   $lines=['MICA DRAFT — recorded history summary for Doctor review. Not a diagnosis, prescription or approved clinical note.','Patient account #'.$p['id'].' ('.$p['role'].').','Recorded allergies: '.($p['allergies']?:'Not recorded; confirm with the patient.')];
   foreach(array_slice($data['consultations'],0,5) as $r)$lines[]=$r['consultation_date'].' — Recorded complaint: '.$r['chief_complaint'].'; recorded findings: '.($r['diagnosis']?:'Not recorded').'; follow-up date: '.($r['follow_up_date']?:'Not recorded').'.';
   if(!$data['consultations'])$lines[]='No consultations recorded for this patient. No clinical outcome can be inferred.';
@@ -45,6 +48,7 @@ final class DoctorClinicalService
    'today_consultations'=>"SELECT COUNT(*) AS count FROM consultations WHERE consultation_date>=CURDATE() AND consultation_date<CURDATE()+INTERVAL 1 DAY",
    'patients_seen_today'=>"SELECT COUNT(DISTINCT patient_type,CASE WHEN patient_type='teacher' THEN teacher_id ELSE student_id END) AS count FROM consultations WHERE clinician_user_id IS NOT NULL AND consultation_date>=CURDATE() AND consultation_date<CURDATE()+INTERVAL 1 DAY",
    'awaiting_doctor'=>"SELECT COUNT(*) AS count FROM physician_queue WHERE status='awaiting'",
+   'physician_referrals'=>"SELECT p.id,p.status,p.priority,p.created_at,u.id AS patient_user_id,u.first_name,u.last_name FROM physician_queue p JOIN users u ON u.id=p.patient_user_id WHERE p.status IN ('awaiting','in_progress') ORDER BY FIELD(p.priority,'emergency','urgent','normal'),p.created_at,p.id LIMIT 8",
    'followup_visits'=>"SELECT COUNT(*) AS count FROM consultations c LEFT JOIN students s ON s.id=c.student_id LEFT JOIN teachers t ON t.id=c.teacher_id JOIN users u ON u.id=CASE WHEN c.patient_type='teacher' THEN t.user_id ELSE s.user_id END WHERE c.follow_up_date IS NOT NULL AND c.follow_up_date>=CURDATE()",
    'urgent_cases'=>"SELECT COUNT(*) AS count FROM physician_queue WHERE status IN ('awaiting','in_progress') AND priority IN ('urgent','emergency')",
    'awaiting_review'=>"SELECT COUNT(*) AS count FROM queue_numbers WHERE status IN ('waiting','called','serving') AND created_at>=CURDATE() AND created_at<CURDATE()+INTERVAL 1 DAY",
@@ -56,6 +60,7 @@ final class DoctorClinicalService
   foreach($queries as $key=>$sql){try{$rows=$this->db->query($sql)->fetchAll();$out[$key]=in_array($key,['today_consultations','awaiting_review','patients_seen_today','awaiting_doctor','urgent_cases','followup_visits'],true)?(int)$rows[0]['count']:$rows;}catch(PDOException $e){clinical_database_failure('doctor.dashboard.'.$key,$e);$out[$key]=null;$out['unavailable'][]=$key;}}
   try { require_once __DIR__.'/nurse_verification_service.php'; $staff=new NurseVerificationService($this->db,$this->user); if(!$staff->ready()){$out['staff_setup_required']=true;throw new RuntimeException('Staff schema unavailable');} $out['pending_nurses']=$staff->summaryCounts()['pending']; }
   catch(Throwable $e) { if($e instanceof PDOException)clinical_database_failure('doctor.dashboard.pending_nurses',$e);else error_log('Clinical source unavailable operation=doctor.dashboard.pending_nurses reason=review_schema_not_ready');$out['pending_nurses']=null; $out['unavailable'][]='pending_nurses'; }
+  try{$out['nurse_reviews']=isset($staff)&&$staff->ready()?$staff->listNurses('pending','',6):null;}catch(PDOException $e){clinical_database_failure('doctor.dashboard.nurse_reviews',$e);$out['nurse_reviews']=null;$out['unavailable'][]='nurse_reviews';}
   try{require_once __DIR__.'/medicine_inventory_service.php';$out['stock']=array_slice(MedicineInventoryService::low((new MedicineInventoryService($this->db))->snapshot()),0,10);}catch(PDOException $e){clinical_database_failure('doctor.dashboard.stock',$e);$out['stock']=null;$out['unavailable'][]='stock';}
   return $out;
  }

@@ -24,7 +24,7 @@ foreach($clinicalUsers as $role=>$id){if($role==='nurse')continue;$r=misRequest(
 checkMis(misRequest($invitee,'/pages/doctor/patients.php?patient[]=1')['status']===400,'Malformed patient selector has a clear error');
 checkMis(misRequest($invitee,'/pages/doctor/patients.php?patient=99999999')['status']===404,'Missing patient has a clear error');
 $filtered=misRequest($invitee,'/pages/doctor/patients.php?role=teacher&identifier=CLIN-TE-01');checkMis(str_contains($filtered['body'],'CLIN-TE-01')&&!str_contains($filtered['body'],'CLIN-ST-01'),'Patient type and institutional ID filters combine');
-$page=misRequest($invitee,'/pages/doctor/patients.php?patient='.$clinicalUsers['teacher'].'&tab=notes');$token=misField($page,'csrf_token');
+$page=misRequest($invitee,'/pages/doctor/consultations.php?patient='.$clinicalUsers['teacher'].'&tab=notes');$token=misField($page,'csrf_token');
 checkMis(misRequest($invitee,'/api/inventory.php?action=list')['status']===200&&misRequest($invitee,'/api/inventory.php?action=stats')['status']===200,'Doctor medicine oversight APIs return authorized data');
 checkMis(misRequest($invitee,'/api/inventory.php',['action'=>'save_policy','csrf_token'=>$token])['status']===403,'Doctor cannot change Nurse inventory policies');
 checkMis(misRequest($invitee,'/api/emergencies.php?action=oversight')['status']===200,'Doctor emergency oversight API returns authorized data');
@@ -73,5 +73,7 @@ $db->exec('ALTER TABLE admin_profiles CHANGE COLUMN official_designation doctor_
 try{$failure=misRequest($invitee,'/pages/doctor/profile.php');checkMis($failure['status']===503&&str_contains($failure['body'],'Clinical workspace temporarily unavailable')&&str_contains($failure['body'],'<html')&&!str_contains($failure['body'],'SQLSTATE'),'Uncaught Doctor profile query failure produces safe recovery HTML');}finally{$db->exec('ALTER TABLE admin_profiles CHANGE COLUMN doctor_fixture_designation official_designation VARCHAR(150) NULL');}
 checkMis(misRequest($nurse,'/api/clinical.php?action=records&patient_user_id='.$clinicalUsers['student'])['status']===403,'Doctor-only API stays closed to Nurse role');
 require __DIR__.'/physician_queue_checks.php';
+require __DIR__.'/doctor_workspace_checks.php';
+require __DIR__.'/physician_concurrent_claim_checks.php';
 require __DIR__.'/queue_policy_checks.php';
 if(in_array('--doctor-browser',$argv,true)){putenv('DOCTOR_TEST_BASE='.$base);putenv('DOCTOR_TEST_USER=accept_http');putenv('DOCTOR_TEST_PATIENT='.(string)$clinicalUsers['teacher']);passthru('node '.escapeshellarg(__DIR__.'/doctor_browser.cjs'),$browserExit);checkMis($browserExit===0,'Doctor mobile tablet desktop browser workflows');}

@@ -12,6 +12,7 @@ $pageTitle = 'Reports';
   <div class="main-content">
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area page-enter">
+      <?php if(permission_profile()==='doctor'): ?><header class="app-page-head mb-3"><div><h1 class="h3 mb-1">Clinical Reports</h1><p class="text-muted mb-0">Review authorized clinical activity, patient care and follow-up information.</p></div></header><?php endif; ?>
       <div class="row g-3">
         <div class="col-lg-5">
           <div class="card p-3">

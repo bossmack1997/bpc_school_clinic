@@ -141,7 +141,7 @@ $pageTitle = 'Manage Nurses';
       <div class="app-page-head d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
         <div>
           <h1 class="h4 mb-1">Manage Nurses</h1>
-          <p class="small text-muted mb-0">Invite Nurses, review their documents and manage clinical access.</p>
+          <p class="small text-muted mb-0">Review professional credentials and document clinical authorization decisions.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
           <a href="create_nurse.php" class="btn btn-sm btn-success">Invite Nurse</a>

@@ -1,3 +1,9 @@
+document.querySelectorAll('[data-clinical-reload]').forEach(link=>link.addEventListener('click',()=>{link.setAttribute('aria-busy','true');link.textContent='Loading clinical workspace...';}));
+document.querySelectorAll('[data-clinical-save]').forEach(form=>form.addEventListener('submit',event=>{
+  if(form.dataset.saving){event.preventDefault();return;}
+  form.dataset.saving='true';form.setAttribute('aria-busy','true');
+  form.querySelector('button').disabled=true;form.querySelector('[data-save-status]')?.classList.remove('d-none');
+}));
 document.querySelectorAll('[data-clinical-draft]').forEach(form=>{
   form.addEventListener('submit',async event=>{
     event.preventDefault();

@@ -28,6 +28,8 @@ $pageTitle = $isDoctorSettings ? 'Account Settings' : 'My Profile';
     <?php include __DIR__ . '/../../components/navbar.php'; ?>
     <div class="content-area page-enter">
 
+      <?php if($isDoctor): ?><header class="app-page-head mb-3"><div><h1 class="h3 mb-1"><?=e($pageTitle)?></h1><p class="text-muted mb-0">Manage your personal details, professional profile and account security.</p></div></header><?php endif; ?>
+
       <h6 class="section-title mb-3"><i class="bi bi-person-circle text-success me-1"></i> My Profile</h6>
 
       <!-- Profile Header Summary Card -->
