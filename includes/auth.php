@@ -26,7 +26,7 @@ function current_user() {
         if (!$dbUser || ($dbUser['status'] ?? '') !== 'active' || !is_supported_role($dbUser['role'] ?? '')) {
             return null;
         }
-        if($dbUser['role']!=='admin' && empty($dbUser['email_verified']))return null;
+        if(account_requires_email_verification($dbUser,$db) && empty($dbUser['email_verified']))return null;
         if(($dbUser['registration_status']??'')==='rejected')return null;
 
         // When the clinical schema is installed, its decision is authoritative.
@@ -222,8 +222,8 @@ function is_primary_admin(?array $user = null): bool {
 
 /**
  * Check if an administrator has a specific permission.
- * Primary Administrator has all permissions unconditionally.
- * Co-Administrators are verified against the admin_permissions table.
+ * MIS and Doctor permissions come from their assigned functional role.
+ * Only legacy administrators consult the admin_permissions table.
  */
 function has_admin_permission(string $permission, ?array $user = null, ?PDO $db = null): bool {
     return has_permission($permission,$user,$db);
@@ -268,7 +268,7 @@ function require_inventory_access(bool $manage=false): void {
 }
 
 function login_user(array $userRow) {
-    if(($userRow['status']??'')!=='active' || ($userRow['registration_status']??'')==='rejected' || !is_supported_role($userRow['role']??'') || (($userRow['role']??'')!=='admin' && empty($userRow['email_verified']))) {
+    if(($userRow['status']??'')!=='active' || ($userRow['registration_status']??'')==='rejected' || !is_supported_role($userRow['role']??'') || (account_requires_email_verification($userRow) && empty($userRow['email_verified']))) {
         throw new RuntimeException('Only active, verified accounts can sign in.');
     }
     unset($_SESSION['password_confirmed_at'],$_SESSION['password_confirmed_user_id']);
@@ -348,7 +348,7 @@ function attempt_remember_me_login() {
 
     if (!$user || empty($user['remember_token'])) return false;
     if(($user['registration_status']??'')==='rejected')return false;
-    if($user['role']!=='admin' && empty($user['email_verified']))return false;
+    if(account_requires_email_verification($user,$db) && empty($user['email_verified']))return false;
     if (!is_supported_role($user['role'] ?? '')) return false;
 
     [$storedSelector, $storedHash] = array_pad(explode(':', $user['remember_token']), 2, '');

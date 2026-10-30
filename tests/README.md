@@ -26,6 +26,12 @@ it no longer writes transactional fixtures into the configured school database.
 `nurse_authorization_safety_audit.php` now asserts restrictive authorization,
 rather than reproducing the previously documented unsafe grants.
 
+Automatic Doctor access: add `--provisioning --doctor-access` to the clinical
+and staff-verification run. The disposable fixture activates a new Doctor,
+removes the legacy permission table temporarily, checks every Doctor page and
+MIS denials, then checks disabled accounts, withdrawn verification and role
+revocation. It never changes the configured school database.
+
 Student UI regression: `php tests/mis_admin_http.php --doctor-clinical
 --staff-verification --student-ui`. Add `--student-ui-browser` with headless Chrome
 on loopback port 9337 to test all eight requested widths, carousel controls,
