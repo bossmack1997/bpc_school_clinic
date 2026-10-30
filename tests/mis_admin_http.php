@@ -66,6 +66,7 @@ try{
  if(in_array('--student-ui',$argv,true))require __DIR__.'/student_ui_checks.php';
  if(in_array('--reauthentication',$argv,true))require __DIR__.'/reauthentication_checks.php';
  if(in_array('--workflow-simplification',$argv,true))require __DIR__.'/workflow_simplification_checks.php';
+ if(in_array('--doctor-access',$argv,true))require __DIR__.'/doctor_automatic_access_checks.php';
  if(in_array('--final-system-audit',$argv,true))require __DIR__.'/final_system_audit_checks.php';
  if(in_array('--final-browser',$argv,true)){
   require_once __DIR__.'/../includes/report_export_service.php';

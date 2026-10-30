@@ -3,7 +3,7 @@
 if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
 require_once __DIR__.'/../config/config.php';
 $db=getDB();$schema=$db->query('SELECT DATABASE()')->fetchColumn();
-$blocked=false;$missing=false;
+$blocked=false;$missingDeploymentTables=[];
 echo 'Selected database: '.$schema.PHP_EOL;
 $required=[
  'users'=>['id','role','status','credential_version','username','email','password_hash','email_verified','email_verified_at','self_service_only','registration_status','first_name','last_name'],
@@ -28,7 +28,7 @@ foreach(['email','username'] as $column){
 }
 if(!in_array('--queue-only',$argv,true))foreach(['account_activation_invitations'=>['id','user_id','token_hash','created_by','expires_at','used_at','delivery_status','created_at'],'account_provisioning_lock'=>['id']] as $table=>$requiredColumns){
  $q=$db->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND BINARY TABLE_NAME=BINARY ?');$q->execute([$table]);$columns=$q->fetchAll(PDO::FETCH_COLUMN);
- if(!$columns){$missing=true;echo 'ADD '.$table.' using the account provisioning migration.'.PHP_EOL;continue;}
+ if(!$columns){$missingDeploymentTables[]=$table;echo 'ADD '.$table.' using the account provisioning migration.'.PHP_EOL;continue;}
  foreach(array_diff($requiredColumns,$columns) as $column){echo 'BLOCK existing '.$table.' missing '.$column.PHP_EOL;$blocked=true;}
  echo 'REVIEW existing '.$table.' engine, types and constraints against the migration.'.PHP_EOL;
 }
@@ -49,7 +49,8 @@ if($q->fetchColumn()){
  if(!$priorityIndex){echo 'BLOCK missing physician_queue status/priority/date index'.PHP_EOL;$blocked=true;}
  $foreignKeys=$db->query("SELECT k.COLUMN_NAME,k.REFERENCED_TABLE_NAME,k.REFERENCED_COLUMN_NAME,r.DELETE_RULE FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_SCHEMA=k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME=k.CONSTRAINT_NAME AND r.TABLE_NAME=k.TABLE_NAME WHERE k.TABLE_SCHEMA=DATABASE() AND k.TABLE_NAME='physician_queue' AND k.REFERENCED_TABLE_NAME IS NOT NULL")->fetchAll();
  foreach(['queue_id'=>'queue_numbers','patient_user_id'=>'users','referred_by'=>'users','assigned_doctor_id'=>'users','consultation_id'=>'consultations'] as $column=>$parent){$found=false;foreach($foreignKeys as $fk)if($fk['COLUMN_NAME']===$column&&$fk['REFERENCED_TABLE_NAME']===$parent&&$fk['REFERENCED_COLUMN_NAME']==='id'&&in_array($fk['DELETE_RULE'],['RESTRICT','NO ACTION'],true))$found=true;if(!$found){echo 'BLOCK missing restrictive physician_queue foreign key: '.$column.PHP_EOL;$blocked=true;}}
-}else {$missing=true;echo 'ADD physician_queue using database/migration_physician_queue_hostinger_20261030.sql after backup and restore verification.'.PHP_EOL;}
+}else {$missingDeploymentTables[]='physician_queue';echo 'ADD physician_queue using database/migration_physician_queue_hostinger_20261030.sql after backup and restore verification.'.PHP_EOL;}
 echo $blocked?'BLOCK: resolve prerequisites; no writes were performed.'.PHP_EOL:'Metadata prerequisites present. This is not verification of backup, data or production behavior; no writes were performed.'.PHP_EOL;
-if($missing)echo 'NOT READY: required deployment tables are missing; no writes were performed.'.PHP_EOL;
-exit($blocked?1:($missing?2:0));
+if($missingDeploymentTables)echo 'MIGRATIONS REQUIRED: '.implode(', ',$missingDeploymentTables).'. Clinical readiness is not confirmed; no writes were performed.'.PHP_EOL;
+// --require-ready remains accepted; missing deployment tables always fail readiness.
+exit($blocked?1:($missingDeploymentTables?2:0));

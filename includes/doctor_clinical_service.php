@@ -3,7 +3,7 @@ require_once __DIR__.'/clinical_diagnostics.php';
 /** Physician encounters reuse consultations and preserve nursing ownership. */
 final class DoctorClinicalService
 {
- public function __construct(private PDO $db,private array $user){if(!has_permission('consultations_manage',$user,$db)||permission_profile($user,$db)!=='doctor')throw new RuntimeException('Verified Doctor profile required.');}
+ public function __construct(private PDO $db,private array $user){if(!has_permission('consultations_manage',$user,$db))throw new RuntimeException('Activated Doctor profile required.');}
  public function summary(): array {
   $today=(int)$this->db->query('SELECT COUNT(*) FROM consultations WHERE consultation_date>=CURDATE() AND consultation_date<CURDATE()+INTERVAL 1 DAY')->fetchColumn();
   $queue=(int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE created_at>=CURDATE() AND created_at<CURDATE()+INTERVAL 1 DAY AND status IN ('waiting','called','serving')")->fetchColumn();

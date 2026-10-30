@@ -62,7 +62,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $error === '') {
   <section class="setup-card" aria-labelledby="setupTitle">
     <div class="text-center mb-4"><img src="<?= e(APP_URL) ?>/assets/images/bpc_logo.png" alt="BPC" width="64"><h1 class="h4 mt-3" id="setupTitle">Clinical Co-Administrator Account Setup</h1></div>
     <?php if ($success): ?>
-      <div class="alert alert-success" role="status">Your account is active. Your password was created privately and was not disclosed to MIS.</div>
+      <div class="alert alert-success" role="status">Your account is active. Your password was created privately and was not disclosed to MIS. Sign in to open your Doctor Dashboard and assigned clinical features. No additional MIS approval is required.</div>
       <a class="btn btn-success w-100" href="<?= e(APP_URL) ?>/auth/login.php">Continue to sign in</a>
     <?php elseif (DoctorInvitationService::eligibilityError($invitation) !== ''): ?>
       <div class="alert alert-danger" role="alert"><?= e($error) ?></div>

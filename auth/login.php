@@ -76,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'rejected' => 'Your registration was rejected. Contact authorized support if you believe this is an error.',
                     default => 'Your account is disabled and cannot sign in.'
                 };
-            } elseif (!$user['email_verified'] && $user['role']!=='admin') {
+            } elseif (!$user['email_verified'] && account_requires_email_verification($user,$db)) {
                 $errors[] = 'Email verification is required before this account can sign in. Contact clinic support to restore verification.';
             } elseif (!is_supported_role($user['role'])) {
                 // Never permit retired or un-migrated roles to receive a session.
