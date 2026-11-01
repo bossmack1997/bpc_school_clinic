@@ -51,11 +51,11 @@ For a read-only deployment check use
 exit 0 = metadata passed, 1 = incompatible prerequisites, 2 = missing handoff table.
 
 Doctor workspace audit regressions are included with `--doctor-clinical`:
-independent patient-document/encounter outages, read-only history versus encounter
+independent patient-document/encounter outages, unified patient history and encounter
 editing, completed referral history and two simultaneous PHP/PDO referral claims.
 The claim worker refuses all databases except the guarded disposable fixture.
 `--doctor-browser` also checks equal KPI heights, four desktop KPI columns, full
-content width, the dedicated encounter editor and read-only vitals at all widths.
+content width, the unified encounter editor and read-only vitals at all widths.
 `tools/preflight_doctor_workspace.php` performs read-only patient/schema probes
 without printing patient rows or credentials; exit 2 identifies missing sources.
 
@@ -73,3 +73,14 @@ These audit tools do not approve deletions. Before any database cleanup, verify
 provenance and all application relationships, produce an exact ID allowlist,
 obtain explicit approval, create a backup and verify its restore in isolation,
 then use a reviewed transaction. Preserve medical records and audit history.
+
+Workflow and student import regressions:
+
+`php tests/mis_admin_http.php --provisioning --doctor-clinical --staff-verification --doctor-browser`
+uses a temporary `bpc_mis_test_*` database with synthetic records, blocked mail
+transport, and the existing isolated Chrome endpoint on port 9337. Browser checks
+cover Doctor, Nurse and MIS pages at 320, 360, 375, 390, 430, 768, 1024 and 1440 px.
+Import checks cover CSV/XLSX parsing, rejected formats/formulas/headers, duplicate
+identities, missing names, mixed-validity confirmation, repeated and concurrent
+imports, transactional row failure, correction reports, activation and Student
+login. `student_import_worker.php` refuses non-fixture database names.

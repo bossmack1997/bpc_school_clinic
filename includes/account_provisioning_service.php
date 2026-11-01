@@ -85,7 +85,7 @@ final class AccountProvisioningService
         foreach($rows as $index=>$row){
             $p=[];$errors=[];$duplicate=false;
             foreach(self::COLUMNS as $key){$v=$row[$key]??'';if(!is_string($v)||!mb_check_encoding($v,'UTF-8'))throw new InvalidArgumentException('Account fields must be valid UTF-8 text.');$p[$key]=trim($v);}
-            $p['email']=strtolower($p['email']);
+            $p['email']=strtolower($p['email']);$p['role']=strtolower($p['role']);$p['institutional_id']=strtoupper($p['institutional_id']);
             if(!in_array($p['role'],['student','teacher','nurse'],true))$errors[]='Role must be Student, Teacher or Nurse. Use the privileged Doctor invitation process for Doctors.';
             if(!preg_match('/^[A-Za-z0-9_]{3,50}$/D',$p['username']))$errors[]='Username must contain 3–50 letters, numbers or underscores.';
             if(strlen($p['email'])>120||!filter_var($p['email'],FILTER_VALIDATE_EMAIL))$errors[]='Enter a valid official email address.';
@@ -153,6 +153,23 @@ final class AccountProvisioningService
             $this->db->commit();
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
         $result=[];foreach($pending as $row)$result[]=['user_id'=>$row['user_id'],'delivery_status'=>$this->deliver($row['challenge'],$row['person'])];return $result;
+    }
+
+    /** Each valid row commits independently; create() rechecks identities under the shared lock. */
+    public function importStudents(int $actor,array $rows): array
+    {
+        $report=[];
+        foreach($this->preview($rows) as $row){
+            if($row['account']['role']!=='student'){$row['errors'][]='Student imports accept only the Student role.';$row['status']='invalid';}
+            if($row['errors']){$row['status']=$row['status']==='duplicate'?'skipped':'failed';$report[]=$row;continue;}
+            try{
+                $created=$this->create($actor,[$row['account']]);
+                $row['status']='successful';$row['delivery_status']=$created[0]['delivery_status'];
+            }catch(InvalidArgumentException $e){$row['status']='skipped';$row['errors']=['This record changed or already exists. Preview the file again.'];}
+            catch(Throwable $e){error_log('Student import row failed: '.get_class($e).' code='.$e->getCode());$row['status']='failed';$row['errors']=['This account could not be created. Try this record again.'];}
+            $report[]=$row;
+        }
+        return $report;
     }
 
     public function resend(int $actor,int $id): string

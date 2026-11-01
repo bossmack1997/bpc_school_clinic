@@ -62,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             $exceptionSuccess = 'Account review completed.';
         } else {
-            throw new InvalidArgumentException('Unsupported exception action.');
+            throw new InvalidArgumentException('Choose a valid account review action.');
         }
     } catch (PDOException $e) {
         error_log('Security exception: ' . $e->getMessage());
@@ -146,7 +146,7 @@ $selectableAccounts = $db->query("
           <h5 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
             <i class="bi bi-shield-lock-fill text-success"></i> Security
           </h5>
-          <p class="text-muted small mb-0">Security monitoring, authentication incidents, and documented account security exceptions.</p>
+          <p class="text-muted small mb-0">Review sign-in activity, security incidents and account access requests.</p>
         </div>
       </div>
 
@@ -267,7 +267,7 @@ $selectableAccounts = $db->query("
 
           <?php if (!empty($recentSuspicious)): ?>
           <div class="card p-3 shadow-sm border-0 rounded-3 mt-3">
-            <h6 class="fw-bold text-dark mb-2">Recent Security Events (24h)</h6>
+            <h6 class="fw-bold text-dark mb-2">Recent Activity History (24h)</h6>
             <table class="table table-hover align-middle mb-0 small">
               <thead><tr><th>Event Type / Severity</th><th>Subject</th><th>Details</th><th>Occurred At</th></tr></thead>
               <tbody>

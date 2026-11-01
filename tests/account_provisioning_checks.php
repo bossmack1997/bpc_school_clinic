@@ -14,7 +14,7 @@ checkMis(misRequest($invitee,'/api/account_provisioning.php?action=email_check&e
 checkMis(misRequest($invitee,'/pages/admin/provision_accounts.php')['status']===403,'Doctor cannot provision routine accounts');
 $page=misRequest($c,'/pages/admin/provision_accounts.php');$provisionToken=misField($page,'csrf_token');
 checkMis($page['status']===200&&str_contains($page['body'],'Single account')&&str_contains($page['body'],'UTF-8 CSV'),'MIS account and import forms render');
-checkMis(str_contains($page['body'],'>Create Accounts</span>')||str_contains($page['body'],'>Create Accounts</a>')||str_contains($page['body'],'href="'.app_url('pages/admin/provision_accounts.php').'"'),'MIS navigation links to account provisioning');
+checkMis(str_contains($page['body'],'>Manage Accounts</span>')||str_contains($page['body'],'>Manage Accounts</a>')||str_contains($page['body'],'href="'.app_url('pages/admin/provision_accounts.php').'"'),'MIS navigation links to account provisioning');
 $template=misRequest($c,'/pages/admin/provision_accounts.php?download=template');checkMis($template['status']===200&&str_starts_with($template['body'],"\xEF\xBB\xBFrole,username,email,first_name,last_name,institutional_id"),'Import template supplies exact UTF-8 CSV headers');
 $duplicate=misRequest($c,'/api/account_provisioning.php?action=email_check&email=mis@example.invalid');checkMis((json_decode($duplicate['body'],true)['available']??true)===false,'MIS duplicate check reflects actual database');
 $links=[];$provision=new AccountProvisioningService($db,function($email,$name,$link)use(&$links){$links[$email]=$link;return true;});
@@ -91,3 +91,58 @@ parse_str(parse_url($links['provision_ui@example.invalid'],PHP_URL_FRAGMENT),$ne
 $throttled=false;try{$provision->resend($actor,$pendingUiId);}catch(InvalidArgumentException $e){$throttled=true;}checkMis($throttled,'Activation resend is throttled after a successful transport send');
 $db->prepare('UPDATE account_activation_invitations SET expires_at=DATE_SUB(NOW(),INTERVAL 1 SECOND) WHERE token_hash=?')->execute([hash('sha256',$newToken)]);
 $expiredDenied=false;try{$provision->activate($newToken,'PrivatePass!42','PrivatePass!42');}catch(InvalidArgumentException $e){$expiredDenied=true;}checkMis($expiredDenied&&$db->query('SELECT status FROM users WHERE id='.$pendingUiId)->fetchColumn()==='pending','Expired activation link cannot activate a pending account');
+
+$importRows=[];
+foreach(range(1,3) as $n)$importRows[]=['role'=>'student','username'=>'partial_import_'.$n,'email'=>'partial_import_'.$n.'@example.invalid','first_name'=>'Import','last_name'=>'Fixture','institutional_id'=>'PARTIAL-'.$n];
+$importRows[1]['email']='invalid';$importRows[]=$importRows[0];
+$report=$provision->importStudents($actor,$importRows);
+checkMis(array_column($report,'status')===['successful','failed','successful','skipped'],'Student import commits valid rows and reports invalid and duplicate rows');
+$report=$provision->importStudents($actor,$importRows);
+checkMis(count(array_filter($report,static fn($r)=>$r['status']==='successful'))===0,'Repeated import creates no duplicate accounts');
+checkMis(!str_contains(json_encode($report),'password')&&!str_contains(json_encode($report),'token'),'Import report contains no setup secrets');
+
+$edge=$importRows[0];$edge['email']='new_id_probe@example.invalid';$edge['username']='new_id_probe';
+checkMis($provision->preview([$edge])[0]['status']==='duplicate','Existing student ID is rejected independently of email');
+$missing=$edge;$missing['institutional_id']='UNUSED-ID';$missing['first_name']='';
+checkMis($provision->preview([$missing])[0]['status']==='invalid','Missing required name is flagged');
+$badFile=tempnam(sys_get_temp_dir(),'bpc_invalid_');
+try{
+ file_put_contents($badFile,"wrong,headers\ninvalid,data\n");$rejected=false;try{AccountProvisioningService::readCsv($badFile);}catch(InvalidArgumentException $e){$rejected=true;}checkMis($rejected,'CSV with incorrect headers is rejected');
+ $rejected=false;try{AccountProvisioningService::readXlsx($badFile);}catch(InvalidArgumentException $e){$rejected=true;}checkMis($rejected,'Non-workbook content is rejected as XLSX');
+ curl_setopt_array($c,[CURLOPT_URL=>$base.'/pages/admin/provision_accounts.php',CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>['action'=>'preview_csv','csrf_token'=>$provisionToken,'accounts_csv'=>new CURLFile($badFile,'text/plain','accounts.txt')]]);$body=curl_exec($c);
+ checkMis(curl_getinfo($c,CURLINFO_RESPONSE_CODE)===422&&!str_contains($body,'name="nonce"'),'Unsupported upload format cannot reach confirmation');curl_setopt($c,CURLOPT_POSTFIELDS,'');
+}finally{unlink($badFile);}
+$db->exec("CREATE TRIGGER fixture_import_failure BEFORE INSERT ON users FOR EACH ROW BEGIN IF NEW.username='partial_db_failure' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic import failure'; END IF; END");
+try{
+ $bad=$importRows[0];$bad['username']='partial_db_failure';$bad['email']='partial_db_failure@example.invalid';$bad['institutional_id']='DB-FAIL';
+ $good=$bad;$good['username']='partial_db_success';$good['email']='partial_db_success@example.invalid';$good['institutional_id']='DB-SUCCESS';
+ $report=$provision->importStudents($actor,[$bad,$good]);
+ checkMis(array_column($report,'status')===['failed','successful'],'Database row failure rolls back that account while the next valid row succeeds');
+ checkMis((int)$db->query("SELECT COUNT(*) FROM users WHERE username='partial_db_failure'")->fetchColumn()===0,'Failed row leaves no partial account');
+}finally{$db->exec('DROP TRIGGER fixture_import_failure');}
+
+parse_str(parse_url($links['partial_import_1@example.invalid'],PHP_URL_FRAGMENT),$importToken);
+$provision->activate($importToken['token'],'PrivatePass!42','PrivatePass!42');
+$studentClient=misClient();$login=misRequest($studentClient,'/auth/login.php');$login=misRequest($studentClient,'/auth/login.php',['csrf_token'=>misField($login,'csrf_token'),'identifier'=>'partial_import_1','password'=>'PrivatePass!42']);
+checkMis($login['status']===302&&str_contains($login['headers']['location']??'','student'),'Imported student completes private setup and signs in to Student area');
+checkMis(misRequest($studentClient,'/pages/student/dashboard.php')['status']===200,'Imported student can open Student dashboard');
+$upload=tempnam(sys_get_temp_dir(),'bpc_partial_');
+try{
+ file_put_contents($upload,implode(',',AccountProvisioningService::COLUMNS)."\nstudent,http_partial,http_partial@example.invalid,HTTP,Import,HTTP-PARTIAL\nstudent,http_invalid,invalid,HTTP,Import,HTTP-INVALID\n");
+ curl_setopt_array($c,[CURLOPT_URL=>$base.'/pages/admin/provision_accounts.php',CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>['action'=>'preview_csv','csrf_token'=>$provisionToken,'accounts_csv'=>new CURLFile($upload,'text/csv','students.csv')]]);$body=curl_exec($c);curl_setopt($c,CURLOPT_POSTFIELDS,'');
+ checkMis(curl_getinfo($c,CURLINFO_RESPONSE_CODE)===200&&str_contains($body,'name="nonce"'),'Mixed-validity upload permits explicit confirmation of valid records');
+ $confirmed=misRequest($c,'/pages/admin/provision_accounts.php',['action'=>'create','csrf_token'=>$provisionToken,'nonce'=>misField(['body'=>$body],'nonce')]);
+ checkMis($confirmed['status']===200&&str_contains($confirmed['body'],'Successful: 1. Skipped: 0. Failed: 1.'),'HTTP confirmation displays accurate partial import summary');
+ $download=misRequest($c,'/pages/admin/provision_accounts.php?download=report');
+ checkMis($download['status']===200&&str_contains($download['body'],'HTTP-INVALID')&&!str_contains($download['body'],'password')&&!str_contains($download['body'],'token'),'MIS downloads correction report without setup secrets');
+}finally{unlink($upload);}
+
+$workers=[];
+for($i=0;$i<2;$i++){
+ $process=proc_open([PHP_BINARY,'-d','session.save_path='.__DIR__.'/../scratch',__DIR__.'/student_import_worker.php',(string)$actor],[1=>['pipe','w'],2=>['pipe','w']],$workerPipes);
+ if(!is_resource($process))throw new RuntimeException('Could not start student import worker');$workers[]=[$process,$workerPipes];
+}
+$statuses=[];
+foreach($workers as [$process,$workerPipes]){$output=stream_get_contents($workerPipes[1]);$errors=stream_get_contents($workerPipes[2]);fclose($workerPipes[1]);fclose($workerPipes[2]);checkMis(proc_close($process)===0,'Concurrent student import worker completed');$statuses[]=json_decode($output,true)[0]??'unknown';}
+sort($statuses);
+checkMis($statuses===['skipped','successful']&&(int)$db->query("SELECT COUNT(*) FROM users WHERE username='concurrent_import'")->fetchColumn()===1,'Concurrent student imports create exactly one account without overwriting');

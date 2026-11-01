@@ -3,7 +3,7 @@ require_once __DIR__.'/clinical_diagnostics.php';
 /** Physician encounters reuse consultations and preserve nursing ownership. */
 final class DoctorClinicalService
 {
- public function __construct(private PDO $db,private array $user){if(!has_permission('consultations_manage',$user,$db))throw new RuntimeException('Activated Doctor profile required.');}
+ public function __construct(private PDO $db,private array $user,private bool $readOnly=false){if(!has_permission($readOnly?'clinical_records_read':'consultations_manage',$user,$db))throw new RuntimeException('Activated Doctor profile required.');}
  public function summary(): array {
   $today=(int)$this->db->query('SELECT COUNT(*) FROM consultations WHERE consultation_date>=CURDATE() AND consultation_date<CURDATE()+INTERVAL 1 DAY')->fetchColumn();
   $queue=(int)$this->db->query("SELECT COUNT(*) FROM queue_numbers WHERE created_at>=CURDATE() AND created_at<CURDATE()+INTERVAL 1 DAY AND status IN ('waiting','called','serving')")->fetchColumn();
@@ -32,6 +32,7 @@ final class DoctorClinicalService
   return $data;
  }
  public function draft(int $patient): string {
+  if($this->readOnly||!has_permission('consultations_manage',$this->user,$this->db))throw new RuntimeException('Doctor consultation permission required.');
   $data=$this->overview($patient);$p=$data['patient'];
   if($data['unavailable'])throw new RuntimeException('Patient history sources are unavailable. Reload the complete record before requesting a draft.');
   $lines=['MICA DRAFT — recorded history summary for Doctor review. Not a diagnosis, prescription or approved clinical note.','Patient account #'.$p['id'].' ('.$p['role'].').','Recorded allergies: '.($p['allergies']?:'Not recorded; confirm with the patient.')];
@@ -65,6 +66,7 @@ final class DoctorClinicalService
   return $out;
  }
  public function save(array $input): int {
+  if($this->readOnly||!has_permission('consultations_manage',$this->user,$this->db))throw new RuntimeException('Doctor consultation permission required.');
   foreach(['id','record_version','patient_user_id'] as $key)if(isset($input[$key])&&(!is_scalar($input[$key])||!ctype_digit((string)$input[$key])))throw new InvalidArgumentException('Select a valid patient and encounter.');
   $id=(int)($input['id']??0);$fields=[];
   foreach(['chief_complaint'=>255,'diagnosis'=>255,'treatment'=>5000,'prescription'=>5000,'remarks'=>5000] as $key=>$max){if(!is_string($input[$key]??''))throw new InvalidArgumentException('Clinical fields must be text.');$v=trim($input[$key]??'');if(mb_strlen($v)>$max)throw new InvalidArgumentException('Clinical text exceeds the field limit.');$fields[$key]=$v;}

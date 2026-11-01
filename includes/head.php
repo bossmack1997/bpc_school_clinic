@@ -91,7 +91,7 @@ window.FIREBASE_CONFIG = {
 
 <link rel="stylesheet" href="<?= asset_url('css/workflow-mobile.css', true) ?>">
 <link rel="stylesheet" href="<?= asset_url('css/shared-ui.css', true) ?>">
-<?php if(permission_profile()==='doctor'): ?><link rel="stylesheet" href="<?= asset_url('css/doctor-clinical.css',true) ?>"><?php endif; ?>
+<?php if(permission_profile()==='doctor'||($nurseWorkspace??false)): ?><link rel="stylesheet" href="<?= asset_url('css/doctor-clinical.css',true) ?>"><?php endif; ?>
 <script defer src="<?= asset_url('js/password-visibility.js', true) ?>"></script>
 
 <link rel="stylesheet" href="<?= e(asset_url('css/patient-mobile.css',true)) ?>">

@@ -7,11 +7,11 @@ $workspaceCount=(int)$db->query('SELECT COUNT(*) FROM consultations')->fetchColu
 $invalidSave=misRequest($invitee,'/pages/doctor/consultations.php?patient='.$clinicalUsers['student'],array_replace($workspaceSave,['chief_complaint'=>'']));
 checkMis($invalidSave['status']===422&&(int)$db->query('SELECT COUNT(*) FROM consultations')->fetchColumn()===$workspaceCount,'Encounter form validation rejects empty complaint without creating a record');
 $validSave=misRequest($invitee,'/pages/doctor/consultations.php?patient='.$clinicalUsers['student'],$workspaceSave);
-checkMis($validSave['status']===302&&str_contains($validSave['headers']['location']??'','consultations.php?patient='.$clinicalUsers['student'].'&tab=consultations')&&(int)$db->query('SELECT COUNT(*) FROM consultations')->fetchColumn()===$workspaceCount+1,'Encounter form saves through real HTTP and returns to dedicated consultation history');
+checkMis($validSave['status']===302&&str_contains($validSave['headers']['location']??'','patients.php?patient='.$clinicalUsers['student'].'&tab=consultations')&&(int)$db->query('SELECT COUNT(*) FROM consultations')->fetchColumn()===$workspaceCount+1,'Encounter form saves through real HTTP and returns to dedicated consultation history');
 $historyPage=misRequest($invitee,'/pages/doctor/patients.php?patient='.$clinicalUsers['student'].'&tab=notes');
-checkMis($historyPage['status']===200&&!str_contains($historyPage['body'],'name="chief_complaint"')&&str_contains($historyPage['body'],'Open physician encounter workspace'),'Patient Records keeps notes longitudinal and routes documentation to Consultations');
+checkMis($historyPage['status']===200&&str_contains($historyPage['body'],'name="chief_complaint"')&&str_contains($historyPage['body'],'Patient Records &amp; Consultations'),'Unified patient records includes consultation editor');
 $historyPost=misRequest($invitee,'/pages/doctor/patients.php?patient='.$clinicalUsers['student'],['patient_user_id'=>$clinicalUsers['student'],'chief_complaint'=>'Forbidden direct history write']);
-checkMis($historyPost['status']===405,'Patient history route rejects documentation POST and directs corrections to Consultations');
+checkMis($historyPost['status']===403,'Unified patient route requires CSRF for documentation');
 foreach(['vitals','treatments','medical'] as $section){$response=misRequest($invitee,'/pages/doctor/patients.php?patient='.$clinicalUsers['student'].'&tab='.$section);checkMis($response['status']===200&&str_contains($response['body'],'data-patient-id="'.$clinicalUsers['student'].'"'),'Patient record '.$section.' section remains patient scoped');}
 $db->exec('RENAME TABLE medical_records TO fixture_unavailable_medical_records');
 try{
@@ -37,3 +37,15 @@ checkMis($dashboard['status']===200&&str_contains($dashboard['body'],'Physician 
 $filteredReload=misRequest($invitee,'/pages/doctor/consultations.php?search=Nursing&role=student&identifier=CLIN-ST&patient='.$clinicalUsers['student']);
 checkMis($filteredReload['status']===200&&str_contains($filteredReload['body'],'search=Nursing&amp;role=student&amp;identifier=CLIN-ST'),'Workspace reload preserves patient search filters');
 checkMis(str_contains($history['body'],'href="queue.php?view=history" data-queue-reload')&&str_contains($history['body'],'100 completed physician assessments'),'Completed queue refresh and limit description preserve history context');
+
+foreach(['student','teacher'] as $type){
+ $r=misRequest($nurse,'/pages/nurse/patient_history.php?patient='.$clinicalUsers[$type]);
+ checkMis($r['status']===200&&str_contains($r['body'],'data-patient-id="'.$clinicalUsers[$type].'"')&&str_contains($r['body'],'New Consultation')&&!str_contains($r['body'],'data-clinical-save'),'Nurse unified '.$type.' record preserves nursing consultation scope');
+}
+$r=misRequest($nurse,'/pages/nurse/patient_history.php?student_id='.$studentId);
+checkMis($r['status']===200&&str_contains($r['body'],'data-patient-id="'.$clinicalUsers['student'].'"'),'Legacy Nurse student bookmarks resolve the same patient');
+checkMis(misRequest($c,'/pages/nurse/patient_history.php',null,true)['status']===403,'MIS cannot access unified nursing records');
+
+$readOnlyUser=$db->query('SELECT * FROM users WHERE id='.$clinicalUsers['nurse'])->fetch();
+$readOnlyClinical=new DoctorClinicalService($db,$readOnlyUser,true);
+foreach(['save','draft'] as $operation){$denied=false;try{if($operation==='save')$readOnlyClinical->save([]);else $readOnlyClinical->draft($clinicalUsers['student']);}catch(RuntimeException $e){$denied=true;}checkMis($denied,'Read-only Nurse clinical service cannot '.$operation.' physician documentation');}

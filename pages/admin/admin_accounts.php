@@ -244,7 +244,7 @@ unset($_SESSION['manual_doctor_invitation']);
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close invitation form"></button>
         </div>
         <div class="modal-body"><div id="doctorInvitationFeedback" class="alert alert-danger small" role="alert" aria-live="polite" hidden></div>
-          <p class="text-muted small mb-3">Provision a clinical-only account. The Doctor sets their own password through an expiring, single-use invitation; MIS never sees it.</p>
+          <p class="text-muted small mb-3">Invite a Doctor to a clinical account. The Doctor sets their own password through an expiring, single-use invitation; MIS never sees it.</p>
 
           <div class="row g-2">
             <div class="col-12"><h3 class="h6 mb-1">Personal information</h3></div>

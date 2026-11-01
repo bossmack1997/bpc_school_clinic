@@ -23,3 +23,14 @@
     }, 350);
   });
 })();
+
+// Keep repeated clicks from submitting the same preview or confirmation twice.
+document.querySelectorAll('main form[method="post"]').forEach(form => {
+  form.addEventListener('submit', event => {
+    if (form.dataset.submitting) { event.preventDefault(); return; }
+    form.dataset.submitting = 'true';
+    form.setAttribute('aria-busy', 'true');
+    const button = form.querySelector('button[type="submit"], button:not([type])');
+    if (button) { button.disabled = true; button.textContent = 'Processing, please wait...'; }
+  });
+});

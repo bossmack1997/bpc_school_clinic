@@ -48,7 +48,7 @@ $sbNav = [
             ],
             'Clinic Operations' => [
                 ['list', 'Clinic Queue', 'queue.php'],
-                ['file-medical', 'Patient Records', 'patient_history.php'],
+                ['file-medical', 'Patient Records & Consultations', 'patient_history.php'],
             ],
             'Communication' => [
                 ['chat', 'Messages', 'messages.php'],
@@ -116,7 +116,7 @@ if($sbProfile==='mis')$sbNav['admin']=['brand'=>'MIS / System Administrator','se
  'System Administration'=>[
      ['dashboard','Dashboard','dashboard.php'],
      ['users','People Management','users.php'],
-     ['user','Create Accounts','provision_accounts.php'],
+     ['user','Manage Accounts','provision_accounts.php'],
      ['file-medical','Account Exports','../report_exports.php'],
      ['shield-lock','Administrator Management','admin_accounts.php'],
      ['settings','System Settings','settings.php']
@@ -132,8 +132,7 @@ if($sbProfile==='doctor')$sbNav['admin']=['brand'=>'Doctor / Clinical Co-Adminis
  ],
  'Patient Care'=>[
      ['users','Clinic Queue','queue.php'],
-     ['file-medical','Consultations','consultations.php?tab=consultations'],
-     ['file-medical','Patient Records','patients.php'],
+     ['file-medical','Patient Records & Consultations','patients.php'],
      ['shield-check','Manage Nurses','nurse_verification.php'],
      ['file-medical','Reports','reports.php'],
  ],
