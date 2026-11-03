@@ -16,7 +16,7 @@
         const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
         const data = await response.json();
         if (email.value.trim() !== value) return;
-        state.textContent = response.ok && data.success ? (data.available ? 'Available. Final validation runs before account creation.' : 'This email already belongs to an account.') : 'Email availability could not be checked. Retry or use preview.';
+        state.textContent = response.ok && data.success ? (data.available ? 'Available. Final validation runs before account creation.' : 'This email address is already in use.') : 'Email availability could not be checked. Retry or use preview.';
       } catch (error) {
         if (error.name !== 'AbortError' && email.value.trim() === value) state.textContent = 'Email availability could not be checked. Use preview to validate.';
       }

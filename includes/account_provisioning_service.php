@@ -78,29 +78,49 @@ final class AccountProvisioningService
         }finally{$zip->close();}
     }
 
+    /** Formatting spaces are insignificant; punctuation and leading zeros remain meaningful. */
+    public static function normalizeInstitutionalId(string $value): string
+    {
+        return strtoupper(str_replace([' ', "\u{00A0}"], '', trim($value)));
+    }
+
     public function preview(array $rows): array
     {
         if(count($rows)<1||count($rows)>100)throw new InvalidArgumentException('Provide between 1 and 100 accounts.');
         $seen=[];$out=[];
         foreach($rows as $index=>$row){
-            $p=[];$errors=[];$duplicate=false;
+            $p=[];$fields=[];$duplicates=[];
             foreach(self::COLUMNS as $key){$v=$row[$key]??'';if(!is_string($v)||!mb_check_encoding($v,'UTF-8'))throw new InvalidArgumentException('Account fields must be valid UTF-8 text.');$p[$key]=trim($v);}
-            $p['email']=strtolower($p['email']);$p['role']=strtolower($p['role']);$p['institutional_id']=strtoupper($p['institutional_id']);
-            if(!in_array($p['role'],['student','teacher','nurse'],true))$errors[]='Role must be Student, Teacher or Nurse. Use the privileged Doctor invitation process for Doctors.';
-            if(!preg_match('/^[A-Za-z0-9_]{3,50}$/D',$p['username']))$errors[]='Username must contain 3–50 letters, numbers or underscores.';
-            if(strlen($p['email'])>120||!filter_var($p['email'],FILTER_VALIDATE_EMAIL))$errors[]='Enter a valid official email address.';
-            foreach(['first_name','last_name'] as $key)if($p[$key]===''||mb_strlen($p[$key])>80||preg_match('/[\x00-\x1F<>]/',$p[$key]))$errors[]='First and last names are required (maximum 80 characters).';
-            if(!preg_match('/^[A-Za-z0-9][A-Za-z0-9._\/-]{0,29}$/D',$p['institutional_id']))$errors[]='Institutional ID must contain 1–30 letters, numbers or . _ / -.';
-            foreach(['email'=>$p['email'],'username'=>strtolower($p['username']),'identifier'=>$p['role'].':'.strtolower($p['institutional_id'])] as $key=>$value){
-                if(isset($seen[$key][$value])){$errors[]='Duplicate '.$key.' within this batch.';$duplicate=true;}$seen[$key][$value]=true;
+            $originalId=$row['institutional_id']??'';
+            $p['email']=strtolower($p['email']);$p['role']=strtolower($p['role']);$p['institutional_id']=self::normalizeInstitutionalId($p['institutional_id']);
+            if(!in_array($p['role'],['student','teacher','nurse'],true))$fields['role'][]='Choose Student, Teacher or Nurse.';
+            if(!preg_match('/^[A-Za-z0-9_]{3,50}$/D',$p['username']))$fields['username'][]='Username must contain 3 to 50 letters, numbers or underscores.';
+            if(strlen($p['email'])>120||!filter_var($p['email'],FILTER_VALIDATE_EMAIL))$fields['email'][]='Enter a valid email address.';
+            foreach(['first_name'=>'First name','last_name'=>'Last name'] as $key=>$label)if($p[$key]===''||mb_strlen($p[$key])>80||preg_match('/[\x00-\x1F<>]/',$p[$key]))$fields[$key][]=$label.' is required and must contain no more than 80 characters.';
+            if($p['institutional_id']==='')$fields['institutional_id'][]='Enter an institutional ID.';
+            elseif(mb_strlen($p['institutional_id'])>30)$fields['institutional_id'][]='Institutional ID must contain no more than 30 characters after spaces are removed.';
+            elseif(!preg_match('/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/D',$p['institutional_id']))$fields['institutional_id'][]='This institutional ID contains unsupported characters. Use letters, numbers or . _ / -.';
+            $invalid=(bool)$fields;
+            foreach(['email'=>$p['email'],'username'=>strtolower($p['username']),'institutional_id'=>$p['institutional_id']] as $key=>$value){
+                if($value===''||isset($fields[$key]))continue;
+                $batchKey=$key==='institutional_id'?$p['role'].':'.$value:$value;
+                if(isset($seen[$key][$batchKey]))$duplicates[$key][]=['email'=>'This email address','username'=>'This username','institutional_id'=>'This institutional ID'][$key].' also appears in file row '.$seen[$key][$batchKey].'.';
+                else $seen[$key][$batchKey]=$index+2;
             }
-            $q=$this->db->prepare('SELECT id FROM users WHERE email=? OR username=? LIMIT 1');$q->execute([$p['email'],$p['username']]);
-            if($q->fetch()){$errors[]='Email or username already exists.';$duplicate=true;}
-            if(in_array($p['role'],['student','teacher','nurse'],true)){
+            foreach(['email'=>'This email address is already in use.','username'=>'This username is already taken.'] as $key=>$message){
+                if(isset($fields[$key]))continue;
+                $q=$this->db->prepare("SELECT id FROM users WHERE LOWER(TRIM($key))=LOWER(?) LIMIT 1");$q->execute([$p[$key]]);
+                if($q->fetch())$duplicates[$key][]=$message;
+            }
+            if(!isset($fields['role'])&&!isset($fields['institutional_id'])){
                 $table=['student'=>'students','teacher'=>'teachers','nurse'=>'nurses'][$p['role']];$field=$p['role']==='student'?'student_number':'employee_id';
-                $q=$this->db->prepare("SELECT id FROM $table WHERE $field=? LIMIT 1");$q->execute([$p['institutional_id']]);if($q->fetch()){$errors[]='Institutional ID already exists for this role.';$duplicate=true;}
+                // Apply the same space normalization to stored values for comparison only.
+                $q=$this->db->prepare("SELECT id FROM $table WHERE REPLACE(REPLACE(CAST(CONVERT(UPPER(TRIM($field)) USING utf8mb4) AS BINARY), 0x20, ''), 0xC2A0, '')=CAST(? AS BINARY) LIMIT 1");
+                $q->execute([$p['institutional_id']]);if($q->fetch())$duplicates['institutional_id'][]='This institutional ID is already registered.';
             }
-            $out[]=['row'=>$index+2,'account'=>$p,'errors'=>array_values(array_unique($errors)),'status'=>$duplicate?'duplicate':($errors?'invalid':'ready')];
+            foreach($duplicates as $key=>$messages)$fields[$key]=array_merge($fields[$key]??[],$messages);
+            $errors=[];foreach($fields as $messages)$errors=array_merge($errors,$messages);
+            $out[]=['row'=>$index+2,'account'=>$p,'original_institutional_id'=>$originalId,'field_errors'=>$fields,'errors'=>array_values(array_unique($errors)),'status'=>$invalid?'invalid':($duplicates?'duplicate':'ready')];
         }
         return $out;
     }
@@ -122,7 +142,7 @@ final class AccountProvisioningService
         return $status;
     }
 
-    public function create(int $actor,array $rows,bool $studentImport=false): array
+    public function create(int $actor,array $rows,bool $bulkImport=false): array
     {
         foreach(['users','students','teachers','nurses','account_activation_invitations','account_provisioning_lock','activity_logs'] as $table){
             $engine=$this->db->prepare('SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND BINARY TABLE_NAME=BINARY ?');$engine->execute([$table]);
@@ -150,8 +170,11 @@ final class AccountProvisioningService
                 $pending[]=['user_id'=>$id,'person'=>$p,'challenge'=>$this->challenge($id,$actor)];
             }
             $this->db->prepare('INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,?,?,?)')->execute([$actor,$profile==='doctor'?'Invited Nurse account':'Provisioned account batch',$profile==='doctor'?'nurse_accounts':'users',count($pending).' pending accounts; private setup required; account references: '.implode(',',array_column($pending,'user_id'))]);
-            if($studentImport && $pending && !array_filter($rows,static fn($row)=>($row['role']??'')!=='student')) {
-                $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Imported student records','users',?)")->execute([$actor,count($pending).' student accounts imported.']);
+            if($bulkImport && $pending) {
+                foreach(['student','teacher'] as $role){
+                    $count=count(array_filter($pending,static fn($row)=>$row['person']['role']===$role));
+                    if($count)$this->db->prepare('INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,?,?,?)')->execute([$actor,'Imported '.$role.' records','users',$count.' '.$role.' accounts imported.']);
+                }
             }
             $this->db->commit();
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
@@ -161,14 +184,24 @@ final class AccountProvisioningService
     /** Each valid row commits independently; create() rechecks identities under the shared lock. */
     public function importStudents(int $actor,array $rows): array
     {
+        return $this->importRows($actor,$rows,['student']);
+    }
+
+    public function importAccounts(int $actor,array $rows): array
+    {
+        return $this->importRows($actor,$rows,['student','teacher']);
+    }
+
+    private function importRows(int $actor,array $rows,array $roles): array
+    {
         $report=[];
         foreach($this->preview($rows) as $row){
-            if($row['account']['role']!=='student'){$row['errors'][]='Student imports accept only the Student role.';$row['status']='invalid';}
-            if($row['errors']){$row['status']=$row['status']==='duplicate'?'skipped':'failed';$report[]=$row;continue;}
+            if(!in_array($row['account']['role'],$roles,true)){$row['errors'][]='Choose '.implode(' or ',array_map('ucfirst',$roles)).' for this import.';$row['status']='invalid';}
+            if($row['errors']){$row['status']='skipped';$report[]=$row;continue;}
             try{
                 $created=$this->create($actor,[$row['account']],true);
                 $row['status']='successful';$row['delivery_status']=$created[0]['delivery_status'];
-            }catch(InvalidArgumentException $e){$row['status']='skipped';$row['errors']=['This record changed or already exists. Preview the file again.'];}
+            }catch(InvalidArgumentException $e){$row['status']='skipped';$row['errors']=[preg_replace('/^Row 2: /','',$e->getMessage())];}
             catch(Throwable $e){error_log('Student import row failed: '.get_class($e).' code='.$e->getCode());$row['status']='failed';$row['errors']=['This account could not be created. Try this record again.'];}
             $report[]=$row;
         }

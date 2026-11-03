@@ -97,7 +97,7 @@ foreach(range(1,3) as $n)$importRows[]=['role'=>'student','username'=>'partial_i
 $importRows[1]['email']='invalid';$importRows[]=$importRows[0];
 $beforeImportAudit=(int)$db->query("SELECT COUNT(*) FROM activity_logs WHERE action='Imported student records'")->fetchColumn();
 $report=$provision->importStudents($actor,$importRows);
-checkMis(array_column($report,'status')===['successful','failed','successful','skipped'],'Student import commits valid rows and reports invalid and duplicate rows');
+checkMis(array_column($report,'status')===['successful','skipped','successful','skipped'],'Student import commits valid rows and skips invalid and duplicate rows');
 checkMis((int)$db->query("SELECT COUNT(*) FROM activity_logs WHERE action='Imported student records'")->fetchColumn()===$beforeImportAudit+2,'Only successful student imports append import activity events');
 $report=$provision->importStudents($actor,$importRows);
 checkMis(count(array_filter($report,static fn($r)=>$r['status']==='successful'))===0,'Repeated import creates no duplicate accounts');
@@ -135,7 +135,7 @@ try{
  curl_setopt_array($c,[CURLOPT_URL=>$base.'/pages/admin/provision_accounts.php',CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>['action'=>'preview_csv','csrf_token'=>$provisionToken,'accounts_csv'=>new CURLFile($upload,'text/csv','students.csv')]]);$body=curl_exec($c);curl_setopt($c,CURLOPT_POSTFIELDS,'');
  checkMis(curl_getinfo($c,CURLINFO_RESPONSE_CODE)===200&&str_contains($body,'name="nonce"'),'Mixed-validity upload permits explicit confirmation of valid records');
  $confirmed=misRequest($c,'/pages/admin/provision_accounts.php',['action'=>'create','csrf_token'=>$provisionToken,'nonce'=>misField(['body'=>$body],'nonce')]);
- checkMis($confirmed['status']===200&&str_contains($confirmed['body'],'Successful: 1. Skipped: 0. Failed: 1.'),'HTTP confirmation displays accurate partial import summary');
+ checkMis($confirmed['status']===200&&str_contains($confirmed['body'],'Successful: 1. Skipped: 1. Failed: 0.'),'HTTP confirmation displays accurate partial import summary');
  $download=misRequest($c,'/pages/admin/provision_accounts.php?download=report');
  checkMis($download['status']===200&&str_contains($download['body'],'HTTP-INVALID')&&!str_contains($download['body'],'password')&&!str_contains($download['body'],'token'),'MIS downloads correction report without setup secrets');
 }finally{unlink($upload);}
@@ -149,3 +149,5 @@ $statuses=[];
 foreach($workers as [$process,$workerPipes]){$output=stream_get_contents($workerPipes[1]);$errors=stream_get_contents($workerPipes[2]);fclose($workerPipes[1]);fclose($workerPipes[2]);checkMis(proc_close($process)===0,'Concurrent student import worker completed');$statuses[]=json_decode($output,true)[0]??'unknown';}
 sort($statuses);
 checkMis($statuses===['skipped','successful']&&(int)$db->query("SELECT COUNT(*) FROM users WHERE username='concurrent_import'")->fetchColumn()===1,'Concurrent student imports create exactly one account without overwriting');
+
+require __DIR__.'/account_import_validation_checks.php';
