@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ];
     $stored = null;
     try {
+        if (!$service->ready()) throw new RuntimeException($service->unavailableMessage());
         $state = $service->ready() ? $service->load() : ['live' => []];
         $errors = NurseCredentialsService::validateFields($posted, $state['live'], $intent === 'submit');
         $file = $_FILES['credential_document'] ?? null;
@@ -53,7 +54,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$state = $service->ready() ? $service->load() : ['live' => [], 'draft' => null, 'last_submission' => null, 'eligibility' => null];
+$loadFailed = false;
+$state = ['live' => [], 'draft' => null, 'last_submission' => null, 'eligibility' => null];
+try {
+    if ($service->ready()) $state = $service->load();
+} catch (PDOException $e) {
+    clinical_database_failure('nurse.credentials.load', $e);
+    $loadFailed = true;
+}
 $live = $state['live']; $draft = $state['draft'];
 $val = static function (string $f) use ($posted, $draft, $live) {
     if ($posted !== null) return $posted[$f] ?? '';
@@ -63,12 +71,14 @@ $val = static function (string $f) use ($posted, $draft, $live) {
 $status = (string)($live['clinical_authorization_status'] ?? 'pending');
 $authorized = $status === 'authorized';
 $blockedReason = '';
-if (!$service->ready()) $blockedReason = 'Credential correction is unavailable until the reviewed database migration is applied. Contact the system administrator.';
+if ($loadFailed) $blockedReason = 'Professional credentials could not be loaded. Please retry. If this continues, contact the system administrator.';
+elseif (!$service->ready()) $blockedReason = $service->unavailableMessage();
 elseif (($live['account_status'] ?? '') !== 'active') $blockedReason = 'Your account is ' . e($live['account_status'] ?? 'unknown') . '. Credentials can be submitted only on an active account. Contact the Clinic Head.';
 elseif (empty($live['email_verified'])) $blockedReason = 'Verify your email address with your one-time code before submitting credentials. Drafts can still be saved.';
 elseif ($status === 'revoked') $blockedReason = 'Clinical access was revoked by a Doctor. Contact the Clinic Head; credentials cannot be resubmitted here.';
 $canSubmit = $blockedReason === '';
-$canDraft = $service->ready() && $status !== 'revoked';
+$canDraft = $service->ready() && !$loadFailed && $status !== 'revoked';
+if (!$service->ready() || $loadFailed) http_response_code(503);
 $hint = NurseCredentialsService::employeeIdHint();
 $empPattern = NurseCredentialsService::employeeIdPattern();
 $docUrl = APP_URL . '/api/nurse_documents.php?id=' . (int)$user['id'];
@@ -94,7 +104,9 @@ $cls = static fn(string $k) => isset($errors[$k]) ? ' is-invalid' : '';
       </div>
 
       <?php if ($formError): ?><div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle-fill me-2"></i><?= e($formError) ?></div><?php endif; ?>
-      <?php if ($blockedReason): ?><div class="alert alert-warning" role="alert"><?= $blockedReason ?></div><?php endif; ?>
+      <?php if ($blockedReason): ?><div class="alert alert-warning" role="alert"><?= $blockedReason ?>
+        <?php if (!$service->ready() || $loadFailed): ?><a class="btn btn-sm btn-outline-secondary ms-2" href="credentials.php">Retry</a><?php endif; ?>
+      </div><?php endif; ?>
 
       <div class="row g-3">
         <div class="col-12 col-xl-7">

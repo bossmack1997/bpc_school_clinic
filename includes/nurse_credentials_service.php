@@ -24,6 +24,7 @@ final class NurseCredentialsService
     public const STORAGE_DIR = 'storage/registration_documents';
 
     private array $missing = [];
+    private bool $schemaUnavailable = false;
 
     public function __construct(private PDO $db, private array $actor)
     {
@@ -33,6 +34,8 @@ final class NurseCredentialsService
                 $have = $this->db->query('SHOW COLUMNS FROM `' . $table . '`')->fetchAll(PDO::FETCH_COLUMN);
                 foreach (array_diff($cols, $have) as $c) $this->missing[] = $table . '.' . $c;
             } catch (PDOException $e) {
+                clinical_database_failure('nurse.credentials.schema.' . $table, $e);
+                if (($e->errorInfo[1] ?? null) !== 1146) $this->schemaUnavailable = true;
                 $this->missing[] = $table;
             }
         }
@@ -40,6 +43,12 @@ final class NurseCredentialsService
 
     public function ready(): bool { return !$this->missing; }
     public function missingSchema(): array { return $this->missing; }
+    public function unavailableMessage(): string
+    {
+        return $this->schemaUnavailable
+            ? 'Professional credentials could not be loaded. Please retry. If this continues, contact the system administrator.'
+            : 'Professional credentials need a database update before changes can be saved. Contact the system administrator.';
+    }
 
     // ---------------------------------------------------------------- validation
 
@@ -161,7 +170,7 @@ final class NurseCredentialsService
 
     private function requireNurse(): int
     {
-        if (!$this->ready()) throw new RuntimeException('Credential correction is unavailable until the reviewed database migration is applied.');
+        if (!$this->ready()) throw new RuntimeException($this->unavailableMessage());
         if (($this->actor['role'] ?? '') !== 'nurse') throw new RuntimeException('Only the Nurse account owner can edit professional credentials.');
         return (int)$this->actor['id'];
     }
