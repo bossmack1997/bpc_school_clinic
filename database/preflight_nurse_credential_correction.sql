@@ -1,28 +1,116 @@
--- READ-ONLY preflight for migration_nurse_credential_correction_20261024.sql (SELECT only).
--- Run with the production application database selected.
-SELECT DATABASE() AS selected_database;
 
-SELECT t.name AS required_table,
-       CASE WHEN i.TABLE_NAME IS NULL THEN 'ADD (expected before migration)' ELSE 'EXISTS - review columns before continuing' END AS result
-FROM (SELECT 'nurse_credential_drafts' AS name UNION ALL SELECT 'nurse_credential_submissions') t
-LEFT JOIN information_schema.TABLES i ON i.TABLE_SCHEMA = DATABASE() AND i.TABLE_NAME = t.name;
+-- ============================================================
+-- BPC SCHOOL CLINIC MANAGEMENT SYSTEM
+-- NURSE CREDENTIAL CORRECTION - PRODUCTION PREFLIGHT
+-- Database: u962995739_bpc_clinic
+--
+-- READ-ONLY: No tables or records will be modified.
+-- ============================================================
 
--- Prerequisites that must already exist (each should return OK).
-SELECT 'nurses.license_number/employee_id/position/valid_id_path' AS prerequisite,
-       IF(COUNT(*) = 4, 'OK', 'BLOCK - missing columns') AS result
+-- 1. Verify the production database exists
+SELECT
+    SCHEMA_NAME AS database_name,
+    'DATABASE FOUND' AS result
+FROM information_schema.SCHEMATA
+WHERE SCHEMA_NAME = 'u962995739_bpc_clinic';
+
+
+-- 2. Check the two required credential tables
+SELECT
+    required.name AS required_table,
+    CASE
+        WHEN existing.TABLE_NAME IS NULL
+            THEN 'ADD - Missing, migration required'
+        ELSE 'EXISTS - Verify table structure'
+    END AS result
+FROM (
+    SELECT 'nurse_credential_drafts' AS name
+    UNION ALL
+    SELECT 'nurse_credential_submissions'
+) AS required
+LEFT JOIN information_schema.TABLES AS existing
+    ON existing.TABLE_SCHEMA = 'u962995739_bpc_clinic'
+    AND existing.TABLE_NAME = required.name;
+
+
+-- 3. Check required Nurse columns
+SELECT
+    'Nurse credential columns' AS prerequisite,
+    COUNT(DISTINCT COLUMN_NAME) AS columns_found,
+    CASE
+        WHEN COUNT(DISTINCT COLUMN_NAME) = 4 THEN 'OK'
+        ELSE 'BLOCK - Missing required columns'
+    END AS result
 FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'nurses'
-  AND COLUMN_NAME IN ('license_number','employee_id','position','valid_id_path');
+WHERE TABLE_SCHEMA = 'u962995739_bpc_clinic'
+  AND TABLE_NAME = 'nurses'
+  AND COLUMN_NAME IN (
+      'license_number',
+      'employee_id',
+      'position',
+      'valid_id_path'
+  );
 
-SELECT 'nurses.clinical_authorization_status' AS prerequisite, IF(COUNT(*) = 1, 'OK', 'BLOCK') AS result
-FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'nurses' AND COLUMN_NAME = 'clinical_authorization_status';
 
-SELECT 'nurse_clinical_reviews' AS prerequisite, IF(COUNT(*) = 1, 'OK', 'BLOCK') AS result
-FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'nurse_clinical_reviews';
+-- 4. Check Nurse clinical authorization
+SELECT
+    'Nurse clinical authorization' AS prerequisite,
+    CASE
+        WHEN COUNT(*) = 1 THEN 'OK'
+        ELSE 'BLOCK - Missing authorization column'
+    END AS result
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = 'u962995739_bpc_clinic'
+  AND TABLE_NAME = 'nurses'
+  AND COLUMN_NAME = 'clinical_authorization_status';
 
--- Data that the new duplicate checks will reject on future edits (informational; nothing is changed).
-SELECT 'duplicate PRC numbers' AS check_name, COUNT(*) AS groups_found FROM (
-  SELECT LOWER(TRIM(license_number)) k FROM nurses WHERE license_number IS NOT NULL AND TRIM(license_number) <> '' GROUP BY k HAVING COUNT(*) > 1) d;
-SELECT 'duplicate Employee IDs' AS check_name, COUNT(*) AS groups_found FROM (
-  SELECT LOWER(TRIM(employee_id)) k FROM nurses WHERE employee_id IS NOT NULL AND TRIM(employee_id) <> '' GROUP BY k HAVING COUNT(*) > 1) d;
 
+-- 5. Check Doctor review history table
+SELECT
+    'Nurse clinical reviews' AS prerequisite,
+    CASE
+        WHEN COUNT(*) = 1 THEN 'OK'
+        ELSE 'BLOCK - Missing review table'
+    END AS result
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = 'u962995739_bpc_clinic'
+  AND TABLE_NAME = 'nurse_clinical_reviews'
+  AND TABLE_TYPE = 'BASE TABLE';
+
+
+-- 6. Check duplicate PRC license numbers
+SELECT
+    'Duplicate PRC numbers' AS check_name,
+    COUNT(*) AS groups_found,
+    CASE
+        WHEN COUNT(*) = 0 THEN 'OK'
+        ELSE 'REVIEW - Duplicate PRC numbers found'
+    END AS result
+FROM (
+    SELECT LOWER(TRIM(license_number)) AS license_key
+    FROM `u962995739_bpc_clinic`.`nurses`
+    WHERE license_number IS NOT NULL
+      AND TRIM(license_number) <> ''
+    GROUP BY LOWER(TRIM(license_number))
+    HAVING COUNT(*) > 1
+) AS duplicate_prc;
+
+
+-- 7. Check duplicate Employee IDs
+SELECT
+    'Duplicate Employee IDs' AS check_name,
+    COUNT(*) AS groups_found,
+    CASE
+        WHEN COUNT(*) = 0 THEN 'OK'
+        ELSE 'REVIEW - Duplicate Employee IDs found'
+    END AS result
+FROM (
+    SELECT LOWER(TRIM(employee_id)) AS employee_key
+    FROM `u962995739_bpc_clinic`.`nurses`
+    WHERE employee_id IS NOT NULL
+      AND TRIM(employee_id) <> ''
+    GROUP BY LOWER(TRIM(employee_id))
+    HAVING COUNT(*) > 1
+) AS duplicate_employees;
+
+-- END OF READ-ONLY PREFLIGHT

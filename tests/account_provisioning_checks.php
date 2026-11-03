@@ -38,7 +38,7 @@ $denied=false;try{$provision->create($doctor,$accounts);}catch(InvalidArgumentEx
 $duplicates=$accounts;$duplicates[1]['email']=$duplicates[0]['email'];checkMis(!empty($provision->preview($duplicates)[1]['errors']),'Import detects intra-batch duplicate emails');
 $created=array_merge($provision->create($actor,array_slice($accounts,0,2)),$provision->create($doctor,[$accounts[2]]));checkMis(count($created)===3&&array_unique(array_column($created,'delivery_status'))===['sent'],'MIS provisions Students/Teachers and Doctor invites Nurse with individual links');
 checkMis(!str_contains(json_encode($created),'#token=')&&!str_contains(json_encode($created),'password'),'Provisioning result contains no token or password');
-$accountHistory=misRequest($c,'/api/activity_logs.php?action=list&search=Provisioned%20account%20batch');
+$accountHistory=misRequest($c,'/api/activity_logs.php?action=list&search=Created%20an%20account');
 checkMis($accountHistory['status']===200&&(json_decode($accountHistory['body'],true)['total']??0)>0&&!str_contains($accountHistory['body'],'#token=')&&!str_contains($accountHistory['body'],'PrivatePass!42'),'MIS Activity History includes account provisioning without credentials');
 checkMis(misRequest($invitee,'/api/activity_logs.php?action=list')['status']===403,'Doctor cannot enumerate MIS technical Activity History');
 checkMis(misRequest($c,'/pages/admin/clinical_legacy_dashboard.php')['status']===403,'MIS cannot bypass clinical separation through legacy dashboard');
@@ -95,10 +95,13 @@ $expiredDenied=false;try{$provision->activate($newToken,'PrivatePass!42','Privat
 $importRows=[];
 foreach(range(1,3) as $n)$importRows[]=['role'=>'student','username'=>'partial_import_'.$n,'email'=>'partial_import_'.$n.'@example.invalid','first_name'=>'Import','last_name'=>'Fixture','institutional_id'=>'PARTIAL-'.$n];
 $importRows[1]['email']='invalid';$importRows[]=$importRows[0];
+$beforeImportAudit=(int)$db->query("SELECT COUNT(*) FROM activity_logs WHERE action='Imported student records'")->fetchColumn();
 $report=$provision->importStudents($actor,$importRows);
 checkMis(array_column($report,'status')===['successful','failed','successful','skipped'],'Student import commits valid rows and reports invalid and duplicate rows');
+checkMis((int)$db->query("SELECT COUNT(*) FROM activity_logs WHERE action='Imported student records'")->fetchColumn()===$beforeImportAudit+2,'Only successful student imports append import activity events');
 $report=$provision->importStudents($actor,$importRows);
 checkMis(count(array_filter($report,static fn($r)=>$r['status']==='successful'))===0,'Repeated import creates no duplicate accounts');
+checkMis((int)$db->query("SELECT COUNT(*) FROM activity_logs WHERE action='Imported student records'")->fetchColumn()===$beforeImportAudit+2,'Skipped repeated imports do not fabricate import events');
 checkMis(!str_contains(json_encode($report),'password')&&!str_contains(json_encode($report),'token'),'Import report contains no setup secrets');
 
 $edge=$importRows[0];$edge['email']='new_id_probe@example.invalid';$edge['username']='new_id_probe';

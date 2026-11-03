@@ -11,10 +11,13 @@ function escapeLog(value) { return $('<span>').text(String(value ?? '')).html();
 
 function loadLogs(page) {
   const search = $('#searchInput').val();
+  $('#logInfo').text('Loading activities...');
   if (request) request.abort();
-  request = $.get(APP_URL + '/api/activity_logs.php', { action: 'list', page, search, module:$('#logModule').val()||'', from:$('#logFrom').val()||'', to:$('#logTo').val()||'' }, function (res) {
+  $('#prevPage, #nextPage').prop('disabled', true);
+  $('#logsTable tbody').empty();
+  request = $.get(APP_URL + '/api/activity_logs.php', { action: 'list', page, search, from:$('#logFrom').val()||'', to:$('#logTo').val()||'' }, function (res) {
     if (!res.success) {
-      $('#logInfo').text(res.message || 'Unable to load activity logs. Use Search to retry.');
+      $('#logInfo').text(res.message || 'Unable to load activities. Select Search to retry.');
       return;
     }
     currentPage = res.page;
@@ -26,23 +29,21 @@ function loadLogs(page) {
 
 const rows = res.data.map(l => [
       escapeLog((l.first_name || 'System') + ' ' + (l.last_name || '')),
-      l.role ? '<span class="badge bg-info">' + escapeLog(l.role) + '</span>' : '—',
-      escapeLog(l.action),
-      escapeLog(l.module || '—'),
-      escapeLog(l.details || '—'),
+      l.role ? '<span class="badge bg-info">' + escapeLog(l.role.charAt(0).toUpperCase() + l.role.slice(1)) + '</span>' : 'System',
+      escapeLog(l.activity),
       escapeLog(l.created_at)
     ]);
     const tbody = $('#logsTable tbody');
     tbody.empty();
     if (!rows || rows.length === 0) {
-      tbody.append('<tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-clock-history fs-3 d-block mb-1"></i>No audit activity yet.</td></tr>');
+      tbody.append('<tr><td colspan="4" class="text-center text-muted py-4"><i class="bi bi-clock-history fs-3 d-block mb-1"></i>No activities match your search.</td></tr>');
     } else {
       rows.forEach(function(r) {
-        tbody.append('<tr>' + r.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>');
+        tbody.append('<tr>' + r.map(function(c, i) { return '<td data-label="' + ['User','Role','Activity','Date &amp; Time'][i] + '">' + c + '</td>'; }).join('') + '</tr>');
       });
     }
   }, 'json').fail(function (xhr, status) {
-    if (status !== 'abort') $('#logInfo').text('Unable to load activity logs. Use Search to retry.');
+    if (status !== 'abort') $('#logInfo').text('Unable to load activities. Select Search to retry.');
   });
 }
 const panel = document.getElementById('settingsPanel-activity-logs');
@@ -62,6 +63,6 @@ function searchLogs() { loadLogs(1); }
 $('#searchInput').on('keyup', function (e) { if (e.key === 'Enter') searchLogs(); });
 
 $('#searchLogsButton').on('click', searchLogs);
-$('#logModule, #logFrom, #logTo').on('change',searchLogs);
+$('#logFrom, #logTo').on('change',searchLogs);
 
 })();

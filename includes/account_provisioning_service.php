@@ -122,7 +122,7 @@ final class AccountProvisioningService
         return $status;
     }
 
-    public function create(int $actor,array $rows): array
+    public function create(int $actor,array $rows,bool $studentImport=false): array
     {
         foreach(['users','students','teachers','nurses','account_activation_invitations','account_provisioning_lock','activity_logs'] as $table){
             $engine=$this->db->prepare('SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND BINARY TABLE_NAME=BINARY ?');$engine->execute([$table]);
@@ -150,6 +150,9 @@ final class AccountProvisioningService
                 $pending[]=['user_id'=>$id,'person'=>$p,'challenge'=>$this->challenge($id,$actor)];
             }
             $this->db->prepare('INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,?,?,?)')->execute([$actor,$profile==='doctor'?'Invited Nurse account':'Provisioned account batch',$profile==='doctor'?'nurse_accounts':'users',count($pending).' pending accounts; private setup required; account references: '.implode(',',array_column($pending,'user_id'))]);
+            if($studentImport && $pending && !array_filter($rows,static fn($row)=>($row['role']??'')!=='student')) {
+                $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Imported student records','users',?)")->execute([$actor,count($pending).' student accounts imported.']);
+            }
             $this->db->commit();
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
         $result=[];foreach($pending as $row)$result[]=['user_id'=>$row['user_id'],'delivery_status'=>$this->deliver($row['challenge'],$row['person'])];return $result;
@@ -163,7 +166,7 @@ final class AccountProvisioningService
             if($row['account']['role']!=='student'){$row['errors'][]='Student imports accept only the Student role.';$row['status']='invalid';}
             if($row['errors']){$row['status']=$row['status']==='duplicate'?'skipped':'failed';$report[]=$row;continue;}
             try{
-                $created=$this->create($actor,[$row['account']]);
+                $created=$this->create($actor,[$row['account']],true);
                 $row['status']='successful';$row['delivery_status']=$created[0]['delivery_status'];
             }catch(InvalidArgumentException $e){$row['status']='skipped';$row['errors']=['This record changed or already exists. Preview the file again.'];}
             catch(Throwable $e){error_log('Student import row failed: '.get_class($e).' code='.$e->getCode());$row['status']='failed';$row['errors']=['This account could not be created. Try this record again.'];}

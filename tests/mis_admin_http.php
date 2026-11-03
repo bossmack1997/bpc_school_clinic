@@ -141,5 +141,6 @@ try{
    putenv('MIS_INVITATION_TOKENS='.json_encode($browserTokens));putenv('MIS_TEST_BASE='.$base);
    passthru('node '.escapeshellarg(__DIR__.'/invitation_browser.cjs'),$browserExit);checkMis($browserExit===0,'Fresh mobile and desktop browser invitation workflows');
  }
+ if(in_array('--activity-history',$argv,true))require __DIR__.'/activity_history_checks.php';
  echo "$checks MIS HTTP checks passed.\n";
 }finally{if(isset($credentialStored)&&preg_match('#^storage/registration_documents/credential_[a-f0-9]{32}\.png$#D',$credentialStored)&&is_file(__DIR__.'/../'.$credentialStored))unlink(__DIR__.'/../'.$credentialStored);if(isset($staffFixtureDocument)&&is_file(__DIR__.'/../'.$staffFixtureDocument))unlink(__DIR__.'/../'.$staffFixtureDocument);if(is_resource($server)){proc_terminate($server);proc_close($server);}$admin->exec("DROP DATABASE IF EXISTS `$database`");}
