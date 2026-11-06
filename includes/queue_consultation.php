@@ -1,5 +1,11 @@
 <?php
 /** Shared guards and draft persistence for the integrated nurse workspace. */
+function queue_consultation_guard_emergency(PDO $db, array $ticket): void {
+    if($ticket['priority']==='emergency')return;
+    $q=$db->prepare("SELECT id FROM queue_numbers WHERE priority='emergency' AND status IN ('waiting','called') AND created_at>=CURDATE() AND created_at<CURDATE()+INTERVAL 1 DAY AND id<>? ORDER BY created_at,id LIMIT 1 FOR UPDATE");
+    $q->execute([$ticket['id']]);
+    if($q->fetchColumn())throw new DomainException('An emergency patient is waiting for assessment. Attend to the emergency before calling or starting a routine visit.');
+}
 function queue_consultation_lock(PDO $db, int $ticketId): array {
     $stmt = $db->prepare('SELECT * FROM queue_numbers WHERE id = ? FOR UPDATE');
     $stmt->execute([$ticketId]);
@@ -35,7 +41,7 @@ function queue_consultation_visit(PDO $db, array $ticket, int $userId): array {
 function queue_consultation_version(?array $visit): string {
     if (!$visit) return '';
     // Hash the actual clinical fields, avoiding timestamp precision races.
-    $fields = ['id', 'status', 'chief_complaint', 'symptoms', 'assessment', 'diagnosis', 'treatment',
+    $fields = ['id', 'status', 'priority_level', 'chief_complaint', 'symptoms', 'assessment', 'diagnosis', 'treatment',
         'recommendation', 'need_follow_up', 'follow_up_date', 'digital_signature', 'ai_summary',
         'ai_summary_edited', 'temperature', 'blood_pressure_systolic', 'blood_pressure_diastolic',
         'heart_rate', 'respiratory_rate', 'oxygen_saturation', 'height_cm', 'weight_kg'];
@@ -43,8 +49,8 @@ function queue_consultation_version(?array $visit): string {
 }
 
 function queue_consultation_check_version(array $visit): void {
-    $expected = (string)($_POST['draft_version'] ?? '');
-    if ($expected !== '' && !hash_equals(queue_consultation_version($visit), $expected)) {
+    $expected = $_POST['draft_version'] ?? '';
+    if (!is_string($expected) || $expected === '' || !hash_equals(queue_consultation_version($visit), $expected)) {
         throw new DomainException('This consultation was changed in another window. Your entries are retained; reopen the patient to review the saved record before retrying.');
     }
 }
@@ -54,6 +60,19 @@ function queue_consultation_save(PDO $db, int $visitId, array $input): void {
     enforce_nursing_documentation($input);
     if(isset($input['clinical_priority'])){
         if(!in_array($input['clinical_priority'],['normal','urgent','emergency'],true))throw new DomainException('Select a valid Nurse-confirmed clinical priority.');
+        $current=$db->prepare('SELECT priority_level,queue_id FROM walk_in_visits WHERE id=? FOR UPDATE');
+        $current->execute([$visitId]);$previous=$current->fetch(PDO::FETCH_ASSOC);
+        if(!$previous)throw new DomainException('Consultation not found.');
+        if($previous['priority_level']!==$input['clinical_priority']) {
+            $handoff=$db->prepare('SELECT id FROM physician_queue WHERE queue_id=? LIMIT 1');
+            $handoff->execute([$previous['queue_id']]);
+            if($handoff->fetchColumn())throw new DomainException('This patient has been referred. Ask the Doctor to reassess priority in the physician queue.');
+            $reason=$input['priority_reason']??'';
+            if(!is_string($reason)||mb_strlen(trim($reason))<3||mb_strlen($reason)>1000)throw new DomainException('Explain why the clinical priority changed (3–1000 characters).');
+            $actor=current_user();
+            $db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Clinical priority changed','clinical',?)")
+                ->execute([$actor['id'],'Queue #'.$previous['queue_id'].'; '.$previous['priority_level'].' -> '.$input['clinical_priority'].'; reason: '.trim($reason)]);
+        }
         $db->prepare('UPDATE walk_in_visits SET priority_level=? WHERE id=?')->execute([$input['clinical_priority'],$visitId]);
         $db->prepare('UPDATE queue_numbers SET priority=? WHERE id=(SELECT queue_id FROM walk_in_visits WHERE id=?)')->execute([$input['clinical_priority'],$visitId]);
     }

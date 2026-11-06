@@ -72,6 +72,7 @@ if ($action === 'list') {
 }
 
 if ($action === 'upload') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); json_response(false, [], 'Use POST.'); }
     csrf_verify_or_die();
     if ($user['role'] !== 'nurse') json_response(false, [], 'Not authorized. Only nurses can upload medical records.');
 
@@ -80,6 +81,12 @@ if ($action === 'upload') {
     $description = trim($_POST['description'] ?? '');
 
     if ($consultationId <= 0 || $studentId <= 0) json_response(false, [], 'Invalid consultation or student.');
+
+    $owner = $db->prepare('SELECT student_id FROM consultations WHERE id=?');
+    $owner->execute([$consultationId]);
+    if ((int)$owner->fetchColumn() !== $studentId) {
+        http_response_code(409); json_response(false, [], 'The consultation does not belong to this patient. Reload the patient record.');
+    }
 
     if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         json_response(false, [], 'Please select a file to upload.');
@@ -101,15 +108,22 @@ if ($action === 'upload') {
     $destRel = 'uploads/medical_records/' . $filename;
     $destAbs = BASE_PATH . '/' . $destRel;
 
-    if (!move_uploaded_file($file['tmp_name'], $destAbs)) {
-        json_response(false, [], 'Failed to upload file.');
+    $db->beginTransaction();
+    try {
+        $owner=$db->prepare('SELECT student_id FROM consultations WHERE id=? FOR UPDATE');$owner->execute([$consultationId]);
+        if((int)$owner->fetchColumn()!==$studentId)throw new DomainException('The consultation changed. Reload the patient record.');
+        if(!move_uploaded_file($file['tmp_name'],$destAbs))throw new RuntimeException('Attachment storage unavailable.');
+        $stmt = $db->prepare("INSERT INTO medical_records (consultation_id, student_id, file_path, file_type, description) VALUES (?,?,?,?,?)");
+        $stmt->execute([$consultationId, $studentId, $destRel, $file['type'], $description]);
+        $recordId=(int)$db->lastInsertId();
+        $db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Uploaded medical record','medical_records',?)")->execute([$user['id'],'Consultation #'.$consultationId.'; patient #'.$studentId]);
+        $db->commit();
+    }catch(Throwable $e){
+        if($db->inTransaction())$db->rollBack();
+        if(is_file($destAbs))unlink($destAbs);
+        http_response_code($e instanceof DomainException?409:503);
+        json_response(false, [], $e instanceof DomainException?$e->getMessage():safe_api_error($e,'The attachment could not be saved. Please try again.','medical_records/upload'));
     }
-
-    $stmt = $db->prepare("INSERT INTO medical_records (consultation_id, student_id, file_path, file_type, description) VALUES (?,?,?,?,?)");
-    $stmt->execute([$consultationId, $studentId, $destRel, $file['type'], $description]);
-    $recordId=(int)$db->lastInsertId();
-
-    log_activity($user['id'], 'Uploaded medical record', 'medical_records', "Student #$studentId");
     json_response(true, ['path' => app_url('api/medical_records.php?action=file&id='.$recordId)], 'File uploaded successfully.');
 }
 
@@ -141,13 +155,13 @@ if ($action === 'consultations') {
 }
 
 if ($action === 'detail') {
-    if (!in_array(canonical_role($user['role'] ?? ''), ['nurse', 'admin'], true)) json_response(false, [], 'Not authorized.');
+    if (!has_permission('clinical_records_read', $user)) admin_access_denied('Authorized clinic staff required.');
     $visitId = (int)($_GET['visit_id'] ?? 0);
     if ($visitId <= 0) json_response(false, [], 'Invalid visit.');
 
     $stmt = $db->prepare("
         SELECT c.*, s.student_number, s.course, s.year_level, s.section,
-               u.first_name, u.last_name, u.gender, u.birthdate
+               u.first_name, u.last_name, u.gender, COALESCE(u.date_of_birth, s.birthdate) AS birthdate
         FROM consultations c
         JOIN students s ON s.id = c.student_id
         JOIN users u ON u.id = s.user_id
@@ -160,32 +174,12 @@ if ($action === 'detail') {
 
     $studentName = trim(($visit['first_name'] ?? '') . ' ' . ($visit['last_name'] ?? ''));
 
-    $vitals = null;
-    $vStmt = $db->prepare("SELECT * FROM walk_in_visits WHERE student_id = ? ORDER BY visit_date DESC LIMIT 1");
-    $vStmt->execute([$visit['student_id']]);
-    $v = $vStmt->fetch();
-    if ($v) {
-        $bp = ($v['blood_pressure_systolic'] ?? '') . '/' . ($v['blood_pressure_diastolic'] ?? '');
-        $vitals = [
-            'temperature' => $v['temperature'] ?? null,
-            'blood_pressure' => $bp ?: null,
-            'heart_rate' => $v['heart_rate'] ?? null,
-            'respiratory_rate' => $v['respiratory_rate'] ?? null,
-            'oxygen_saturation' => $v['oxygen_saturation'] ?? null,
-            'weight_kg' => $v['weight_kg'] ?? null,
-            'height_cm' => $v['height_cm'] ?? null,
-            'bmi' => $v['bmi'] ?? null,
-            'bmi_status' => $v['bmi_status'] ?? null,
-        ];
-    }
-
-    $medsStmt = $db->prepare("
-        SELECT md.*, m.medicine_name, m.unit
-        FROM medicine_dispensing md
-        LEFT JOIN medicines m ON m.id = md.medicine_id
-        WHERE md.walk_in_id = (SELECT id FROM walk_in_visits WHERE student_id = ? ORDER BY visit_date DESC LIMIT 1)
-    ");
-    $medsStmt->execute([$visit['student_id']]);
+    // Use the selected encounter, never a different visit's latest observations.
+    $vitals = !empty($visit['vital_signs']) ? json_decode($visit['vital_signs'], true) : null;
+    $medsStmt = $db->prepare("SELECT cm.*, m.medicine_name, m.unit
+        FROM consultation_medicines cm LEFT JOIN medicines m ON m.id=cm.medicine_id
+        WHERE cm.consultation_id=? ORDER BY cm.id");
+    $medsStmt->execute([$visitId]);
     $medicines = $medsStmt->fetchAll();
 
     json_response(true, [

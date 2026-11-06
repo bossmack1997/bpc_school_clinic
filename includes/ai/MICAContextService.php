@@ -276,8 +276,13 @@ class MICAContextService
     private function getSharedClinicContextString(): string
     {
         $lines = ["\n=== GENERAL CLINIC INFORMATION ==="];
-        $lines[] = "Clinic Hours: Monday - Friday, 8:00 AM - 5:00 PM (Emergency SOS monitored 24/7)";
-        $lines[] = "Location: BPC Main Campus Clinic, Ground Floor Health Services Center";
+        require_once __DIR__.'/../clinic_availability.php';
+        $availability=clinic_availability($this->db);
+        $dayNames=[1=>'Monday',2=>'Tuesday',3=>'Wednesday',4=>'Thursday',5=>'Friday',6=>'Saturday',7=>'Sunday'];
+        $days=implode(', ',array_map(static fn($day)=>$dayNames[$day],$availability['days']));
+        $lines[] = 'Clinic queue schedule (Asia/Manila): '.$availability['hours'].($days!==''?'; '.$days:'').'. Current status: '.$availability['label'].'.';
+        $lines[] = $availability['reason'];
+        $lines[] = 'SOS requests require a human response. Do not promise round-the-clock monitoring or immediate attendance. Clinic staff assess medical priority; MICA does not make clinical decisions.';
 
         try {
             require_once __DIR__.'/../announcement_service.php';

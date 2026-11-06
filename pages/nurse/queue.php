@@ -295,6 +295,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='physician_r
                     <label class="form-label fw-semibold small">Nursing assessment / triage</label>
                     <textarea class="form-control" name="assessment" rows="2" placeholder="Nursing observations and triage findings..."></textarea>
                     <label class="form-label small mt-2" for="confirmed-priority">Nurse-confirmed clinical priority</label><select class="form-select" name="clinical_priority" id="confirmed-priority"><option value="normal">Routine</option><option value="urgent">Urgent</option><option value="emergency">Emergency</option></select>
+                    <label class="form-label small mt-2" for="priority-reason">Reason for changing priority</label><input class="form-control" name="priority_reason" id="priority-reason" maxlength="1000" placeholder="Required when priority changes">
                   </div>
                 </div>
 

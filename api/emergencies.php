@@ -70,8 +70,9 @@ if ($action === 'report') {
     $location = trim((string)($_POST['location'] ?? ''));
     $description = trim((string)($_POST['description'] ?? ''));
     $notes = trim((string)($_POST['notes'] ?? ''));
-    $priority = trim((string)($_POST['priority'] ?? 'urgent'));
-    if (!in_array($priority, ['routine', 'soon', 'urgent'], true)) $priority = 'urgent';
+    // An SOS is an urgent request for human assessment. A reporter cannot
+    // downgrade its response order or assign a clinical triage decision.
+    $priority = 'urgent';
 
     if ($studentId <= 0) json_response(false, [], 'A valid student is required.');
     if ($type === '' || mb_strlen($type) > 100) json_response(false, [], 'Select a valid emergency type.');

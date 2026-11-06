@@ -68,6 +68,8 @@ try{
 foreach(['/pages/admin/role_profiles.php','/pages/admin/backups.php','/pages/admin/settings.php','/pages/admin/security.php','/api/system_backups.php?action=list'] as $technicalPath)checkMis(misRequest($invitee,$technicalPath)['status']===403,'Doctor denied technical route '.$technicalPath);
 $db->exec('RENAME TABLE consultations TO doctor_fixture_consultations');
 try{$r=misRequest($invitee,'/pages/doctor/dashboard.php');checkMis($r['status']===200&&str_contains($r['body'],"Couldn't load this count")&&!str_contains($r['body'],'SQLSTATE'),'Dashboard retains shell when a clinical source fails');$r=misRequest($invitee,'/pages/doctor/patients.php?patient='.$clinicalUsers['student']);checkMis($r['status']===503&&str_contains($r['body'],'<html')&&str_contains($r['body'],'temporarily unavailable')&&!str_contains($r['body'],'SQLSTATE'),'Patient query failure returns safe HTML instead of raw JSON or blank page');}finally{$db->exec('RENAME TABLE doctor_fixture_consultations TO consultations');}
+$db->exec("ALTER TABLE nurses ADD COLUMN clinical_authorization_status VARCHAR(30) NOT NULL DEFAULT 'pending'");
+$db->prepare("UPDATE nurses SET clinical_authorization_status='authorized' WHERE user_id=?")->execute([$clinicalUsers['nurse']]);
 $nurse=misClient();$r=misRequest($nurse,'/auth/login.php');misRequest($nurse,'/auth/login.php',['csrf_token'=>misField($r,'csrf_token'),'identifier'=>'clinical_nurse','password'=>'FixturePass!42']);checkMis(misRequest($nurse,'/pages/nurse/queue.php')['status']===200,'Existing authorized Nurse queue page remains functional');
 $db->exec('ALTER TABLE admin_profiles CHANGE COLUMN official_designation doctor_fixture_designation VARCHAR(150) NULL');
 try{$failure=misRequest($invitee,'/pages/doctor/profile.php');checkMis($failure['status']===503&&str_contains($failure['body'],'Clinical workspace temporarily unavailable')&&str_contains($failure['body'],'<html')&&!str_contains($failure['body'],'SQLSTATE'),'Uncaught Doctor profile query failure produces safe recovery HTML');}finally{$db->exec('ALTER TABLE admin_profiles CHANGE COLUMN doctor_fixture_designation official_designation VARCHAR(150) NULL');}
@@ -76,4 +78,7 @@ require __DIR__.'/physician_queue_checks.php';
 require __DIR__.'/doctor_workspace_checks.php';
 require __DIR__.'/physician_concurrent_claim_checks.php';
 require __DIR__.'/queue_policy_checks.php';
+if(in_array('--evaluator',$argv,true))require __DIR__.'/evaluator_workflow_checks.php';
 if(in_array('--doctor-browser',$argv,true)){putenv('DOCTOR_TEST_BASE='.$base);putenv('DOCTOR_TEST_USER=accept_http');putenv('DOCTOR_TEST_PATIENT='.(string)$clinicalUsers['teacher']);passthru('node '.escapeshellarg(__DIR__.'/doctor_browser.cjs'),$browserExit);checkMis($browserExit===0,'Doctor mobile tablet desktop browser workflows');}
+$db->exec('ALTER TABLE nurses DROP COLUMN clinical_authorization_status');
+checkMis(misRequest($nurse,'/api/queue.php?action=queue_list',null,true)['status']===403,'Missing Nurse authorization schema denies clinical access despite legacy scope');

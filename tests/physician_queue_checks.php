@@ -60,9 +60,12 @@ checkMis(str_contains($micaQueue['reply'],'physician handoffs awaiting a Doctor:
 checkMis(misRequest($nurse,'/api/certificates.php',['action'=>'issue','csrf_token'=>$nurseToken,'student_id'=>$studentId,'certificate_type'=>'Medical Certificate'])['status']===403,'Nurse cannot issue physician medical clearance');
 $nursingTicket=(int)$db->query('SELECT queue_id FROM physician_queue WHERE id='.$handoffs['student'])->fetchColumn();
 $nursingDraft=['action'=>'save_consultation_draft','ticket_id'=>$nursingTicket,'csrf_token'=>$nurseToken,'chief_complaint'=>'Nursing complaint','assessment'=>'Nursing observation only','nursing_interventions'=>'Recorded nursing intervention','recommendation'=>'Return for review'];
+$draftResponse=json_decode(misRequest($nurse,'/api/queue.php?action=get_patient_medical_summary&ticket_id='.$nursingTicket)['body'],true);
+$nursingDraft['draft_version']=$draftResponse['data']['draft_version'];
 $r=misRequest($nurse,'/api/queue.php',$nursingDraft);checkMis(json_decode($r['body'],true)['success']??false,'Nurse saves legitimate observations and interventions');
 $nursingSaved=$db->query('SELECT diagnosis,treatment,digital_signature FROM walk_in_visits WHERE queue_id='.$nursingTicket)->fetch();
 checkMis(empty($nursingSaved['diagnosis'])&&empty($nursingSaved['digital_signature'])&&$nursingSaved['treatment']==='Recorded nursing intervention','Nursing draft creates no physician diagnosis or signature');
+$nursingDraft['draft_version']=json_decode($r['body'],true)['data']['draft_version'];
 $r=misRequest($nurse,'/api/queue.php',array_replace($nursingDraft,['action'=>'complete_consultation_full']));$nursingCompleted=json_decode($r['body'],true);
 checkMis($nursingCompleted['success']??false,'Nurse completes nursing care without independent diagnosis');
 $record=$db->query('SELECT diagnosis,treatment,clinician_user_id FROM consultations WHERE id='.(int)$nursingCompleted['data']['consultation_id'])->fetch();

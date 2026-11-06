@@ -125,9 +125,6 @@ final class NurseVerificationService
         if ($accountStatus === 'rejected') {
             return 'rejected';
         }
-        if ($selfServiceOnly === 0) {
-            return 'authorized';
-        }
         return 'pending';
     }
 

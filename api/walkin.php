@@ -15,6 +15,12 @@ header('Content-Type: application/json');
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+// The bookmarked desk already opens Clinic Queue. Retire its duplicate writers
+// so old clients cannot bypass revision checks or create a second history path.
+if (in_array($action, ['update_consultation', 'complete_visit'], true)) {
+    http_response_code(409);
+    json_response(false, ['queue_url'=>app_url('pages/nurse/queue.php')], 'Open this patient in Clinic Queue to save or complete nursing care. Your existing records are preserved.');
+}
 if ($_SERVER['REQUEST_METHOD']==='POST') {
     require_once __DIR__.'/../includes/nursing_scope.php';enforce_nursing_documentation($_POST);
 }

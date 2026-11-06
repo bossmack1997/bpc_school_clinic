@@ -19,12 +19,15 @@ $clinical=['clinic_monitor','clinical_records_read','consultations_manage','inve
 foreach(['pending','needs_information','rejected','revoked','authorized'] as $status){
     $db->prepare('UPDATE nurses SET clinical_authorization_status=?')->execute([$status]);
     $nurse=$db->query('SELECT u.*,n.clinical_authorization_status FROM users u JOIN nurses n ON n.user_id=u.id WHERE u.id=1')->fetch(PDO::FETCH_ASSOC);
-    $all=true;foreach($clinical as $permission)$all=$all&&has_permission($permission,$nurse,$db);
-    finding($all===($status==='authorized'),"Explicit status=$status controls Nurse permissions despite legacy scope zero");
+    foreach($clinical as $permission)finding(has_permission($permission,$nurse,$db)===($status==='authorized'&&$permission!=='consultations_manage'),"Explicit status=$status controls Nurse permission $permission despite legacy scope zero");
 }
 $nurse['self_service_only']=1;$any=false;foreach($clinical as $permission)$any=$any||has_permission($permission,$nurse,$db);
 finding(!$any,'self_service_only=1 denies permission helper grants');
-finding(NurseVerificationService::normalizeStatus(null,0,'active')==='authorized','Missing explicit status is presented as authorized for legacy scope zero');
+$db->exec('ALTER TABLE nurses CHANGE COLUMN clinical_authorization_status hidden_authorization_status VARCHAR(30)');
+$nurse['self_service_only']=0;
+finding(!has_permission('clinical_records_read',$nurse,$db),'Missing authorization column denies Nurse clinical access');
+$db->exec('ALTER TABLE nurses CHANGE COLUMN hidden_authorization_status clinical_authorization_status VARCHAR(30)');
+finding(NurseVerificationService::normalizeStatus(null,0,'active')==='pending','Missing explicit status never implies Doctor authorization');
 $db->exec("UPDATE users SET self_service_only=1 WHERE id=1");$db->exec("UPDATE nurses SET clinical_authorization_status='pending'");
 $actor=$db->query('SELECT * FROM users WHERE id=2')->fetch(PDO::FETCH_ASSOC);
 $service=new NurseVerificationService($db,$actor);try{$service->authorize(1,'synthetic review audit finding');throw new LogicException('Unexpected grant');}catch(RuntimeException $e){}

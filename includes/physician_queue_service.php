@@ -65,6 +65,9 @@ final class PhysicianQueueService
                 ->execute([$ticket,$patient,$this->user['id'],$priority,trim($reason)]);
             $id=(int)$this->db->lastInsertId();
             $this->db->prepare('UPDATE queue_numbers SET priority=? WHERE id=?')->execute([$priority,$ticket]);
+            $this->db->prepare('UPDATE walk_in_visits SET priority_level=? WHERE queue_id=?')->execute([$priority,$ticket]);
+            if($row['priority']!==$priority)$this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Clinical priority changed','clinical',?)")
+                ->execute([$this->user['id'],'Queue #'.$ticket.'; '.$row['priority'].' -> '.$priority.'; referral reason: '.trim($reason)]);
             $this->audit('Patient referred for physician assessment',$id);
             $this->db->commit();return $id;
         } catch (Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack();throw $e; }
@@ -74,14 +77,30 @@ final class PhysicianQueueService
     {
         $id=filter_var($input['handoff_id']??null,FILTER_VALIDATE_INT);
         $version=filter_var($input['record_version']??null,FILTER_VALIDATE_INT);
-        if (!$id || $id<1 || $version===false || $version===null || $version<0 || !in_array($action,['start','complete'],true)) throw new InvalidArgumentException('Select a valid handoff and version.');
+        if (!$id || $id<1 || $version===false || $version===null || $version<0 || !in_array($action,['start','complete','reprioritize'],true)) throw new InvalidArgumentException('Select a valid handoff and version.');
         $this->db->beginTransaction();
         try {
             $q=$this->db->prepare('SELECT * FROM users WHERE id=? FOR UPDATE');$q->execute([$this->user['id']]);$this->authority($q->fetch()?:[]);
+            // Match Nurse lock ordering: operational queue before its clinical records.
+            $q=$this->db->prepare('SELECT queue_id FROM physician_queue WHERE id=?');$q->execute([$id]);$queueId=$q->fetchColumn();
+            $q=$this->db->prepare('SELECT id FROM queue_numbers WHERE id=? FOR UPDATE');$q->execute([$queueId]);
             $q=$this->db->prepare('SELECT * FROM physician_queue WHERE id=? FOR UPDATE');$q->execute([$id]);$row=$q->fetch();
             if (!$row || (int)$row['record_version']!==$version) throw new RuntimeException('Handoff changed or unavailable. Reload before continuing.');
-            if ($action==='start') {
+            if ($action==='reprioritize') {
+                $priority=$input['clinical_priority']??'';$reason=$input['priority_reason']??'';
+                if(!in_array($priority,['normal','urgent','emergency'],true)||!is_string($reason)||mb_strlen(trim($reason))<3||mb_strlen($reason)>1000)throw new InvalidArgumentException('Choose a priority and explain the reassessment (3–1000 characters).');
+                if(!in_array($row['status'],['awaiting','in_progress'],true)||($row['assigned_doctor_id']!==null&&(int)$row['assigned_doctor_id']!==(int)$this->user['id']))throw new RuntimeException('Only an available referral or your active assessment can be reassessed.');
+                $this->db->prepare('UPDATE physician_queue SET priority=?,record_version=record_version+1 WHERE id=?')->execute([$priority,$id]);
+                $this->db->prepare('UPDATE queue_numbers SET priority=? WHERE id=?')->execute([$priority,$row['queue_id']]);
+                $this->db->prepare('UPDATE walk_in_visits SET priority_level=? WHERE queue_id=?')->execute([$priority,$row['queue_id']]);
+                $this->db->prepare("INSERT INTO activity_logs(user_id,action,module,details) VALUES (?,'Clinical priority changed','clinical',?)")
+                    ->execute([$this->user['id'],'Queue #'.$row['queue_id'].'; '.$row['priority'].' -> '.$priority.'; Doctor reassessment: '.trim($reason)]);
+            } elseif ($action==='start') {
                 if ($row['status']!=='awaiting' || $row['assigned_doctor_id']!==null) throw new RuntimeException('This handoff has already been claimed.');
+                if($row['priority']!=='emergency'){
+                    $emergency=$this->db->query("SELECT id FROM physician_queue WHERE status='awaiting' AND priority='emergency' ORDER BY created_at,id LIMIT 1 FOR UPDATE");
+                    if($emergency->fetchColumn())throw new RuntimeException('An emergency referral is waiting. Assess that patient before starting an ordinary referral.');
+                }
                 $this->db->prepare("UPDATE physician_queue SET assigned_doctor_id=?,status='in_progress',started_at=NOW(),record_version=record_version+1 WHERE id=?")->execute([$this->user['id'],$id]);
                 $this->audit('Physician assessment started',$id);
             } else {

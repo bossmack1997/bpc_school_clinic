@@ -30,6 +30,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),width+'px no horizontal overflow '+path.split('?')[0]);
     assert(await evaluate(`!document.querySelector('.page-loader')||getComputedStyle(document.querySelector('.page-loader')).visibility==='hidden'`),width+'px content is not blocked by loader');
     if(path==='/pages/doctor/queue.php'){
+     assert(await evaluate(`!!document.querySelector('button[value="reprioritize"]')&&document.querySelector('[name="priority_reason"]').required`),width+'px Doctor priority reassessment has a required reason');
      assert(await evaluate(`document.querySelector('main').textContent.includes('Awaiting physician')&&!!document.querySelector('button[value="start"]')`),width+'px real referral status and claim action render');
      await evaluate(`document.querySelector('main details').open=true`);
      assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth+1`),width+'px expanded intake fits queue viewport');
@@ -70,7 +71,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
    assert(await evaluate(`document.getElementById('clinicalDraft').textContent.includes('MICA DRAFT')`),width+'px patient history draft button works');
    const shot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync('scratch/doctor-browser/patient-'+width+'.png',Buffer.from(shot.data,'base64'));
   }
-  for (const [user,path] of [['clinical_nurse','/pages/nurse/patient_history.php?patient='+patient],['mis_fixture','/pages/admin/provision_accounts.php']]) {
+  for (const [user,path] of [['clinical_nurse','/pages/nurse/patient_history.php?patient='+patient],['mis_fixture','/pages/admin/provision_accounts.php'],['clinical_teacher','/pages/adviser/emergencies.php']]) {
    await navigate('/auth/logout.php','[name="identifier"]');
    await evaluate(`document.querySelector('[name="identifier"]').value=${JSON.stringify(user)};document.querySelector('[name="password"]').value='FixturePass!42';document.querySelector('form').submit()`);
    await sleep(800);
@@ -79,7 +80,12 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     await navigate(path);
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),width+'px unified workflow fits '+user);
     if(user==='clinical_nurse') assert(await evaluate(`document.querySelector('h1').textContent.includes('Patient Records & Consultations')&&!document.querySelector('[data-clinical-save]')`),width+'px Nurse sees unified history with scoped actions');
-    else assert(await evaluate(`document.querySelector('main').textContent.includes('Import Students')&&!!document.querySelector('[name="accounts_csv"]')`),width+'px MIS student upload and templates are available');
+    else if(user==='mis_fixture') assert(await evaluate(`document.querySelector('main').textContent.includes('Import Students')&&!!document.querySelector('[name="accounts_csv"]')`),width+'px MIS student upload and templates are available');
+    else assert(await evaluate(`!document.querySelector('[name="priority"]')&&document.body.textContent.includes('Clinic staff assess medical priority')`),width+'px Teacher emergency report has no clinical priority control');
+    if(user==='clinical_nurse'){
+     await navigate('/pages/nurse/queue.php');
+     assert(await evaluate(`!!document.querySelector('[name="priority_reason"]')&&!!document.querySelector('[name="clinical_priority"]')&&document.documentElement.scrollWidth<=innerWidth+1`),width+'px Nurse triage reason controls fit unified queue');
+    }
     if(width===320||width===1440){const shot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync('scratch/doctor-browser/workflow-'+user+'-'+width+'.png',Buffer.from(shot.data,'base64'));}
    }
   }

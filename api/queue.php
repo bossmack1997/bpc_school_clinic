@@ -376,12 +376,13 @@ if ($action === 'checkin') {
 // NURSE-ONLY ACTIONS (call_next, recall, start_serving, complete, skip, cancel, queue_list)
 // =====================================================================
 require_login();
-if($user['role']==='admin'&&!is_primary_admin($user))admin_access_denied('Clinical queue controls are restricted to authorized clinic staff.');
+if(!has_permission('clinic_monitor',$user))admin_access_denied('Clinical queue access requires authorized clinic staff.');
 if (!in_array($user['role'], ['nurse', 'admin'], true)) {
     q_json(false, [], 'Access denied. Nurse or Administrator privileges required.');
 }
 
 require_once __DIR__ . '/../includes/queue_consultation.php';
+if ($action !== 'queue_list' && $user['role'] !== 'nurse') admin_access_denied('Queue operations and nursing documentation require an authorized Nurse.');
 if (in_array($action, ['start_serving', 'save_consultation_draft', 'complete_consultation_full', 'get_patient_medical_summary'], true) && $user['role'] !== 'nurse') {
     q_json(false, [], 'Only nurses can access consultations.');
 }
@@ -491,6 +492,7 @@ if ($action === 'call_next') {
             $db->rollBack();
             q_json(false, [], 'No patients are currently waiting in the queue.');
         }
+        queue_consultation_guard_emergency($db,$ticket);
 
         // Update ticket to 'called'
         $updateStmt = $db->prepare("
@@ -533,7 +535,7 @@ if ($action === 'call_next') {
         ], "Now calling ticket {$ticket['queue_number']}!");
     } catch (Exception $e) {
         $db->rollBack();
-        q_json(false, [], safe_api_error($e, 'Failed to call the next patient. Please try again.', 'queue/call_next'));
+        q_json(false, [], $e instanceof DomainException?$e->getMessage():safe_api_error($e, 'Failed to call the next patient. Please try again.', 'queue/call_next'));
     }
 }
 
@@ -616,6 +618,7 @@ if ($action === 'start_serving') {
     $db->beginTransaction();
     try {
         $ticket = queue_consultation_lock($db, $ticketId);
+        queue_consultation_guard_emergency($db,$ticket);
         $existingStmt = $db->prepare('SELECT * FROM walk_in_visits WHERE queue_id = ? LIMIT 1 FOR UPDATE');
         $existingStmt->execute([$ticketId]);
         $existingVisit = $existingStmt->fetch(PDO::FETCH_ASSOC);

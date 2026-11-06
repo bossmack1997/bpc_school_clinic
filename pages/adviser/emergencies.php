@@ -107,13 +107,8 @@ $pageTitle = 'Emergency Reports';
 
             <!-- Severity -->
             <div class="col-md-6">
-              <label class="emg-modal__label">Emergency Severity</label>
-              <select class="form-select" name="priority" id="emgPriority">
-                <option value="soon">Soon</option>
-                <option value="urgent" selected>Urgent</option>
-                <option value="routine">Low / Routine</option>
-              </select>
-              <div class="form-text">Priority level used by the clinic for triage.</div>
+              <p class="emg-modal__label">Urgent request for help</p>
+              <div class="form-text">Clinic staff assess medical priority. Describe the symptoms and location so they can respond.</div>
             </div>
 
             <!-- Location -->

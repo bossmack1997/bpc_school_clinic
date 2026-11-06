@@ -6,6 +6,9 @@ header('Content-Type: application/json');
 $db = getDB();
 $user = current_user();
 $action = $_REQUEST['action'] ?? '';
+if ($user['role'] !== 'student' && !has_permission('clinical_records_read', $user)) {
+    admin_access_denied('Vaccination records are available only to the patient and authorized clinic staff.');
+}
 
 if ($action === 'list') {
     if ($user['role'] === 'student') {
@@ -49,11 +52,9 @@ if ($action === 'add') {
 
 if ($action === 'delete') {
     csrf_verify_or_die();
-    if (!in_array($user['role'], ['nurse','admin'], true)) json_response(false, [], 'Not authorized.');
-
-    $id = (int)($_POST['id'] ?? 0);
-    $db->prepare("DELETE FROM vaccinations WHERE id=?")->execute([$id]);
-    json_response(true, [], 'Record deleted.');
+    if (!has_permission('clinical_records_read', $user)) admin_access_denied('Authorized clinic staff required.');
+    http_response_code(409);
+    json_response(false, [], 'Vaccination history is preserved. Contact the clinic to document a correction.');
 }
 
 json_response(false, [], 'Unknown action');

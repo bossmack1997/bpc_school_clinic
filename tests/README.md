@@ -1,5 +1,15 @@
 # Local testing
 
+Evaluator critique regressions (6 November 2026): add `--evaluator` to
+`--doctor-clinical`; combine with `--provisioning --doctor-access
+--staff-verification --global-mica` for the full role matrix. Add
+`--doctor-browser` with an isolated headless Chrome listener on loopback 9337
+for eight-width UI checks. This creates synthetic records only. The new
+attachment tests clean up their own files and test audit-failure rollback.
+`tools/preflight_evaluator.php` performs local read-only aggregate integrity
+checks; exit 2 means a nonzero finding or an unavailable probe, not permission
+to repair records. See `docs/EVALUATOR_CRITIQUE_AUDIT_20261106.md`.
+
 Apache denies this directory. Run PHP suites from the project root using
 `C:/xampp/php/php.exe -d session.save_path=scratch tests/<suite>.php`.
 Use Node for `.cjs` suites after reviewing their fixture/server requirements.

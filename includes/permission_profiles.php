@@ -19,7 +19,7 @@ function has_permission(string $permission,?array $user=null,?PDO $db=null): boo
             if($scopeDb->query("SHOW COLUMNS FROM nurses LIKE 'clinical_authorization_status'")->fetch()) {
                 $scope=$scopeDb->prepare('SELECT clinical_authorization_status FROM nurses WHERE user_id=?');$scope->execute([$user['id']]);
                 if($scope->fetchColumn()!=='authorized')return false;
-            }
+            } else return false;
         } catch(PDOException $e) { return false; }
     }
     $technical=['system_manage','manage_users','roles_assign','manage_security','view_audit_logs','backups_manage','manage_settings','manage_sections','approve_users'];

@@ -112,7 +112,12 @@ try{
  checkMis(misRequest($stale,$path,$payload,true)['status']===401,'Opening and activating an invitation does not reauthenticate MIS');
  $signedInSetup=misRequest($c,'/auth/setup_account.php');
  checkMis($signedInSetup['status']===200&&str_contains($signedInSetup['body'],'<html'),'Signed-in browser can open recipient setup without dashboard redirect');
- $page=misRequest($c,$path);$fresh=array_replace($payload,['request_nonce'=>misField($page,'request_nonce')]);
+ // Long browser suites can outlast the real five-minute password proof.
+ // Renew it through the real CSRF-protected flow, never by editing session data.
+ $confirmation=misRequest($c,'/auth/confirm_password.php');
+ $confirmed=misRequest($c,'/auth/confirm_password.php',['csrf_token'=>misField($confirmation,'csrf_token'),'password'=>'FixturePass!42']);
+ checkMis($confirmed['status']===303,'Long-running suite renews MIS password confirmation through authenticated HTTP');
+ $page=misRequest($c,$path);$payload['csrf_token']=misField($page,'csrf_token');$fresh=array_replace($payload,['request_nonce'=>misField($page,'request_nonce')]);
  $missingCsrf=$fresh;unset($missingCsrf['csrf_token']);checkMis(misRequest($c,$path,$missingCsrf,true)['status']===403,'Missing CSRF rejected as HTTP 403');
  checkMis(misRequest($c,$path,array_replace($fresh,['first_name'=>'']),true)['status']===422,'Missing required identity rejected as HTTP 422');
  foreach(['student','teacher','nurse'] as $role){
