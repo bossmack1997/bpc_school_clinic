@@ -24,6 +24,7 @@ body:has(#addAdminModal.show) .mica-fab,body:has(#addAdminModal.show) .mica-widg
 .people-directory .content-area { padding-bottom:calc(96px + env(safe-area-inset-bottom,0px)); }
 .people-directory .mica-fab::after { display:none; }
 .people-directory .people-table td { word-break:normal; }
+.people-directory .people-table th { text-transform:none; letter-spacing:normal; }
 @media(max-width:767.98px) {
   #sosModal .modal-dialog { margin-block:8px; height:calc(var(--sos-height,100dvh) - 16px); }
   #sosModal .modal-footer > .btn { flex:1 1 0; min-width:0; }

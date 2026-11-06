@@ -75,6 +75,7 @@ $typeMeta = [
     </div>
   </div>
 
+  <p id="notificationCenterStatus" class="small text-danger" role="status" aria-live="polite"></p>
   <!-- Notifications Table -->
   <div class="card p-3">
     <div class="table-responsive">
@@ -171,6 +172,11 @@ window.__initNotificationUI = function () {
   const selectedNotificationId = parseInt(new URLSearchParams(window.location.search).get('id') || 0);
   const csrf = $('meta[name="csrf-token"]').attr('content');
   let notifTableInstance = null;
+  let detailRequest = null;
+  let detailSequence = 0;
+  $('#notifDetailModal, #notifSosModal').on('hide.bs.modal', function () {
+    if (detailRequest) { ++detailSequence; detailRequest.abort(); detailRequest = null; $('#notificationCenterStatus').text(''); }
+  });
   let initialNotificationHandled = false;
 
   // ============================================================
@@ -367,8 +373,14 @@ window.__initNotificationUI = function () {
   // ============================================================
   function showNotificationDetails(id) {
     if (!id) return;
-    $.post(APP + '/api/notifications.php', { action: 'details', id, csrf_token: csrf }, function (res) {
-      if (!res.success) return;
+    const sequence = ++detailSequence;
+    if (detailRequest) detailRequest.abort();
+    $('#notificationCenterStatus').text('Loading notification...');
+    detailRequest = $.post(APP + '/api/notifications.php', { action: 'details', id, csrf_token: csrf }, function (res) {
+      if (sequence !== detailSequence) return;
+      detailRequest = null;
+      if (!res.success) { $('#notificationCenterStatus').text(res.message || 'Notification could not be loaded. Please try again.'); return; }
+      $('#notificationCenterStatus').text('');
       const n = res.data;
 
       // Emergency SOS → specialized modal
@@ -407,7 +419,11 @@ window.__initNotificationUI = function () {
       $('#notifDetailFooter').show();
       BPCModal.show('notifDetailModal');
       if (typeof window.loadNotifications === 'function') window.loadNotifications();
-    }, 'json');
+    }, 'json').fail(function (xhr, status) {
+      if (sequence !== detailSequence || status === 'abort') return;
+      detailRequest = null;
+      $('#notificationCenterStatus').text('Notification could not be loaded. Please try again.');
+    });
   }
 
   $(document).on('click', '.view-notif', function () {

@@ -323,6 +323,7 @@ $(function () {
 
     if (isSos) {
       e.preventDefault();
+      bootstrap.Dropdown.getInstance(document.getElementById('notificationBell'))?.hide();
       var rawSos = $el.attr('data-sos');
       if (rawSos) {
         try {
@@ -479,56 +480,75 @@ $(function () {
 }); // end DOM ready
 
 // ================================================================
-// BPCModal — single source of truth for every Bootstrap modal.
-//
-// Root cause fixed here: page scripts previously called
-//   new bootstrap.Modal(el).show()
-// on every open. That constructor call creates a NEW instance
-// each time and overwrites the one stored on the element, so
-// the old instance's listeners (hidden.bs.modal cleanup,
-// backdrop removal) keep firing alongside the new one's. The
-// visible symptoms were stacked backdrops, a stuck dim layer
-// after close, and modals that stop responding after first use.
-//
-// getOrCreateInstance() returns the existing instance when there
-// is one and only creates it once, so open/close/reopen is
-// idempotent.
-// ================================================================
+// BPCModal: body-level dialogs and event-driven Bootstrap transitions.
+// Animated ancestors trap a modal below its body-level backdrop.
+// Bootstrap owns backdrop removal and scroll restoration.
 window.BPCModal = (function () {
   'use strict';
 
-  function resolve(el) {
-    if (!el) return null;
-    if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
-      // Bootstrap failed to load — degrade to a plain class
-      // toggle so the dialog is still reachable rather than dead.
-      el.classList.add('show');
-      el.setAttribute('aria-hidden', 'false');
-      return null;
-    }
+  let active = null;
+  let phase = null;
+  let desired = null;
+  let offcanvasWaiting = false;
+  function element(target) {
+    return typeof target === 'string' ? document.getElementById(target) : target;
+  }
+  function promote(el) {
+    if (el && el.parentElement !== document.body) document.body.appendChild(el);
+  }
+  function get(target) {
+    const el = element(target);
+    if (!el || !window.bootstrap?.Modal) return null;
+    promote(el);
     return bootstrap.Modal.getOrCreateInstance(el);
   }
-
-  function get(target) {
-    var el = typeof target === 'string' ? document.getElementById(target) : target;
-    if (!el) {
-      console.warn('[BPCModal] modal element not found:', target);
-      return null;
+  function advance() {
+    if (active) {
+      if (desired !== active && phase === 'shown') bootstrap.Modal.getInstance(active)?.hide();
+      return;
     }
-    return resolve(el);
+    if (!desired) return;
+    const panel = document.querySelector('.offcanvas.show, .offcanvas.showing, .offcanvas.hiding');
+    if (panel) {
+      if (!offcanvasWaiting) {
+        offcanvasWaiting = true;
+        panel.addEventListener('hidden.bs.offcanvas', () => { offcanvasWaiting = false; advance(); }, {once:true});
+        const close = () => bootstrap.Offcanvas.getOrCreateInstance(panel).hide();
+        if (panel.classList.contains('showing')) panel.addEventListener('shown.bs.offcanvas', close, {once:true});
+        else if (!panel.classList.contains('hiding')) close();
+      }
+      return;
+    }
+    get(desired)?.show();
   }
-
   function show(target) {
-    var m = get(target);
-    if (m && typeof m.show === 'function') m.show();
-    return m;
+    const el = element(target), instance = get(el);
+    if (!instance) return null;
+    desired = el;
+    advance();
+    return instance;
   }
-
   function hide(target) {
-    var m = get(target);
-    if (m && typeof m.hide === 'function') m.hide();
-    return m;
+    const el = element(target), instance = el && bootstrap.Modal.getInstance(el);
+    if (desired === el) desired = null;
+    // Bootstrap ignores hide during fade-in; shown completes the pending intent.
+    if (el === active) advance();
+    else instance?.hide();
+    return instance;
   }
+  document.addEventListener('show.bs.modal', function(event) {
+    if (!event.target.classList.contains('modal')) return;
+    if (active && active !== event.target) {
+      event.preventDefault(); desired = event.target; advance(); return;
+    }
+    promote(event.target); active = event.target; desired = active; phase = 'showing';
+  });
+  document.addEventListener('shown.bs.modal', function(event) {
+    if (active === event.target) { phase = 'shown'; advance(); }
+  });
+  document.addEventListener('hide.bs.modal', function(event) {
+    if (active === event.target) { phase = 'hiding'; if (desired === active) desired = null; }
+  });
 
   /**
    * Reset every form inside a modal that opted in via
@@ -564,17 +584,11 @@ window.BPCModal = (function () {
   // reset its opted-in forms. Bound once, so it never duplicates.
   document.addEventListener('hidden.bs.modal', function (e) {
     resetForms(e.target);
-    // Safety net: if a script error interrupted Bootstrap's own
-    // cleanup, an orphaned .modal-backdrop can stay behind and
-    // keep the page dimmed/unscrollable. When no modal remains
-    // open, clear any leftover backdrop and restore scrolling.
-    window.setTimeout(function () {
-      if (document.querySelector('.modal.show')) return;
-      document.querySelectorAll('.modal-backdrop').forEach(function (bd) { bd.remove(); });
-      document.body.classList.remove('modal-open');
-      document.body.style.paddingRight = '';
-      document.body.style.overflow = '';
-    }, 60);
+    if (e.target === active) {
+      active = null; phase = null;
+      // Bootstrap has removed its backdrop and scroll lock before hidden fires.
+      queueMicrotask(advance);
+    }
   });
 
   return { get: get, show: show, hide: hide, resetForms: resetForms };
@@ -818,8 +832,7 @@ function openSosDetailsModal(sos) {
   }
 
   var modalEl = document.getElementById('sosDetailsModal');
-  var bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
-  bsModal.show();
+  BPCModal.show(modalEl);
 }
 
 // ================================================================
